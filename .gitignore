@@ -1,0 +1,52 @@
+# Build
+build/
+build-*/
+cmake-build-*/
+out/
+_deps/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+
+# Editor / IDE
+.vscode/
+.idea/
+.cache/
+.clangd/
+*.swp
+*~
+.DS_Store
+
+# macOS
+*.dSYM/
+
+# Binaries
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.o
+*.obj
+*.pdb
+
+# Generated examples output
+examples/**/out/
+examples/**/*.mp4
+examples/**/*.mov
+!examples/**/fixtures/*.mp4
+
+# Coverage
+*.gcda
+*.gcno
+*.profraw
+coverage/
