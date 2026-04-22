@@ -1,5 +1,19 @@
+include(FetchContent)
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG        v3.11.3
+  GIT_SHALLOW    TRUE
+)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(nlohmann_json)
+
+find_package(FFMPEG REQUIRED)
+
 add_library(media_engine
   core/version.cpp
+  timeline/timeline_loader.cpp
+  io/ffmpeg_remux.cpp
   api/engine.cpp
   api/timeline.cpp
   api/render.cpp
@@ -15,6 +29,14 @@ target_include_directories(media_engine
     $<INSTALL_INTERFACE:include>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(media_engine
+  PRIVATE
+    nlohmann_json::nlohmann_json
+    FFMPEG::avformat
+    FFMPEG::avcodec
+    FFMPEG::avutil
 )
 
 target_compile_features(media_engine PUBLIC cxx_std_20)

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "frameRate":  { "num": 30, "den": 1 },
+  "resolution": { "width": 1920, "height": 1080 },
+  "colorSpace": { "primaries": "bt709", "transfer": "bt709", "matrix": "bt709", "range": "limited" },
+  "assets": [
+    {
+      "id": "a1",
+      "kind": "video",
+      "uri": "file:///tmp/input.mp4"
+    }
+  ],
+  "compositions": [
+    {
+      "id": "main",
+      "tracks": [
+        {
+          "id": "v0",
+          "kind": "video",
+          "clips": [
+            {
+              "type": "video",
+              "id": "c1",
+              "assetId": "a1",
+              "timeRange":   { "start": {"num":0,"den":30}, "duration": {"num":60,"den":30} },
+              "sourceRange": { "start": {"num":0,"den":30}, "duration": {"num":60,"den":30} }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "output": { "compositionId": "main" }
+}
