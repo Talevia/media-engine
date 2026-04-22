@@ -1,0 +1,33 @@
+# Backlog
+
+`iterate-gap` skill 的唯一任务源。档内按出现顺序挑，不重排。
+
+**格式**：`- **<slug>** — <Gap：现状 / 痛点>。**方向：** <期望动的东西>。Milestone §M<x>，Rubric §5.<y>。`
+
+`<slug>` 是 kebab-case、一眼看出改什么。`debt-*` 前缀表示技术债。
+
+**本文件只由 iterate-gap skill 写**：新任务通过 repopulate 产出；每轮处理完的 bullet 在 `docs(decisions)` commit 里删掉。手工修改请走 `docs(backlog):` 独立 commit 并说明理由。
+
+---
+
+## P0（必做，阻塞当前 milestone）
+
+- **probe-impl** — `me_probe` / `me_media_info_*` 目前全部返回 `ME_E_UNSUPPORTED`。**方向：** 基于 libavformat 实装：open → find_stream_info → 填充 container / codec / W×H / 帧率 / 采样率 / 声道 / duration。Milestone §M1，Rubric §5.1 + §5.2。
+- **reencode-h264-videotoolbox** — render 路径目前只支持 `video_codec="passthrough"`。需要第一条真正的 re-encode 路径以解除 M1 的 passthrough 依赖。**方向：** `me_output_spec_t.video_codec="h264"` 走 `h264_videotoolbox`（mac HW encoder，LGPL-clean），音频走 AAC。不引入 GPL 组件。Milestone §M1，Rubric §5.6。
+- **test-scaffold-doctest** — 无单元测试框架；靠人工跑 example 验证。**方向：** 加 `ME_BUILD_TESTS=ON` 时链 doctest（FetchContent，MIT），在 `tests/` 建第一批 C API 最小用例（create/destroy、status_str 全覆盖、schema rejection）。Milestone §M1，Rubric §5.2。
+
+## P1（强烈建议，M1 收尾或 M2 起步）
+
+- **thumbnail-impl** — `me_thumbnail_png` stub。**方向：** seek 到目标时刻 → 解码 1 帧 → 按 max_w/h 保比缩放 → PNG 编码。走 libavcodec 软解即可，不走 HW。Milestone §M1，Rubric §5.1。
+- **multi-clip-single-track** — loader 强制"exactly one clip"。**方向：** 单轨多 clip concat + 裁剪（sourceRange.start / duration 可非零），输出顺序拼接。仍限制单 track。Milestone §M1，Rubric §5.1。
+- **content-hash-asset** — Asset schema 有 `contentHash` 字段但引擎没用。**方向：** 若 JSON 缺 contentHash，首次打开 asset 时流式 sha256 并缓存；若提供则信任。为后续 cache key 做准备。Milestone §M1，Rubric §5.1 + §5.4。
+- **determinism-regression-test** — 没有任何测试锁定"软件路径输出字节稳定"。**方向：** doctest 里加：同 JSON 渲染两次，断言两个 MP4 字节相同（passthrough 场景下 trivially 应成立，用它兜底）。Milestone §M1，Rubric §5.3。
+- **debt-stub-inventory** — 代码里 stub 散落（cache_*、thumbnail_*、render_frame），没有单一视图看「还有多少 API 没实装」。**方向：** `tools/check_stubs.sh`（grep `ME_E_UNSUPPORTED` 外加白名单），输出未实装函数表。CI / iterate-gap 的 M1 进度可直接读它。Milestone §M1，Rubric §5.2。
+- **debt-thread-local-last-error** — `engine_impl.hpp` 目前用 mutex 守 last_error，但 API.md 承诺「thread-local per engine」。**方向：** 换成 `thread_local std::string` slot per engine（用 `std::unordered_map<std::thread::id, string>` 或真正 `thread_local` 变量带 engine 区分），mutex 保留给初始化/销毁。Milestone §M1，Rubric §5.2。
+
+## P2（未来，当前 milestone 不挤占）
+
+- **ocio-integration** — 暂无色彩管理。**方向：** OpenColorIO FetchContent，assets 的 colorSpace → 工作空间转换 → 输出空间。依赖 probe-impl 先落。Milestone §M2，Rubric §5.1。
+- **multi-track-video-compose** — 只支持单轨。**方向：** 多 video track 叠加，alpha + blend mode（normal/multiply/screen）。Milestone §M2，Rubric §5.1。
+- **audio-mix-two-track** — 音频不合成。**方向：** 2+ audio track 重采样到公共输出率后相加，简单 peak limiter 防爆。Milestone §M2，Rubric §5.1。
+- **debt-schema-version-migration-hook** — schema v1 rejection 只认 `== 1`，没有 v2 迁移预演。**方向：** loader 里留 `migrate(v_from, v_to)` 接口，即使只支持 v1 也显式走一遍 migration path，未来 v2 接入零改动。Milestone §M2，Rubric §5.1。
