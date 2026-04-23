@@ -75,3 +75,23 @@ by id），然后 `Clip` 只带 `asset_id` 而不是 `asset_uri`；访问 uri / 
 所有持久化），要么在 Timeline 自身暴露一个"apply_to_engine(Engine&)" hook。现在保持
 边界 thin——seed 就 4 行——但这种 pattern 不扩展（未来每多一种"load 时要 seed 的
 engine 资源"都要在 api/timeline.cpp 加一圈）。
+
+### 2026-04-23 · determinism-regression-test — 测试 fixture 依赖系统 ffmpeg CLI
+
+`tests/CMakeLists.txt` 的 `find_program(FFMPEG_EXECUTABLE ffmpeg)` + `add_custom_command`
+生成了 `determinism_input.mp4`——开发机 / 大多数 CI 上可用，但没 ffmpeg CLI 的环境
+（纯 LGPL libav、精简容器）会让 test 直接 SKIP。替代方案是在测试里用 libavcodec 自己
+编码几帧（MJPEG / MPEG-4 Part 2），~60 行 AV_ 样板，完全自包含。**方向：** 等第二个
+test 也需要 fixture 时（thumbnail determinism？audio mix 回归？）一起抽一个
+`tests/fixtures/gen_fixture.cpp` helper——程序化 libav encoder，一次搞定，所有 test
+共享。本轮先用 CLI 方案，记录触发点。
+
+### 2026-04-23 · determinism-regression-test — timeline JSON 要在测试里手写字符串
+
+`test_determinism.cpp` 用 `ostringstream` 拼 JSON，再 `me_timeline_load_json` 解析。
+`test_timeline_schema.cpp` 同样模式。每个 test 都要维护一份"最小合法 timeline JSON"
+模板——任何 schema 字段改名（`frameRate` → `frame_rate`、`sourceRange` → `source_range`
+等）都要在 N 个 test 里同时改。**方向：** 抽一个 `tests/timeline_builder.hpp`
+提供 `TimelineBuilder::minimal_video_clip(uri, duration_num, duration_den)` 之类的
+helper，返回 std::string。2026-04-23 的 `test-scaffold-doctest` 条目已经点过这个
+方向；本轮 `test_determinism` 又一次踩到，再次记录——下次 schema 小幅调整时动手。

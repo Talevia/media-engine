@@ -22,6 +22,7 @@ set(_test_suites
   test_engine
   test_timeline_schema
   test_content_hash
+  test_determinism
 )
 
 foreach(_suite ${_test_suites})
@@ -36,3 +37,32 @@ endforeach()
 # content_hash) — expose src/ to this one suite the same way
 # 02_graph_smoke does for internal validation.
 target_include_directories(test_content_hash PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# -----------------------------------------------------------------------------
+# Fixture for test_determinism — a tiny deterministic MP4 generated via the
+# system ffmpeg CLI at build time. MPEG-4 Part 2 video picked because it's
+# built into every LGPL libavcodec (no libx264 needed, so CI won't break if
+# the system ffmpeg happens to be LGPL-only). Fixture is rebuilt only if the
+# output file is missing or older than this CMakeLists.txt.
+# -----------------------------------------------------------------------------
+find_program(FFMPEG_EXECUTABLE ffmpeg)
+if(FFMPEG_EXECUTABLE)
+  set(_fixture_dir "${CMAKE_CURRENT_BINARY_DIR}/fixtures")
+  set(_fixture_mp4 "${_fixture_dir}/determinism_input.mp4")
+  add_custom_command(
+    OUTPUT ${_fixture_mp4}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
+    COMMAND ${FFMPEG_EXECUTABLE} -y -hide_banner -loglevel error
+            -f lavfi -i "testsrc=duration=1:size=320x240:rate=10"
+            -c:v mpeg4 -q:v 5
+            ${_fixture_mp4}
+    DEPENDS ${CMAKE_CURRENT_LIST_FILE}
+    COMMENT "Generating determinism test fixture: ${_fixture_mp4}"
+    VERBATIM)
+  add_custom_target(determinism_fixture DEPENDS ${_fixture_mp4})
+  add_dependencies(test_determinism determinism_fixture)
+  target_compile_definitions(test_determinism PRIVATE
+    ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+else()
+  message(STATUS "ffmpeg CLI not found — test_determinism will skip at runtime")
+endif()
