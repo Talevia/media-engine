@@ -36,6 +36,7 @@ set(_test_suites
   test_thumbnail
   test_asset_reuse
   test_timeline_segment
+  test_color_pipeline
 )
 
 foreach(_suite ${_test_suites})
@@ -58,6 +59,12 @@ target_include_directories(test_timeline_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_timeline_segment calls me::timeline::segment() on hand-built
 # Timeline IR — same src/-as-include pattern as test_timeline_schema.
 target_include_directories(test_timeline_segment PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_color_pipeline instantiates me::color::make_pipeline() from the
+# internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from
+# `src/timeline/timeline_impl.hpp` to exercise the abstract Pipeline
+# contract with typed color-space tags.
+target_include_directories(test_color_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_output_sink calls the internal factory me::orchestrator::make_output_sink
 # directly — same src/-as-include pattern as the other internal-surface suites.

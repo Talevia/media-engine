@@ -21,6 +21,7 @@
 #include "timeline/timeline_impl.hpp"     /* me::ColorSpace */
 
 #include <cstddef>
+#include <memory>
 #include <string>
 
 namespace me::color {
@@ -59,5 +60,27 @@ public:
         return ME_OK;
     }
 };
+
+/* Factory: hand out the canonical Pipeline for this build. Callers that
+ * will eventually need color management (compose, frame-server,
+ * thumbnailer) use this factory instead of `new IdentityPipeline` so
+ * the day `OcioPipeline` lands the switch is one compile-def flip
+ * (`ME_HAS_OCIO` — set by `src/CMakeLists.txt` when `ME_WITH_OCIO=ON`).
+ *
+ * Header-only + inline: no linker dependency until a .cpp uses the
+ * return value. The ME_HAS_OCIO branch is deliberately dead code today
+ * — it exists to document the eventual shape and prevent callsites
+ * from baking in `IdentityPipeline` as a concrete type. */
+inline std::unique_ptr<Pipeline> make_pipeline() {
+#if ME_HAS_OCIO
+    /* Reserved branch — wire me::color::OcioPipeline here when it
+     * lands. Until then this branch is unreachable because OcioPipeline
+     * doesn't exist; keeping the #if shape so the one-line edit is
+     * mechanical when the next OCIO cycle executes. */
+    return std::make_unique<IdentityPipeline>();  /* placeholder */
+#else
+    return std::make_unique<IdentityPipeline>();
+#endif
+}
 
 }  // namespace me::color
