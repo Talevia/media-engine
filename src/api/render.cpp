@@ -86,6 +86,7 @@ extern "C" me_status_t me_render_frame(
     return previewer.frame_at(time, out_frame);
 }
 
+/* STUB: frame-server-impl — me_frame_* accessors; land with the M6 frame server. */
 extern "C" void           me_frame_destroy(me_frame_t*)     {}
 extern "C" int            me_frame_width(const me_frame_t*) { return 0; }
 extern "C" int            me_frame_height(const me_frame_t*){ return 0; }
