@@ -32,6 +32,7 @@ set(_test_suites
   test_determinism
   test_cache
   test_output_sink
+  test_probe
 )
 
 foreach(_suite ${_test_suites})
@@ -82,4 +83,11 @@ add_custom_command(
 add_custom_target(determinism_fixture DEPENDS ${_fixture_mp4})
 add_dependencies(test_determinism determinism_fixture)
 target_compile_definitions(test_determinism PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_probe reuses the determinism fixture — same build-time MP4 gives
+# us a known codec / dimensions / framerate / color-tag state to assert
+# probe output against.
+add_dependencies(test_probe determinism_fixture)
+target_compile_definitions(test_probe PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
