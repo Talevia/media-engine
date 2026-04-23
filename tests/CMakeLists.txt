@@ -49,6 +49,7 @@ set(_test_suites
   test_audio_resample
   test_frame_puller
   test_compose_sink_e2e
+  test_compose_affine_blit
 )
 
 foreach(_suite ${_test_suites})
@@ -101,6 +102,9 @@ target_include_directories(test_audio_mix PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # known RGBA values at canonical t points. Same src/-as-include
 # pattern as the other me::compose tests.
 target_include_directories(test_compose_cross_dissolve PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_affine_blit pins the affine matrix + blit kernel math.
+target_include_directories(test_compose_affine_blit PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_audio_resample constructs synthetic AVFrames to drive
 # me::audio::resample_to — needs libav headers + src/ include.

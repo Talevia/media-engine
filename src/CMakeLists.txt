@@ -123,6 +123,7 @@ add_library(media_engine STATIC
   audio/mix.cpp
   audio/resample.cpp
   compose/active_clips.cpp
+  compose/affine_blit.cpp
   compose/alpha_over.cpp
   compose/cross_dissolve.cpp
   compose/frame_convert.cpp
