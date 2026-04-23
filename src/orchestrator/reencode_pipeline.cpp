@@ -3,6 +3,7 @@
 #include "io/av_err.hpp"
 #include "io/demux_context.hpp"
 #include "io/mux_context.hpp"
+#include "orchestrator/encoder_mux_setup.hpp"
 #include "orchestrator/reencode_audio.hpp"
 #include "orchestrator/reencode_segment.hpp"
 #include "orchestrator/reencode_video.hpp"
@@ -36,10 +37,6 @@ using detail::process_segment;
 using detail::SharedEncState;
 using detail::total_output_us;
 
-int best_stream(AVFormatContext* fmt, AVMediaType type) {
-    return av_find_best_stream(fmt, type, -1, -1, nullptr, 0);
-}
-
 }  // namespace
 
 me_status_t reencode_mux(const ReencodeOptions& opts,
@@ -63,105 +60,19 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
     AVFormatContext* ifmt0 = opts.segments.front().demux ? opts.segments.front().demux->fmt : nullptr;
     if (!ifmt0) return fail(ME_E_INVALID_ARG, "segment[0] has no demux context");
 
-    const int vsi0 = best_stream(ifmt0, AVMEDIA_TYPE_VIDEO);
-    const int asi0 = best_stream(ifmt0, AVMEDIA_TYPE_AUDIO);
-    if (vsi0 < 0 && asi0 < 0) return fail(ME_E_INVALID_ARG, "segment[0] has neither video nor audio");
-
-    /* --- Open segment[0] decoders just for encoder parameter init;
-     *     they get closed at the end of this scope and reopened inside
-     *     process_segment(0). Decoder open is O(ms) and happens once
-     *     per segment anyway, so the double-open cost is negligible
-     *     compared to threading the already-opened decoders through. --- */
-    CodecCtxPtr v0dec, a0dec;
-    if (vsi0 >= 0) {
-        me_status_t s = open_decoder(*opts.pool, ifmt0->streams[vsi0], v0dec, err);
-        if (s != ME_OK) return s;
-    }
-    if (asi0 >= 0) {
-        me_status_t s = open_decoder(*opts.pool, ifmt0->streams[asi0], a0dec, err);
-        if (s != ME_OK) return s;
-    }
-
-    std::string open_err;
-    auto mux = me::io::MuxContext::open(opts.out_path, opts.container, &open_err);
-    /* Same rationale as passthrough_mux: unknown container / failed
-     * inference is ME_E_UNSUPPORTED (host-facing), not ME_E_INTERNAL. */
-    if (!mux) return fail(ME_E_UNSUPPORTED, std::move(open_err));
-    AVFormatContext* ofmt = mux->fmt();
-
-    SharedEncState shared;
-    shared.ofmt       = ofmt;
-    shared.cancel     = opts.cancel;
-    shared.on_ratio   = opts.on_ratio;
-    shared.total_us   = total_output_us(opts.segments);
-    /* Factory returns IdentityPipeline today (apply() is a no-op) —
-     * creating it here forces the inline factory body to instantiate
-     * inside a real consumer TU and reserves the per-frame hook
-     * point. When OCIO lands (ME_HAS_OCIO + OcioPipeline), swapping
-     * the factory return type is the only client-side change. */
-    shared.color_pipeline = me::color::make_pipeline();
-    shared.target_color_space = opts.target_color_space;
-
+    /* Encoder + mux bootstrap extracted to `encoder_mux_setup.cpp` so
+     * future multi-source sinks (ComposeSink frame loop, cross-
+     * dissolve sink, audio-mix scheduler) can reuse the same plumbing
+     * rather than copy-pasting the decoder-sniff + open_*_encoder +
+     * avformat_new_stream + afifo_alloc chain. Behavior unchanged. */
+    std::unique_ptr<me::io::MuxContext> mux;
     CodecCtxPtr venc, aenc;
-    int rc = 0;
-    if (v0dec) {
-        AVStream* out_s = avformat_new_stream(ofmt, nullptr);
-        if (!out_s) return fail(ME_E_OUT_OF_MEMORY, "new_stream(video)");
-        out_s->time_base = ifmt0->streams[vsi0]->time_base;
-
-        const bool global_header = (ofmt->oformat->flags & AVFMT_GLOBALHEADER) != 0;
-        me_status_t s = open_video_encoder(*opts.pool, v0dec.get(),
-                                           ifmt0->streams[vsi0]->time_base,
-                                           opts.video_bitrate_bps, global_header,
-                                           venc, shared.venc_pix, err);
-        if (s != ME_OK) return s;
-
-        rc = avcodec_parameters_from_context(out_s->codecpar, venc.get());
-        if (rc < 0) return fail(ME_E_INTERNAL, "params_from_context(video): " + av_err_str(rc));
-        out_s->avg_frame_rate = v0dec->framerate;
-        out_s->r_frame_rate   = v0dec->framerate;
-        shared.venc      = venc.get();
-        shared.out_vidx  = out_s->index;
-        shared.v_width   = v0dec->width;
-        shared.v_height  = v0dec->height;
-        shared.v_pix     = (AVPixelFormat)v0dec->pix_fmt;
-
-        /* Fixed CFR delta = 1 / framerate in venc->time_base.
-         * av_guess_frame_rate falls back to stream avg_frame_rate when
-         * r_frame_rate is unreliable; either way we get a sane delta. */
-        AVRational fr = av_guess_frame_rate(ifmt0, ifmt0->streams[vsi0], nullptr);
-        if (fr.num <= 0 || fr.den <= 0) fr = AVRational{25, 1};
-        shared.video_pts_delta = av_rescale_q(1, av_inv_q(fr), venc->time_base);
-        if (shared.video_pts_delta <= 0) shared.video_pts_delta = 1;
+    SharedEncState shared;
+    if (auto s = setup_h264_aac_encoder_mux(opts, ifmt0, mux, venc, aenc, shared, err);
+        s != ME_OK) {
+        return s;
     }
-    if (a0dec) {
-        AVStream* out_s = avformat_new_stream(ofmt, nullptr);
-        if (!out_s) return fail(ME_E_OUT_OF_MEMORY, "new_stream(audio)");
-
-        const bool global_header = (ofmt->oformat->flags & AVFMT_GLOBALHEADER) != 0;
-        me_status_t s = open_audio_encoder(*opts.pool, a0dec.get(),
-                                           opts.audio_bitrate_bps,
-                                           global_header, aenc, err);
-        if (s != ME_OK) return s;
-        out_s->time_base = aenc->time_base;
-
-        rc = avcodec_parameters_from_context(out_s->codecpar, aenc.get());
-        if (rc < 0) return fail(ME_E_INTERNAL, "params_from_context(audio): " + av_err_str(rc));
-        shared.aenc     = aenc.get();
-        shared.out_aidx = out_s->index;
-        shared.a_sr     = a0dec->sample_rate;
-        shared.a_fmt    = a0dec->sample_fmt;
-        shared.a_chans  = a0dec->ch_layout.nb_channels;
-
-        shared.afifo = av_audio_fifo_alloc(aenc->sample_fmt, aenc->ch_layout.nb_channels, 1);
-        if (!shared.afifo) return fail(ME_E_OUT_OF_MEMORY, "audio_fifo_alloc");
-    }
-
-    /* --- Release the parameter-sniffing segment[0] decoders before
-     *     process_segment(0) reopens them. Decoder state doesn't carry
-     *     across this close/open; the encoder state is what matters. --- */
-    v0dec.reset();
-    a0dec.reset();
+    AVFormatContext* ofmt = mux->fmt();
 
     /* FIFO must be freed explicitly; wrap cleanup so any early-return
      * path still releases it. */
