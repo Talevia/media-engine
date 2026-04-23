@@ -18,6 +18,9 @@
 
 #include "orchestrator/frame_puller.hpp"
 
+#include "io/demux_context.hpp"
+#include "resource/codec_pool.hpp"
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -136,6 +139,50 @@ TEST_CASE("pull_next_video_frame: pulls expected frame count from fixture then E
     CHECK(pulled <= 30);
     CHECK(last_w == 640);
     CHECK(last_h == 480);
+}
+
+TEST_CASE("open_track_decoder: opens video decoder from fixture demux") {
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+
+    /* Build a DemuxContext manually — same shape as io/demux_kernel
+     * does but bypassing the graph layer. */
+    auto demux = std::make_shared<me::io::DemuxContext>();
+    REQUIRE(avformat_open_input(&demux->fmt, fixture_path.c_str(), nullptr, nullptr) >= 0);
+    REQUIRE(avformat_find_stream_info(demux->fmt, nullptr) >= 0);
+    demux->uri = fixture_path;
+
+    me::resource::CodecPool pool;
+    me::orchestrator::TrackDecoderState state;
+    std::string err;
+    REQUIRE(me::orchestrator::open_track_decoder(demux, pool, state, &err) == ME_OK);
+    CHECK(state.demux != nullptr);
+    CHECK(state.video_stream_idx >= 0);
+    CHECK(state.dec != nullptr);
+    CHECK(state.pkt_scratch != nullptr);
+    CHECK(state.frame_scratch != nullptr);
+
+    /* Now that state is set up via the helper, the existing
+     * pull_next_video_frame function can drive it. Pull one frame
+     * to confirm the wiring is correct. */
+    const me_status_t s = me::orchestrator::pull_next_video_frame(
+        state.demux->fmt,
+        state.video_stream_idx,
+        state.dec.get(),
+        state.pkt_scratch.get(),
+        state.frame_scratch.get(),
+        &err);
+    CHECK(s == ME_OK);
+    CHECK(state.frame_scratch->width == 640);
+    CHECK(state.frame_scratch->height == 480);
+}
+
+TEST_CASE("open_track_decoder: null demux returns ME_E_INVALID_ARG") {
+    me::resource::CodecPool pool;
+    me::orchestrator::TrackDecoderState state;
+    std::string err;
+    CHECK(me::orchestrator::open_track_decoder(nullptr, pool, state, &err)
+          == ME_E_INVALID_ARG);
 }
 
 TEST_CASE("pull_next_video_frame: second call after EOF still returns ME_E_NOT_FOUND (idempotent)") {

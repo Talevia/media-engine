@@ -32,14 +32,19 @@
  */
 #pragma once
 
+#include "io/ffmpeg_raii.hpp"
 #include "media_engine/types.h"
+#include "resource/codec_pool.hpp"
 
+#include <memory>
 #include <string>
 
 struct AVFormatContext;
 struct AVCodecContext;
 struct AVPacket;
 struct AVFrame;
+
+namespace me::io { class DemuxContext; }
 
 namespace me::orchestrator {
 
@@ -50,5 +55,34 @@ me_status_t pull_next_video_frame(
     AVPacket*        pkt_scratch,
     AVFrame*         out_frame,
     std::string*     err);
+
+/* Per-track decode state bundle: demux + video stream index +
+ * opened video decoder + caller-reused scratch packet / frame for
+ * pull_next_video_frame. `video_stream_idx < 0` means the demux has
+ * no video stream (track has no video content — future audio-only
+ * track case; the compose-loop caller can skip decoding for it).
+ *
+ * All owned members are RAII-managed: ~TrackDecoderState closes the
+ * decoder, frees the scratch packet/frame, drops the shared_ptr<
+ * DemuxContext> reference. Move-only (unique_ptr members). */
+struct TrackDecoderState {
+    std::shared_ptr<me::io::DemuxContext> demux;
+    int                                    video_stream_idx = -1;
+    me::resource::CodecPool::Ptr           dec;
+    me::io::AvPacketPtr                    pkt_scratch;
+    me::io::AvFramePtr                     frame_scratch;
+};
+
+/* Open a TrackDecoderState from a DemuxContext + CodecPool. On
+ * success `out` is populated; on failure `out.demux` is reset and
+ * err carries the diagnostic. If the demux has no video stream,
+ * video_stream_idx stays -1 and dec is null but the other scratch
+ * buffers are still allocated — caller treats this track as "no
+ * video to contribute" per frame. */
+me_status_t open_track_decoder(
+    std::shared_ptr<me::io::DemuxContext> demux,
+    me::resource::CodecPool&               pool,
+    TrackDecoderState&                     out,
+    std::string*                           err);
 
 }  // namespace me::orchestrator

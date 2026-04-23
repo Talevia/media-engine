@@ -4,6 +4,8 @@
 #include "orchestrator/frame_puller.hpp"
 
 #include "io/av_err.hpp"
+#include "io/demux_context.hpp"
+#include "orchestrator/reencode_segment.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -94,6 +96,46 @@ me_status_t pull_next_video_frame(
             return ME_E_DECODE;
         }
     }
+}
+
+me_status_t open_track_decoder(
+    std::shared_ptr<me::io::DemuxContext> demux,
+    me::resource::CodecPool&               pool,
+    TrackDecoderState&                     out,
+    std::string*                           err) {
+
+    out = {};   /* zero-init */
+
+    if (!demux || !demux->fmt) {
+        if (err) *err = "open_track_decoder: null demux";
+        return ME_E_INVALID_ARG;
+    }
+    AVFormatContext* fmt = demux->fmt;
+
+    /* Find best video stream; negative → no video (acceptable; see
+     * header comment). */
+    const int vsi = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+
+    /* Allocate scratch packet + frame regardless; even "no video"
+     * tracks need them for the compose loop's uniform iteration. */
+    out.pkt_scratch.reset(av_packet_alloc());
+    out.frame_scratch.reset(av_frame_alloc());
+    if (!out.pkt_scratch || !out.frame_scratch) {
+        if (err) *err = "open_track_decoder: av_packet_alloc/av_frame_alloc";
+        return ME_E_OUT_OF_MEMORY;
+    }
+
+    if (vsi >= 0) {
+        me_status_t s = detail::open_decoder(pool, fmt->streams[vsi], out.dec, err);
+        if (s != ME_OK) {
+            out = {};
+            return s;
+        }
+    }
+
+    out.demux            = std::move(demux);
+    out.video_stream_idx = vsi;
+    return ME_OK;
 }
 
 }  // namespace me::orchestrator
