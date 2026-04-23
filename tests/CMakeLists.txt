@@ -41,6 +41,7 @@ set(_test_suites
   test_render_progress
   test_render_job_lifecycle
   test_output_spec
+  test_compose_alpha_over
 )
 
 foreach(_suite ${_test_suites})
@@ -63,6 +64,12 @@ target_include_directories(test_timeline_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_timeline_segment calls me::timeline::segment() on hand-built
 # Timeline IR — same src/-as-include pattern as test_timeline_schema.
 target_include_directories(test_timeline_segment PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_alpha_over drives me::compose::alpha_over() from
+# `src/compose/alpha_over.hpp` with known RGBA8 triples to pin the
+# per-blend-mode math. Same src/-as-include pattern as the other
+# internal-surface suites.
+target_include_directories(test_compose_alpha_over PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from
