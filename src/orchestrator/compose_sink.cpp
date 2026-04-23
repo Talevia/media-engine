@@ -255,6 +255,12 @@ public:
                     }
                     if (pull_s != ME_OK) return pull_s;
 
+                    /* Capture source dims BEFORE unref (av_frame_unref
+                     * zeroes width/height as part of releasing buffer
+                     * references). */
+                    const int src_w = td.frame_scratch->width;
+                    const int src_h = td.frame_scratch->height;
+
                     if (auto s = me::compose::frame_to_rgba8(
                             td.frame_scratch.get(), track_rgba, err);
                         s != ME_OK) {
@@ -271,8 +277,6 @@ public:
                      * walk out-of-bounds on the smaller buffer —
                      * detect and skip that layer with a warning-style
                      * error. */
-                    const int src_w = td.frame_scratch->width;
-                    const int src_h = td.frame_scratch->height;
                     if (src_w != W || src_h != H) {
                         /* Future: scale to target dims via sws. For now,
                          * err out so misconfigurations are loud. */

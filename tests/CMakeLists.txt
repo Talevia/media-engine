@@ -48,6 +48,7 @@ set(_test_suites
   test_compose_cross_dissolve
   test_audio_resample
   test_frame_puller
+  test_compose_sink_e2e
 )
 
 foreach(_suite ${_test_suites})
@@ -209,6 +210,14 @@ target_compile_definitions(test_render_cancel PRIVATE
 # _fixture_mp4 is defined.
 add_dependencies(test_frame_puller determinism_fixture)
 target_compile_definitions(test_frame_puller PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_compose_sink_e2e builds a 2-track timeline using the shared
+# fixture twice (both tracks reference the same asset; loader creates
+# independent DemuxContexts per clip so the compose loop sees two
+# real decoded streams).
+add_dependencies(test_compose_sink_e2e determinism_fixture)
+target_compile_definitions(test_compose_sink_e2e PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
 # test_render_progress exercises the me_progress_event_t ordering contract
