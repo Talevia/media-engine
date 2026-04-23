@@ -253,6 +253,14 @@ Metrics vs previous snapshot:
 - 和本轮处理的 bullet 删除 + decision 文件 + 代码改动一起进同一条 `feat(...)` commit，不单独 commit。
 - **只记不修**——"观察笔记"，下次 repopulate 或专门调度时处理。
 
+**观察分流（BACKLOG 还是 PAIN_POINTS）**：上面的 debt append 是**默认路径**，几乎所有 cycle 级偶然发现都走这条——代码异味、重复模式、某个文件变长、helper 抽取时机未到，都记 BACKLOG。唯一例外是观察同时满足 `docs/PAIN_POINTS.md` 头部三条准入门槛：
+
+1. 痛感追溯到一条具名硬规则（VISION 公理 / CLAUDE.md anti-requirement 或架构不变量 / ARCHITECTURE.md ABI 承诺），不是"抽象没到位"。
+2. 成本随新 codec / effect / asset 类型**递增**，不是一次性。
+3. 方案需要**修改或重新权衡规则**，而不是只加一个 helper。
+
+三条全中 → append 到 `docs/PAIN_POINTS.md` 末尾（格式见该文件 header），**不走 BACKLOG**。任意一条不确定 → 默认 BACKLOG。一个 cycle 通常 PAIN_POINTS 条目 = 0，最多 1；如果一周内 ≥ 2 条往这边走，说明分流标准放松了，下个 cycle 先审视。PAIN_POINTS 条目和 debt bullet 一样进同一条 `feat(...)` commit，不单独 commit。
+
 Decision 文件格式见 `docs/decisions/README.md` 的模板。
 
 ### 7. Commit + push
@@ -350,7 +358,7 @@ Backlog repopulate 是例外：独立一条 `docs(backlog): …` commit（见 §
 1. **一个 cycle 内零提问**。卡住 → 换 backlog 下一条或停。
 2. 最终状态落在 `main`。并行模式的中间分支要么合入、要么作为遗留项报告，绝不静默丢弃。
 3. **Commit → push 永远配对**。本地 `main` 一出现新 commit → **立刻** `git push origin main` 再开下一个 cycle / 合并。绝不让本次调用结束时本地 `main` 有未推送 commit。
-4. 一条 `feat(...)` commit 同时包含代码 + decision 文件（新建，不 append / 编辑，不记 commit 号）+ BACKLOG bullet 删除（允许末尾 append 最多 2 条 `debt-*`）。repopulate 的 `docs(backlog)` commit 例外（只改 BACKLOG，不带 decision / 代码）。
+4. 一条 `feat(...)` commit 同时包含代码 + decision 文件（新建，不 append / 编辑，不记 commit 号）+ BACKLOG bullet 删除（允许末尾 append 最多 2 条 `debt-*`，或 ≤ 1 条 `PAIN_POINTS.md` 条目，见 §6 "观察分流"）。repopulate 的 `docs(backlog)` commit 例外（只改 BACKLOG，不带 decision / 代码）。
 5. 绝不 `--no-verify`、绝不 `--force`、已推送 commit 绝不 `--amend`、绝不 `git add -A`。
 6. 绝不绕过 CLAUDE.md 架构规则或反需求清单。bullet 必须绕才能做 → **跳过它取下一条**（bullet 原样保留给用户裁决）。
 7. **设计约束 §3a 10 条是硬性否决**。任意一条命中"是 / 可能"→ 换 backlog 下一条。不允许"这次就例外一下"。

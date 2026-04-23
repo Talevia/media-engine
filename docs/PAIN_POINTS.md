@@ -1,143 +1,25 @@
 # Architecture pain points — running log
 
-Observations recorded **during** `iterate-gap` cycles about where the current architecture made the task harder than it should be. Not a todo list (that's `BACKLOG.md`), not a decision record (that's `docs/decisions/`). These are informal notes for future refactor cycles to mine.
+Observations about where a **hard rule** (VISION axiom, CLAUDE.md anti-requirement / architecture invariant, ARCHITECTURE.md ABI commitment) caused recurring friction during `iterate-gap` cycles. Purpose: collect evidence for periodic rule review. Not a todo list (that's `docs/BACKLOG.md`), not a decision record (`docs/decisions/`).
+
+**Admission bar** (all three must hold — miss any → write a `debt-*` bullet in `BACKLOG.md` instead):
+
+1. Friction traces to a named rule, not just missing abstraction or threshold-not-reached.
+2. Cost recurs per new codec / effect / asset type, not one-off.
+3. Resolution would likely amend the rule (or formally accept its cost), not just add a helper.
 
 **Format.** One entry per pain point, appended at the bottom:
 
-```
-### <YYYY-MM-DD> · <cycle-slug> — <short title>
+    ### <YYYY-MM-DD> · <cycle-slug> — <short title>
 
-<2–4 sentences: what was awkward, where it bit, rough direction if known>
-```
+    <2–4 sentences: which rule, why the rule creates recurring friction, what a rule-amendment would be trading off>
 
-No rewriting, no reordering — this is a timeline of impressions.
+No rewriting, no reordering — this is a timeline of impressions. When a rule is amended (or the friction evaporates within the rule), remove the entry in a cleanup pass; leaving stale entries misleads future readers.
+
+Expected volume: 0–2 entries per quarter. More → admission bar is leaking; do a purge + tighten.
 
 ---
 
-### 2026-04-22 · reencode-h264-videotoolbox — Exporter 的"specialization 链"在第二条就开始疼
-
-`Exporter::export_to` 现在靠 `is_passthrough_spec` / `is_h264_aac_spec` 两条 if-else 分派到 `passthrough_mux` / `reencode_mux`。每加一种 output 形态（prores、hevc、opus）都得在 `export_to` 里 capture 更多 lambda 变量、加一个新的分支、在 worker thread lambda 里再 if-else。**方向：** 把 mux/encode 一侧抽成一个 `OutputSink` interface（virtual `process(DemuxContext&, opts)`），按 spec 选一个具体实现注入 worker thread，`export_to` 只管调度；与 codec registry / TaskKindId 的未来"每 codec 一个 kind"模型同构。现在是两个分支，再多一个就该动手了。
-
-### 2026-04-22 · reencode-h264-videotoolbox — Graph 现在只是 demux 的门面
-
-Passthrough 和 reencode 都走 `build_passthrough_graph()` → await `DemuxContext` → 再由 orchestrator 接手同步流式工作。graph/scheduler 在 M1 的实际作用止于"开一个文件拿一个 shared_ptr"。`reencode_mux` 自己做 decode→encode→mux 的所有事，没有走 graph per-frame 路径（per-frame 决定论 + cache key 都不适用到 decoder 的 stateful streaming）。**方向：** 承认"整段 re-encode 是一个 stateful orchestrator job，不是 graph eval"是正确的架构选择——但这意味着 M4-M6 frame server 上线后会出现两种执行模型并存：(a) graph per-frame (preview / thumbnail)、(b) orchestrator streaming (export)。需要在 ARCHITECTURE_GRAPH.md 里显式写进来，不要假装只有一种。
-
-### 2026-04-22 · reencode-h264-videotoolbox — AVFormatContext 的 RAII 一直没抽出来
-
-`passthrough_mux.cpp` 和 `reencode_pipeline.cpp` 都手写了"alloc_output_context2 → avio_open → write_header → ... → avio_closep → free_context"这一套清理链，且各自把这套清理代码复制在 ~3 个 error 路径上。`demux_context.hpp` 已经为 input 侧做了 RAII wrapper（`io::DemuxContext`），**output 侧却没有对应的 `io::MuxContext`**。**方向：** 把 output AVFormatContext + avio_open 状态包成一个 `io::MuxContext` RAII 类型（跟 DemuxContext 对称），让 `passthrough_mux` / `reencode_mux` 只写"填 MuxContext、调 write_frame"。建一条 debt bullet 或下一 cycle 顺手抽。
-
 ### 2026-04-22 · reencode-h264-videotoolbox — `me_output_spec_t` 用 `const char*` 做 codec 选择
 
-`video_codec = "h264"`、`audio_codec = "aac"` 是字符串——好处是 ABI 稳、C 友好；坏处是 `is_passthrough_spec` / `is_h264_aac_spec` 这种分支要靠 `strcmp` + 每加一种就要维护一个新的 helper。更痛的是 `spec.video_bitrate_bps` 不区分是给 h264 用、还是给 ProRes 用，所有 codec-specific 选项都只能共用这一层 flat struct。**方向：** 未来某个 milestone 需要每 codec 一个 typed option struct（`me_h264_opts_t`、`me_aac_opts_t`），spec 里带个 union / tagged 指针。但现在跨 ABI 边界整 union 成本高，等 M3-M4 再动。
-
-### 2026-04-23 · test-scaffold-doctest — FetchContent 依赖的 CMake 地板版本碎片化
-
-doctest v2.4.11 的 `CMakeLists.txt` 声明 `cmake_minimum_required(VERSION 2.8)`，CMake 4.x 直接报错 "Compatibility with CMake < 3.5 has been removed"。解法是先 `set(CMAKE_POLICY_VERSION_MINIMUM 3.5)` 再 `FetchContent_MakeAvailable`——这是 workaround 不是修复，上游一旦 bump 就要回头删。nlohmann/json、taskflow 未来任一依赖踩同样的地板，本项目就会反复在每次 FetchContent 处粘一坨 policy 设置。**方向：** 建一个 `cmake/fetchcontent_policy.cmake` 集中把所有第三方 policy workaround 收口，`tests/` 和 `src/` 都 `include()`；或等 doctest 升级后整体删掉这行。
-
-### 2026-04-23 · test-scaffold-doctest — 测试 schema rejection 靠手撸 string::replace
-
-`test_timeline_schema.cpp` 里要测"schemaVersion=2 被拒"、"多 clip 被拒"、"有 effects 被拒"——每个 case 都把常量 JSON 字符串拷一份、在里面 `find + replace`。维护成本主要在"JSON 里某个字段写法一改，几条测试的 `find` 就同时挂"。**方向：** 可以建一个极简的 timeline builder helper（`TimelineBuilder::minimal_valid().with_schema_version(2).build()`），返回 string。但现在只有 5 条 mutation test，引入 builder 收益有限；到 schema v2 migration / multi-clip 一落地，mutation 矩阵起码 15 条，到那时抽。现在记下"手撸 find+replace 不可扩展"这个触发点。
-
-### 2026-04-23 · thumbnail-impl — `Thumbnailer` 类签名与 C API 口径不对齐
-
-`src/orchestrator/thumbnailer.{hpp,cpp}` 按 "timeline → 某一时刻的缩略图" 设计，构造函数吃一个 `shared_ptr<const Timeline>`；但公共 C API `me_thumbnail_png(engine, uri, time, ...)` 的入参是单纯 URI，不涉及 timeline。结果 `src/api/thumbnail.cpp` 直接在 extern "C" 里写完整的 demux+decode+sws+PNG-encode 管线，完全**绕过** orchestrator 那个类——那个类自 M0 就是 stub 到现在，本轮新管线也没让它前进一步。**方向：** 两种角色实际是两条路（"asset 级 thumbnail" = 无 timeline 语境；"composition 级 thumbnail" = 走 timeline 合成后取帧）。应该把 `Thumbnailer` 重命名成 `CompositionThumbnailer`，另建一个 `AssetThumbnailer`（或直接让 C API 走 demux kernel → 第一帧 → encode 这条 graph 路径），避免一个类两副面孔。本轮不改，记录。
-
-### 2026-04-23 · thumbnail-impl — 三份 AV* RAII unique_ptr deleter 在 src/ 里复制粘贴
-
-`src/api/probe.cpp`、`src/orchestrator/reencode_pipeline.cpp`、`src/api/thumbnail.cpp` 各自独立声明了 `CodecCtxDel / FrameDel / PacketDel / SwsDel`（+ 有的加 SwrDel）的 unique_ptr deleter 组。内容一字不差、只是 namespace 括号包一下。每加一个用 FFmpeg 的模块就要复制同一份。**方向：** 在 `src/io/ffmpeg_raii.hpp`（新文件）集中声明这组 deleter 和 alias（`AvCodecCtxPtr / AvFramePtr / AvPacketPtr / AvSwsPtr / AvSwrPtr`），让三处引用一个 header。本轮不改（会把本 commit 偏离 plan），下一轮 debt cycle 抽。
-
-### 2026-04-23 · multi-clip-single-track — `av_interleaved_write_frame` 清空 pkt 后再读字段是坑
-
-被这个坑了一个小时：我在 `av_interleaved_write_frame` 返回 0 之后读 `pkt->pts + pkt->duration` 来更新 per-stream `last_end_out_tb`，结果永远是 `AV_NOPTS_VALUE + 0` —— FFmpeg 文档清楚写了"takes ownership of the packet reference and resets pkt"，但调用点在非常典型的 stream-copy 循环里，很容易错过。调试路径也反直觉：ffprobe 报 non-monotonic DTS，我以为是 offset 公式 bug，其实是 offset 永远没在推进。**方向：** 把 mux write 封一层 `write_and_track(pkt, last_end_out_tb, mapped)`，把 snapshot → write → commit 一起收口；或者未来的 `io::MuxContext` RAII wrapper（参见 2026-04-22 的 PAIN_POINTS 条目）自带这套簿记。多处手写 snapshot pattern 每处都容易再踩一次。
-
-### 2026-04-23 · multi-clip-single-track — Timeline 的 `time_offset` 传进 passthrough 后被忽略
-
-`PassthroughSegment::time_offset` 当前是 advisory —— 实际的输出 PTS 由"接着前一段的 DTS 走"决定（按 libavformat concat demuxer 的习惯）。这对 phase-1"contiguous clips no gaps"的场景是对的，但 schema v2 要加 gaps / silence（`timeRange.start > prior_end`）时，这个字段就必须被认真读入。**方向：** 等 schema 允许 gaps 再动。当下：struct 上那个字段实际是 dead code，容易误导读者以为在用。（没有修，因为 phase-1 不支持 gaps；但文档 + struct comment 都已说明，降低读代码时的困惑。）
-
-### 2026-04-23 · content-hash-asset — Timeline IR 没有 asset 表，hash 跟着 clip 走
-
-`Timeline` 只有 `std::vector<Clip>`，没有 `assets` map。想把 `contentHash` 挂在 asset
-上就得塞进 `Clip`，结果是同一 asset 被多个 clip 引用时 hash 字段重复存储（不大，但
-不正交）。当前 loader 的局部 `asset_map`（id → uri + hash）本来就存在，但 drops 在栈帧
-末尾，调用方（`me_timeline_load_json`）只能从 `Clip` 里反查。**方向：** 把 `asset_map`
-提升到 `Timeline` IR 的一等成员（`std::unordered_map<std::string, me::Asset>`
-by id），然后 `Clip` 只带 `asset_id` 而不是 `asset_uri`；访问 uri / hash / colorSpace
-等都经 `timeline.assets.at(clip.asset_id)`。这样 multi-clip 同源时 hash / colorSpace
-只存一份。M2 做 multi-track / multi-asset 混合时几乎肯定要这么重构，先记下。
-
-### 2026-04-23 · content-hash-asset — 缓存 seed 的工作落在 C API 边界而非 loader 里
-
-`me_timeline_load_json`（`src/api/timeline.cpp`）在 loader 成功返回后循环 `tl->clips`
-把 content_hash 灌进 `engine->asset_hashes`。这个 seed 步骤本质是"loader 输出的附带
-效应"，但 loader 自己不知道 engine 的存在（`me::timeline::load_json` 签名只吃 JSON）。
-结果 extern "C" 入口同时承担"薄胶水层"和"业务副作用触发点"两份职责。**方向：** 要么
-把 engine* 传进 `me::timeline::load_json`（loader 不再 engine-agnostic，但一次调用完成
-所有持久化），要么在 Timeline 自身暴露一个"apply_to_engine(Engine&)" hook。现在保持
-边界 thin——seed 就 4 行——但这种 pattern 不扩展（未来每多一种"load 时要 seed 的
-engine 资源"都要在 api/timeline.cpp 加一圈）。
-
-### 2026-04-23 · determinism-regression-test — 测试 fixture 依赖系统 ffmpeg CLI
-
-`tests/CMakeLists.txt` 的 `find_program(FFMPEG_EXECUTABLE ffmpeg)` + `add_custom_command`
-生成了 `determinism_input.mp4`——开发机 / 大多数 CI 上可用，但没 ffmpeg CLI 的环境
-（纯 LGPL libav、精简容器）会让 test 直接 SKIP。替代方案是在测试里用 libavcodec 自己
-编码几帧（MJPEG / MPEG-4 Part 2），~60 行 AV_ 样板，完全自包含。**方向：** 等第二个
-test 也需要 fixture 时（thumbnail determinism？audio mix 回归？）一起抽一个
-`tests/fixtures/gen_fixture.cpp` helper——程序化 libav encoder，一次搞定，所有 test
-共享。本轮先用 CLI 方案，记录触发点。
-
-### 2026-04-23 · determinism-regression-test — timeline JSON 要在测试里手写字符串
-
-`test_determinism.cpp` 用 `ostringstream` 拼 JSON，再 `me_timeline_load_json` 解析。
-`test_timeline_schema.cpp` 同样模式。每个 test 都要维护一份"最小合法 timeline JSON"
-模板——任何 schema 字段改名（`frameRate` → `frame_rate`、`sourceRange` → `source_range`
-等）都要在 N 个 test 里同时改。**方向：** 抽一个 `tests/timeline_builder.hpp`
-提供 `TimelineBuilder::minimal_video_clip(uri, duration_num, duration_den)` 之类的
-helper，返回 std::string。2026-04-23 的 `test-scaffold-doctest` 条目已经点过这个
-方向；本轮 `test_determinism` 又一次踩到，再次记录——下次 schema 小幅调整时动手。
-
-### 2026-04-23 · debt-stub-inventory — `scan-debt.sh` 和 `check_stubs.sh` 在同一信号上分叉
-
-`scan-debt.sh` §2 signal 跑 `grep return ME_E_UNSUPPORTED` 算粗粒度总数（当前 12）；
-本轮新增的 `check_stubs.sh` 按 `STUB:` 标记算精细条目数（当前 6）。两者长期会
-drift——有人加新 runtime-reject path（scan-debt 数字涨、check-stubs 数字不动）或有
-人加新 stub 忘了标记（check-stubs 漏、scan-debt 涨）。**方向：** check_stubs.sh
-的 STUB: 标记应该成为唯一事实源；scan-debt 的 §2 signal 可以改成"raw count −
-marked stubs = unmarked stubs，后者应该是 0"的一致性检查。目前两边独立跑、独立
-展示，够用但开放了 drift 窗口。下次 scan-debt 本身要动时顺手改。
-
-### 2026-04-23 · debt-thread-local-last-error — 异步 worker 的 error 要绕一圈才能回到 caller thread
-
-`thread_local` 是"per thread" 的绝对含义——Exporter worker thread 写自己的
-thread_local slot，和 API caller thread 的 slot 是两张不同的表。结果：原来
-worker 直接 `set_error(eng, msg)` 之后 caller `me_engine_last_error` 能看见，
-只是因为旧实现是 "单 string + mutex" 的跨线程共享；thread-local 化之后必须
-走 `Job::err_msg` 中转，`me_render_wait`（caller 线程里）join 后再 `set_error`
-到 caller 的 slot。**方向**：只要 API 还有异步返回 + last-error 双通道，这种
-"worker stash → wait-time propagate" 模式在每个异步 entry 点都要重复一遍。
-下一个异步 API（大概率是 M6 frame-server async preview？）落地时，应该抽一个
-`AsyncJobBase` 让 worker 写 err_msg、wait 自动 propagate——现在只有一个异步
-入口 (`me_render_start`)，还没到抽的临界点，记录下来免得到第二个再想起来。
-
-### 2026-04-23 · cache-stats-impl — FramePool 没有 hit/miss 概念，只能从 AssetHashCache 拿数
-
-`me_cache_stats_t.hit_count` / `miss_count` 的唯一数据源是 `AssetHashCache`；
-`FramePool::acquire` 目前每次都 allocate 新 buffer，没有 pool hit 的概念，所以
-`memory_bytes_used` 反映的是累计分配，不是"还驻留多少帧"。结果 `hit_count` 语义上
-只包括 asset 级 SHA-256 缓存命中，不包括帧缓存——因为后者根本不存在。**方向：**
-M6 frame cache 落地后，FramePool 要变成真正的 LRU pool，`acquire` 分 "cache hit /
-new allocation" 两路；那时 `hit_count` 才覆盖两种 cache 层。当前阶段这个口径写进
-了 `docs/ARCHITECTURE.md` 的 feature-path 表格，方便读者查。
-
-### 2026-04-23 · debt-cmake-policy-centralize — include() 不会传递给子目录
-
-`CMAKE_POLICY_VERSION_MINIMUM` 是目录作用域的变量，所以
-`cmake/fetchcontent_policy.cmake` 在 `src/CMakeLists.txt` `include()` 后只对
-`src/` 下的 FetchContent 生效；`tests/CMakeLists.txt` 仍要独立 include 一次。
-CMake 没有"一次设置全项目受益"的优雅写法（除非 set 到 CACHE，但 CACHE 污染
-全局配置）。结果：**每个新出现的 FetchContent 调用点都要显式 include 一次**——这
-是 by design 的"让作者意识到依赖了一个踩地板的 upstream"，但也意味着忘了
-include 就是隐性的"这个 FetchContent 可能已经工作了，也可能还没"。**方向：**
-无优雅解法；约定 + PR 模板提醒。如果未来 FetchContent 调用点 > 5 个开始漏，
-可以考虑把 include 集中到顶层 `CMakeLists.txt` 并用 `CACHE FORCE`，接受缓存
-污染为 trade。现在 3 个调用点，2 个有 include，手动跟踪可管理。
+`video_codec = "h264"`、`audio_codec = "aac"` 是字符串——好处是 ABI 稳、C 友好；坏处是 `is_passthrough_spec` / `is_h264_aac_spec` 这种分支要靠 `strcmp` + 每加一种就要维护一个新的 helper。更痛的是 `spec.video_bitrate_bps` 不区分是给 h264 用、还是给 ProRes 用，所有 codec-specific 选项都只能共用这一层 flat struct。**规则压力来源：** VISION §3.2（typed effect params）+ CLAUDE.md invariant #1（公共头 POD 跨边界、无 STL、无异常）两条硬规则的合力——每加一个 codec 都在这个张力点上撕扯。**方向 / 权衡：** 未来某个 milestone 需要每 codec 一个 typed option struct（`me_h264_opts_t`、`me_aac_opts_t`），spec 里带个 union / tagged 指针；但跨 C ABI 整 union 成本高（版本演进、大小稳定性、bindgen 友好度都要重设计）。现在还只有两种 codec 不痛，等 M3–M4 第 3、4 种落地时才是评估"要不要在 C ABI 层正式引入 typed option union 范式"的决策点。
