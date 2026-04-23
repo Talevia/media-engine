@@ -94,6 +94,129 @@ TEST_CASE("phase-1 rejects non-contiguous clips (gap/overlap)") {
     CHECK(tl == nullptr);
 }
 
+TEST_CASE("missing schemaVersion is rejected as ME_E_PARSE") {
+    /* JSON without the `schemaVersion` field reads as 0 via the loader's
+     * `doc.value("schemaVersion", 0)` default, which then fails the
+     * "schemaVersion must be 1" require. Pinned separately from the
+     * explicit schemaVersion=2 case so removing the default value code
+     * path doesn't silently change the behaviour. */
+    EngineFixture f;
+    const std::string j = R"({
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///x.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    CHECK(std::string{me_engine_last_error(f.eng)}.find("schemaVersion") != std::string::npos);
+}
+
+TEST_CASE("empty track.clips is rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///x.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    CHECK(std::string{me_engine_last_error(f.eng)}.find("at least one clip") != std::string::npos);
+}
+
+TEST_CASE("unknown assetId reference is rejected as ME_E_PARSE") {
+    /* Clip references assetId="a-missing" which the assets array doesn't
+     * define. Loader's per-clip `tl.assets.find(asset_id)` must fail
+     * before any further processing. */
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///x.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a-missing",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    CHECK(std::string{me_engine_last_error(f.eng)}.find("unknown asset") != std::string::npos);
+}
+
+TEST_CASE("timeRange.duration.den == 0 is rejected as ME_E_PARSE") {
+    /* Rational with den=0 would divide-by-zero downstream. Loader's
+     * as_rational helper catches this at parse time. */
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///x.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":0}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    CHECK(std::string{me_engine_last_error(f.eng)}.find("den must be > 0") != std::string::npos);
+}
+
+TEST_CASE("output.compositionId pointing at unknown composition is rejected as ME_E_PARSE") {
+    /* The output block names a composition that doesn't exist in
+     * compositions[]. Loader has to catch this before resolving tracks/
+     * clips — without this check the next line derefs a null ptr. */
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///x.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"not-main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    CHECK(std::string{me_engine_last_error(f.eng)}.find("unknown composition") != std::string::npos);
+}
+
 TEST_CASE("phase-1 rejects multi-track timeline as ME_E_UNSUPPORTED") {
     /* Loader's single-track enforcement is the tripwire that keeps the
      * Exporter / OutputSink path from silently dropping every track
