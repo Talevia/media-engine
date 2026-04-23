@@ -17,6 +17,7 @@
  */
 #pragma once
 
+#include "color/pipeline.hpp"
 #include "io/demux_context.hpp"
 #include "media_engine/types.h"
 #include "orchestrator/reencode_pipeline.hpp"
@@ -86,6 +87,18 @@ struct SharedEncState {
     const std::atomic<bool>*        cancel  = nullptr;
     std::function<void(float)>      on_ratio;
     int64_t                         total_us  = 0;
+
+    /* First consumer of `me::color::make_pipeline()`, per the
+     * `ocio-pipeline-factory` + `ocio-pipeline-wire-first-consumer`
+     * cycles. Today this is always an `IdentityPipeline` (no-op apply)
+     * so wiring in this seat is safe on the determinism path; when
+     * `ME_WITH_OCIO` flips on and `make_pipeline()` starts returning
+     * `OcioPipeline`, the per-frame apply call in `process_segment`'s
+     * `push_video_frame` activates real color conversion without the
+     * orchestration TU having to change. Ownership is `unique_ptr`
+     * so per-segment decoders / encoders never see the Pipeline — it's
+     * a SharedEncState concern, like the muxer / FIFO. */
+    std::unique_ptr<me::color::Pipeline> color_pipeline;
 };
 
 /* Open a decoder for `in_stream` via `pool`. Used by both `reencode_mux`

@@ -92,6 +92,12 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
     shared.cancel     = opts.cancel;
     shared.on_ratio   = opts.on_ratio;
     shared.total_us   = total_output_us(opts.segments);
+    /* Factory returns IdentityPipeline today (apply() is a no-op) —
+     * creating it here forces the inline factory body to instantiate
+     * inside a real consumer TU and reserves the per-frame hook
+     * point. When OCIO lands (ME_HAS_OCIO + OcioPipeline), swapping
+     * the factory return type is the only client-side change. */
+    shared.color_pipeline = me::color::make_pipeline();
 
     CodecCtxPtr venc, aenc;
     int rc = 0;

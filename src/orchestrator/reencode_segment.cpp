@@ -190,12 +190,35 @@ me_status_t process_segment(const ReencodeSegment&      seg,
     /* Feed decoded video frames to the encoder with shared.next_video_pts
      * stamped directly in venc->time_base units. encode_video_frame
      * rescales via its `in_stream_tb` arg; handing it venc->time_base
-     * makes that rescale an identity. */
+     * makes that rescale an identity.
+     *
+     * Color pipeline hook: `shared.color_pipeline` (IdentityPipeline
+     * today — see ocio-pipeline-wire-first-consumer decision) is
+     * invoked on the Y plane before the encoder sees the frame. The
+     * src/dst ColorSpace pair is placeholder default-constructed today
+     * because the asset-level color space hasn't been threaded through
+     * SharedEncState yet — that's a future cycle (likely when M2
+     * compose introduces a typed frame handle). Identity apply
+     * preserves bytes so the determinism tripwire in test_determinism
+     * stays green. */
     auto push_video_frame = [&](AVFrame* f) -> me_status_t {
         if (f) {
             f->pts     = shared.next_video_pts;
             f->pkt_dts = shared.next_video_pts;
             shared.next_video_pts += shared.video_pts_delta;
+            if (shared.color_pipeline && f->data[0] && f->linesize[0] > 0) {
+                const me::ColorSpace dummy{};
+                const std::size_t y_plane_bytes =
+                    static_cast<std::size_t>(f->linesize[0]) *
+                    static_cast<std::size_t>(f->height);
+                std::string apply_err;
+                me_status_t ps = shared.color_pipeline->apply(
+                    f->data[0], y_plane_bytes, dummy, dummy, &apply_err);
+                if (ps != ME_OK) {
+                    if (err) *err = "color_pipeline.apply: " + std::move(apply_err);
+                    return ps;
+                }
+            }
         }
         return encode_video_frame(f, shared.venc, sws.get(), v_scratch.get(),
                                    shared.ofmt, shared.out_vidx,
