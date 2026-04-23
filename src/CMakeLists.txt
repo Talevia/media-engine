@@ -40,6 +40,7 @@ add_library(media_engine
   scheduler/scheduler.cpp
   orchestrator/segment_cache.cpp
   orchestrator/muxer_state.cpp
+  orchestrator/reencode_pipeline.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
   orchestrator/thumbnailer.cpp
@@ -67,6 +68,8 @@ target_link_libraries(media_engine
     FFMPEG::avformat
     FFMPEG::avcodec
     FFMPEG::avutil
+    FFMPEG::swscale
+    FFMPEG::swresample
 )
 
 target_compile_features(media_engine PUBLIC cxx_std_20)

@@ -12,7 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **reencode-h264-videotoolbox** — render 路径目前只支持 `video_codec="passthrough"`。需要第一条真正的 re-encode 路径以解除 M1 的 passthrough 依赖。**方向：** `me_output_spec_t.video_codec="h264"` 走 `h264_videotoolbox`（mac HW encoder，LGPL-clean），音频走 AAC。不引入 GPL 组件。Milestone §M1，Rubric §5.6。
 - **test-scaffold-doctest** — 无单元测试框架；靠人工跑 example 验证。**方向：** 加 `ME_BUILD_TESTS=ON` 时链 doctest（FetchContent，MIT），在 `tests/` 建第一批 C API 最小用例（create/destroy、status_str 全覆盖、schema rejection）。Milestone §M1，Rubric §5.2。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）

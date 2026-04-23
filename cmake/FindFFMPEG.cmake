@@ -6,12 +6,14 @@
 #   FFMPEG::avformat
 #   FFMPEG::avcodec
 #   FFMPEG::avutil
+#   FFMPEG::swscale
+#   FFMPEG::swresample
 #
 # Sets FFMPEG_FOUND on success.
 
 find_package(PkgConfig QUIET)
 
-set(_FFMPEG_REQUIRED_COMPONENTS avformat avcodec avutil)
+set(_FFMPEG_REQUIRED_COMPONENTS avformat avcodec avutil swscale swresample)
 
 set(FFMPEG_FOUND TRUE)
 
@@ -52,4 +54,5 @@ endforeach()
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(FFMPEG
-  REQUIRED_VARS FFMPEG_avformat_LIB FFMPEG_avcodec_LIB FFMPEG_avutil_LIB)
+  REQUIRED_VARS FFMPEG_avformat_LIB FFMPEG_avcodec_LIB FFMPEG_avutil_LIB
+                FFMPEG_swscale_LIB FFMPEG_swresample_LIB)

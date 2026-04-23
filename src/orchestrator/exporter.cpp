@@ -7,6 +7,7 @@
 #include "graph/types.hpp"
 #include "io/demux_context.hpp"
 #include "orchestrator/muxer_state.hpp"
+#include "orchestrator/reencode_pipeline.hpp"
 #include "scheduler/scheduler.hpp"
 #include "task/task_kind.hpp"
 
@@ -24,6 +25,10 @@ bool streq(const char* a, const char* b) {
 
 bool is_passthrough_spec(const me_output_spec_t& s) {
     return streq(s.video_codec, "passthrough") && streq(s.audio_codec, "passthrough");
+}
+
+bool is_h264_aac_spec(const me_output_spec_t& s) {
+    return streq(s.video_codec, "h264") && streq(s.audio_codec, "aac");
 }
 
 /* Build a trivial Graph with a single io::demux node whose "source" output
@@ -54,8 +59,11 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         if (err) *err = "output.path is required";
         return ME_E_INVALID_ARG;
     }
-    if (!is_passthrough_spec(spec)) {
-        if (err) *err = "phase-1: only video_codec=\"passthrough\" + audio_codec=\"passthrough\" supported";
+    const bool passthrough = is_passthrough_spec(spec);
+    const bool reencode    = !passthrough && is_h264_aac_spec(spec);
+    if (!passthrough && !reencode) {
+        if (err) *err = "phase-1: supported specs are "
+                         "(video=passthrough, audio=passthrough) or (video=h264, audio=aac)";
         return ME_E_UNSUPPORTED;
     }
     if (!tl_ || tl_->clips.size() != 1) {
@@ -69,6 +77,10 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     const std::string in_uri    = tl_->clips[0].asset_uri;
     const std::string out_path  = spec.path;
     const std::string container = spec.container ? spec.container : "";
+    const std::string vcodec    = spec.video_codec ? spec.video_codec : "";
+    const std::string acodec    = spec.audio_codec ? spec.audio_codec : "";
+    const int64_t     vbr       = spec.video_bitrate_bps;
+    const int64_t     abr       = spec.audio_bitrate_bps;
 
     me_engine* eng = engine_;
     Job* raw = job.get();
@@ -81,7 +93,9 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     graph_cache_.insert(g->content_hash(), g);
     graph::PortRef term = terminal;  /* capture-safe copy */
 
-    raw->worker = std::thread([eng, cb, user, raw, g, term, out_path, container]() {
+    raw->worker = std::thread([eng, cb, user, raw, g, term,
+                               out_path, container, passthrough,
+                               vcodec, acodec, vbr, abr]() {
         if (cb) {
             me_progress_event_t ev{};
             ev.kind = ME_PROGRESS_STARTED;
@@ -112,19 +126,33 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         }
 
         if (final_status == ME_OK) {
-            PassthroughMuxOptions opts;
-            opts.out_path  = out_path;
-            opts.container = container;
-            opts.cancel    = &raw->cancel;
-            if (cb) {
-                opts.on_ratio = [cb, user](float r) {
-                    me_progress_event_t ev{};
-                    ev.kind  = ME_PROGRESS_FRAMES;
-                    ev.ratio = r;
-                    cb(&ev, user);
-                };
+            auto progress_cb = [cb, user](float r) {
+                if (!cb) return;
+                me_progress_event_t ev{};
+                ev.kind  = ME_PROGRESS_FRAMES;
+                ev.ratio = r;
+                cb(&ev, user);
+            };
+
+            if (passthrough) {
+                PassthroughMuxOptions opts;
+                opts.out_path  = out_path;
+                opts.container = container;
+                opts.cancel    = &raw->cancel;
+                if (cb) opts.on_ratio = progress_cb;
+                final_status = passthrough_mux(*demux, opts, &work_err);
+            } else {
+                ReencodeOptions opts;
+                opts.out_path           = out_path;
+                opts.container          = container;
+                opts.video_codec        = vcodec;
+                opts.audio_codec        = acodec;
+                opts.video_bitrate_bps  = vbr;
+                opts.audio_bitrate_bps  = abr;
+                opts.cancel             = &raw->cancel;
+                if (cb) opts.on_ratio   = progress_cb;
+                final_status = reencode_mux(*demux, opts, &work_err);
             }
-            final_status = passthrough_mux(*demux, opts, &work_err);
         }
 
         raw->result = final_status;
