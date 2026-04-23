@@ -1,4 +1,9 @@
 include(FetchContent)
+# Shared policy floor for FetchContent'd deps — see cmake/fetchcontent_policy.cmake.
+# Harmless when every dep already meets the floor; cheap future-proofing against
+# an nlohmann/taskflow release that bumps its cmake_minimum_required declaration
+# below the current CMake-4.x cutoff.
+include(fetchcontent_policy)
 
 FetchContent_Declare(
   nlohmann_json

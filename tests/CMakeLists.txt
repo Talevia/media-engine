@@ -10,9 +10,10 @@ set(DOCTEST_WITH_TESTS      OFF CACHE INTERNAL "")
 set(DOCTEST_WITH_MAIN_IN_STATIC_LIB OFF CACHE INTERNAL "")
 set(DOCTEST_NO_INSTALL      ON  CACHE INTERNAL "")
 # doctest v2.4.11's top-level CMakeLists.txt declares cmake_minimum_required
-# below the floor that CMake 4.x enforces. Raise the policy minimum just for
-# its configure pass.
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+# below CMake 4.x's floor. Shared helper sets CMAKE_POLICY_VERSION_MINIMUM
+# so every FetchContent caller that needs this workaround lands it the
+# same way. See `cmake/fetchcontent_policy.cmake` for details.
+include(fetchcontent_policy)
 FetchContent_MakeAvailable(doctest)
 
 # One binary per suite so a failing test doesn't abort unrelated suites, and
