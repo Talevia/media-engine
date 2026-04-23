@@ -146,9 +146,43 @@ fi
 echo
 
 # 7. Compile flag redeclarations
+#
+# History: this section used to print every line containing
+# `add_compile_options` / `target_compile_options`, then claim they
+# were "repeated". But two conditional lines in the SAME CMakeLists
+# (one unconditional + one guarded by `ME_WERROR`) aren't redundant —
+# that's the normal shape. §R.5 wants the signal "same flag declared
+# in different CMake files", which is the real debt (hard-to-diff,
+# easy to drift out of sync).
+#
+# Fix: tokenise each grep hit into (file, flag) pairs, dedupe, then
+# only report flags that appear in ≥ 2 DISTINCT files.
 printf '## 7. Repeated add_compile_options / target_compile_options\n\n'
-grep -rnE 'add_compile_options|target_compile_options' CMakeLists.txt src cmake 2>/dev/null \
-  | awk '{ print "- " $0 }'
+printf 'Reports only flags appearing across ≥ 2 distinct CMakeLists files '
+printf '(same-file repeats under different conditions are not debt).\n\n'
+dup_flags=$(grep -rnE 'add_compile_options|target_compile_options' CMakeLists.txt src cmake 2>/dev/null \
+  | awk -F: '{
+      file = $1;
+      rest = $0;
+      sub(/^[^:]+:[^:]+:/, "", rest);   # strip path:line:
+      while (match(rest, /-[A-Za-z][A-Za-z0-9=_-]*/)) {
+        flag = substr(rest, RSTART, RLENGTH);
+        printf "%s\t%s\n", flag, file;
+        rest = substr(rest, RSTART + RLENGTH);
+      }
+    }' \
+  | sort -u \
+  | awk -F'\t' '
+      { count[$1]++; files[$1] = (files[$1] ? files[$1] ", " $2 : $2) }
+      END {
+        for (f in count) if (count[f] >= 2) printf "- %s (in: %s)\n", f, files[f];
+      }' \
+  | sort)
+if [ -n "$dup_flags" ]; then
+  echo "$dup_flags"
+else
+  echo '- _clean_'
+fi
 echo
 
 # 8. Public header dependency leakage

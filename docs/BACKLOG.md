@@ -18,7 +18,6 @@
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
 - **debt-test-thumbnail-color-tagged-fixture** — `tests/test_thumbnail.cpp` 五 case 全部基于 `determinism_input.mp4`（gen_fixture BITEXACT-encoded 所有 color tag 均 UNSPECIFIED）；`grep -n 'color\|tagged' tests/test_thumbnail.cpp` 无 tagged fixture case。`me_thumbnail_png` 未来加 color-managed scaling 时，untagged path 正常不保证 tagged path 正常。**方向：** `gen_fixture.cpp` 加 `--color-range tv --primaries bt709`-style 参数或新 `gen_tagged_fixture.cpp`；`tests/test_thumbnail.cpp` 加一 case 断言 PNG tEXt / iCCP chunk 里带色彩标记（如果 impl 保留）或至少 PNG 仍是合法的 IHDR。Milestone §M2-prep，Rubric §5.2。
-- **debt-scan-debt-flag-check-per-file** — `tools/scan-debt.sh:150` 的 §7 "repeated add_compile_options" 对同一文件内的 conditional line 也报 false positive（`CMakeLists.txt:35` 和 `:37` 两行，都在顶层 CMakeLists 里，一个 always、一个条件）。scan 输出过两个 bucket 信号（repopulate snapshot 连续 N 次都带这条"每次都查的 flag 就是这俩"的没价值记录）。**方向：** §7 改成 per-file dedupe + 真·跨文件重复才报——同个 flag 在**不同** CMakeLists 重复出现才是 debt。或者改成"whitelist this pair"隐式跳过。Milestone §M2-prep，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 
