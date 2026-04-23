@@ -69,15 +69,11 @@ Red lines. If a task requires any of these, stop and challenge per VISION §"发
 
 ## Known incomplete
 
-Visible in code but not wired end-to-end — expected follow-ups from M1, not bugs:
+Visible in code but not wired end-to-end — expected follow-ups beyond M1, not bugs. This list reflects **current** reality; items that landed get deleted (not struck through or commented out). Authoritative stub inventory lives in `tools/check_stubs.sh` output — this section is the narrative gloss.
 
-- `me_probe` returns `ME_E_UNSUPPORTED` (backlog: `probe-impl`)
-- `me_thumbnail_png` returns `ME_E_UNSUPPORTED` (backlog: `thumbnail-impl`)
-- `me_render_frame` returns `ME_E_UNSUPPORTED` — frame server awaits M6
-- `me_cache_stats` returns zeroed struct, `me_cache_invalidate_asset` is a no-op — real cache arrives with M4/M6
-- `me_render_start` supports only `video_codec="passthrough"` + `audio_codec="passthrough"` — M1 backlog `reencode-h264-videotoolbox` is the first re-encode path
-- Timeline loader accepts only single-clip single-track — M1 backlog `multi-clip-single-track` relaxes this
-- `engine.last_error` uses mutex, not `thread_local` — M1 backlog `debt-thread-local-last-error`
+- `me_render_frame` returns `ME_E_UNSUPPORTED` — frame server lands with M6 (see `STUB: frame-server-impl` markers in `src/api/render.cpp` + `src/orchestrator/previewer.cpp`)
+- `me_render_start` re-encode path supports only single-clip h264/aac — multi-clip re-encode is the M1-addendum backlog bullet `reencode-multi-clip` (passthrough already concats N clips)
+- `CompositionThumbnailer` returns `ME_E_UNSUPPORTED` — timeline-level composited thumbnails land with M2 compose (see `STUB: composition-thumbnail-impl`; asset-level `me_thumbnail_png` is fully implemented and is a separate path, see `docs/PAIN_POINTS.md` 2026-04-23)
 
 Touching any of these → expect to wire it up rather than work around it.
 

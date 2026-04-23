@@ -12,7 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-claude-md-known-incomplete-refresh** — `CLAUDE.md` "Known incomplete" 小节把 `me_probe` / `me_thumbnail_png` / `me_cache_stats` / `me_engine.last_error` 都列为 stub 或未完工，但 git log 显示这些都已 impl 完（`156576d` 拉 thumbnail，`a4a1c1c` 拉 cache_stats，`5924378` 拉 thread_local last_error，`8396ae2` 拉 probe 扩展）。新贡献者（或未来的自己）读着 CLAUDE.md 会误以为还要去实装。**方向：** 删掉已完成条目（留 `me_render_frame` / `reencode` 多 clip 的 known-incomplete）。同时 `tools/check_stubs.sh` 的 STUB 清单走一遍与实际代码对齐。Milestone §M1-debt，Rubric §5.2。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
