@@ -31,13 +31,15 @@ add_library(media_engine
   core/version.cpp
   timeline/timeline_loader.cpp
   timeline/segmentation.cpp
-  io/ffmpeg_remux.cpp
+  io/demux_context.cpp
+  io/demux_kernel.cpp
   graph/graph.cpp
   task/registry.cpp
   resource/frame_pool.cpp
   scheduler/eval_instance.cpp
   scheduler/scheduler.cpp
   orchestrator/segment_cache.cpp
+  orchestrator/muxer_state.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
   orchestrator/thumbnailer.cpp

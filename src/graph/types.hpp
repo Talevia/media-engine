@@ -16,6 +16,7 @@
 
 namespace me::graph { struct InputValue; }
 namespace me::resource { class FrameHandle; }
+namespace me::io       { class DemuxContext; }
 
 namespace me::graph {
 
@@ -35,13 +36,14 @@ struct PortRef {
 /* Typed tag for input/output values. Mirrors the order of the InputValue
  * variant so index-to-type is 1:1 and hashable. */
 enum class TypeId : uint8_t {
-    Empty   = 0,   /* monostate */
-    Int64   = 1,
-    Float64 = 2,
-    Bool    = 3,
-    String  = 4,
-    Frame   = 5,   /* resource::FrameHandle */
-    /* AudioBuf / PacketStream / MetaBlob will be appended; never reordered. */
+    Empty    = 0,   /* monostate */
+    Int64    = 1,
+    Float64  = 2,
+    Bool     = 3,
+    String   = 4,
+    Frame    = 5,   /* resource::FrameHandle */
+    DemuxCtx = 6,   /* io::DemuxContext — packet stream source */
+    /* AudioBuf / MetaBlob will be appended; never reordered. */
 };
 
 /* The typed value carried along a port. Kernels read inputs as InputValue
@@ -53,7 +55,8 @@ struct InputValue {
         double,
         bool,
         std::string,
-        std::shared_ptr<resource::FrameHandle>
+        std::shared_ptr<resource::FrameHandle>,
+        std::shared_ptr<io::DemuxContext>
     > v;
 
     TypeId type() const noexcept {

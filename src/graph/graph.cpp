@@ -45,9 +45,11 @@ uint64_t hash_input_value(uint64_t h, const InputValue& v) {
         } else if constexpr (std::is_same_v<T, std::string>) {
             h = fnv_mix(h, x.data(), x.size());
         } else {
-            /* shared_ptr<FrameHandle>: identity is intentionally NOT part of the
-             * content hash — frames are stateful runtime artifacts. Properties
-             * of kind Frame should not be used as cache keys. */
+            /* shared_ptr<FrameHandle> / shared_ptr<DemuxContext>: identity is
+             * intentionally NOT part of the content hash — these are stateful
+             * runtime artifacts. Properties of these types should not be used
+             * as cache keys (and in practice kernels receive them via input
+             * ports, not properties). */
             h = fnv_mix_u64(h, 0xFFULL);
         }
     }, v.v);

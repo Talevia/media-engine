@@ -1,12 +1,24 @@
 #include "media_engine/engine.h"
 #include "core/engine_impl.hpp"
+#include "io/demux_kernel.hpp"
 #include "resource/frame_pool.hpp"
 #include "scheduler/scheduler.hpp"
 
+#include <mutex>
 #include <new>
 
 extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_engine_t** out) {
     if (!out) return ME_E_INVALID_ARG;
+
+    /* Register built-in task kinds once per process. register_kind is
+     * idempotent (re-registering the same kind overwrites with the same
+     * info), but std::call_once avoids redundant work + is the conventional
+     * static-init pattern in C++. */
+    static std::once_flag kinds_once;
+    std::call_once(kinds_once, []() {
+        me::io::register_demux_kind();
+    });
+
     auto* e = new (std::nothrow) me_engine{};
     if (!e) return ME_E_OUT_OF_MEMORY;
     if (config) e->config = *config;
