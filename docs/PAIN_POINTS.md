@@ -37,3 +37,11 @@ doctest v2.4.11 的 `CMakeLists.txt` 声明 `cmake_minimum_required(VERSION 2.8)
 ### 2026-04-23 · test-scaffold-doctest — 测试 schema rejection 靠手撸 string::replace
 
 `test_timeline_schema.cpp` 里要测"schemaVersion=2 被拒"、"多 clip 被拒"、"有 effects 被拒"——每个 case 都把常量 JSON 字符串拷一份、在里面 `find + replace`。维护成本主要在"JSON 里某个字段写法一改，几条测试的 `find` 就同时挂"。**方向：** 可以建一个极简的 timeline builder helper（`TimelineBuilder::minimal_valid().with_schema_version(2).build()`），返回 string。但现在只有 5 条 mutation test，引入 builder 收益有限；到 schema v2 migration / multi-clip 一落地，mutation 矩阵起码 15 条，到那时抽。现在记下"手撸 find+replace 不可扩展"这个触发点。
+
+### 2026-04-23 · thumbnail-impl — `Thumbnailer` 类签名与 C API 口径不对齐
+
+`src/orchestrator/thumbnailer.{hpp,cpp}` 按 "timeline → 某一时刻的缩略图" 设计，构造函数吃一个 `shared_ptr<const Timeline>`；但公共 C API `me_thumbnail_png(engine, uri, time, ...)` 的入参是单纯 URI，不涉及 timeline。结果 `src/api/thumbnail.cpp` 直接在 extern "C" 里写完整的 demux+decode+sws+PNG-encode 管线，完全**绕过** orchestrator 那个类——那个类自 M0 就是 stub 到现在，本轮新管线也没让它前进一步。**方向：** 两种角色实际是两条路（"asset 级 thumbnail" = 无 timeline 语境；"composition 级 thumbnail" = 走 timeline 合成后取帧）。应该把 `Thumbnailer` 重命名成 `CompositionThumbnailer`，另建一个 `AssetThumbnailer`（或直接让 C API 走 demux kernel → 第一帧 → encode 这条 graph 路径），避免一个类两副面孔。本轮不改，记录。
+
+### 2026-04-23 · thumbnail-impl — 三份 AV* RAII unique_ptr deleter 在 src/ 里复制粘贴
+
+`src/api/probe.cpp`、`src/orchestrator/reencode_pipeline.cpp`、`src/api/thumbnail.cpp` 各自独立声明了 `CodecCtxDel / FrameDel / PacketDel / SwsDel`（+ 有的加 SwrDel）的 unique_ptr deleter 组。内容一字不差、只是 namespace 括号包一下。每加一个用 FFmpeg 的模块就要复制同一份。**方向：** 在 `src/io/ffmpeg_raii.hpp`（新文件）集中声明这组 deleter 和 alias（`AvCodecCtxPtr / AvFramePtr / AvPacketPtr / AvSwsPtr / AvSwrPtr`），让三处引用一个 header。本轮不改（会把本 commit 偏离 plan），下一轮 debt cycle 抽。

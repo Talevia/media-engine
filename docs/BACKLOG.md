@@ -14,7 +14,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **thumbnail-impl** — `me_thumbnail_png` stub。**方向：** seek 到目标时刻 → 解码 1 帧 → 按 max_w/h 保比缩放 → PNG 编码。走 libavcodec 软解即可，不走 HW。Milestone §M1，Rubric §5.1。
 - **multi-clip-single-track** — loader 强制"exactly one clip"。**方向：** 单轨多 clip concat + 裁剪（sourceRange.start / duration 可非零），输出顺序拼接。仍限制单 track。Milestone §M1，Rubric §5.1。
 - **content-hash-asset** — Asset schema 有 `contentHash` 字段但引擎没用。**方向：** 若 JSON 缺 contentHash，首次打开 asset 时流式 sha256 并缓存；若提供则信任。为后续 cache key 做准备。Milestone §M1，Rubric §5.1 + §5.4。
 - **determinism-regression-test** — 没有任何测试锁定"软件路径输出字节稳定"。**方向：** doctest 里加：同 JSON 渲染两次，断言两个 MP4 字节相同（passthrough 场景下 trivially 应成立，用它兜底）。Milestone §M1，Rubric §5.3。
