@@ -105,3 +105,16 @@ drift——有人加新 runtime-reject path（scan-debt 数字涨、check-stubs 
 的 STUB: 标记应该成为唯一事实源；scan-debt 的 §2 signal 可以改成"raw count −
 marked stubs = unmarked stubs，后者应该是 0"的一致性检查。目前两边独立跑、独立
 展示，够用但开放了 drift 窗口。下次 scan-debt 本身要动时顺手改。
+
+### 2026-04-23 · debt-thread-local-last-error — 异步 worker 的 error 要绕一圈才能回到 caller thread
+
+`thread_local` 是"per thread" 的绝对含义——Exporter worker thread 写自己的
+thread_local slot，和 API caller thread 的 slot 是两张不同的表。结果：原来
+worker 直接 `set_error(eng, msg)` 之后 caller `me_engine_last_error` 能看见，
+只是因为旧实现是 "单 string + mutex" 的跨线程共享；thread-local 化之后必须
+走 `Job::err_msg` 中转，`me_render_wait`（caller 线程里）join 后再 `set_error`
+到 caller 的 slot。**方向**：只要 API 还有异步返回 + last-error 双通道，这种
+"worker stash → wait-time propagate" 模式在每个异步 entry 点都要重复一遍。
+下一个异步 API（大概率是 M6 frame-server async preview？）落地时，应该抽一个
+`AsyncJobBase` 让 worker 写 err_msg、wait 自动 propagate——现在只有一个异步
+入口 (`me_render_start`)，还没到抽的临界点，记录下来免得到第二个再想起来。

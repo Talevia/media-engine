@@ -37,6 +37,13 @@ public:
         std::atomic<bool>          cancel{false};
         me_status_t                result{ME_OK};
         std::string                output_path;
+
+        /* Error message captured on the worker thread. The caller's
+         * thread-local last-error slot is populated from here by
+         * me_render_wait after the worker joins (see api/render.cpp) —
+         * thread_local storage is per-thread, so the worker cannot
+         * write directly into the caller's slot. */
+        std::string                err_msg;
     };
 
     /* Start an export. Spawns a worker thread; progress events fire on that

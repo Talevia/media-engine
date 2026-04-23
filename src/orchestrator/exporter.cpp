@@ -185,8 +185,14 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
 
         raw->result = final_status;
         if (final_status != ME_OK) {
-            me::detail::set_error(eng, work_err);
+            /* Stash on the Job; caller's thread-local last-error slot is
+             * populated in me_render_wait after the worker joins. The
+             * worker's own thread_local map is a different instance and
+             * writing to it here would leak into nowhere the API caller
+             * can query from. */
+            raw->err_msg = std::move(work_err);
         }
+        (void)eng;  /* kept in capture list for future per-engine state */
 
         if (cb) {
             me_progress_event_t ev{};

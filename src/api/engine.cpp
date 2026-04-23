@@ -6,6 +6,8 @@
 
 #include <mutex>
 #include <new>
+/* `std::call_once` lives in <mutex>; me_engine itself no longer holds a
+ * mutex now that last-error is thread_local per engine. */
 
 extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_engine_t** out) {
     if (!out) return ME_E_INVALID_ARG;
@@ -52,8 +54,5 @@ extern "C" void me_engine_destroy(me_engine_t* engine) {
 }
 
 extern "C" const char* me_engine_last_error(const me_engine_t* engine) {
-    if (!engine) return "";
-    auto* mut = const_cast<me_engine*>(engine);
-    std::lock_guard<std::mutex> lk(mut->error_mtx);
-    return mut->last_error.c_str();
+    return me::detail::get_error(engine);
 }

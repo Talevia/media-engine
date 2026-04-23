@@ -8,8 +8,11 @@
 #include <string>
 
 /* me_render_job wraps the orchestrator's opaque Job — the C API shape stays
- * stable even as the orchestrator evolves. */
+ * stable even as the orchestrator evolves. The engine pointer is stashed
+ * so me_render_wait can forward worker-populated error messages into the
+ * caller's thread-local last-error slot on join. */
 struct me_render_job {
+    me_engine_t*                                     engine = nullptr;
     std::unique_ptr<me::orchestrator::Exporter::Job> job;
 };
 
@@ -48,7 +51,8 @@ extern "C" me_status_t me_render_start(
     }
 
     auto* wrapper = new me_render_job{};
-    wrapper->job = std::move(job);
+    wrapper->engine = engine;
+    wrapper->job    = std::move(job);
     *out_job = wrapper;
     return ME_OK;
 }
@@ -62,6 +66,12 @@ extern "C" me_status_t me_render_cancel(me_render_job_t* job) {
 extern "C" me_status_t me_render_wait(me_render_job_t* job) {
     if (!job || !job->job) return ME_E_INVALID_ARG;
     if (job->job->worker.joinable()) job->job->worker.join();
+    /* Join is the synchronization point for the worker-thread-populated
+     * err_msg. Propagate into the caller's thread-local slot so
+     * me_engine_last_error on this thread reflects the async failure. */
+    if (job->job->result != ME_OK && !job->job->err_msg.empty() && job->engine) {
+        me::detail::set_error(job->engine, job->job->err_msg);
+    }
     return job->job->result;
 }
 
