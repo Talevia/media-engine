@@ -50,7 +50,7 @@ cmake --build build
     - `task/` = kernel registry + TaskContext + schema (kernels are free functions registered by TaskKindId, **never** attached to Node instances)
     - `scheduler/` = Task runtime (Task is a short-lived scheduler-internal object; kernels do NOT capture resources, all injection via TaskContext)
     - `resource/` = FramePool / CodecPool / GpuCtx / Budget (injected into TaskContext at dispatch)
-    - `orchestrator/` = Previewer / Exporter / Thumbnailer — hold Timeline, compile per-segment Graphs; they do NOT own Nodes, do NOT define kernels, and they are NOT editors (interactive editing is host-side)
+    - `orchestrator/` = Previewer / Exporter / CompositionThumbnailer — hold Timeline, compile per-segment Graphs; they do NOT own Nodes, do NOT define kernels, and they are NOT editors (interactive editing is host-side). The asset-level `me_thumbnail_png` C API lives in `src/api/` and does NOT go through `CompositionThumbnailer` (two roles, two paths — see `docs/PAIN_POINTS.md` 2026-04-23)
 
 ## Anti-requirements — don't do these
 

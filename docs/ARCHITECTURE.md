@@ -25,7 +25,7 @@ src/                            Internal C++20 implementation (private)
   scheduler/                    Task runtime — EvalInstance + Scheduler + heterogeneous pools
   resource/                     FramePool / CodecPool (bootstrap) + AssetHashCache + content_hash
   orchestrator/                 Previewer (M6 stub) / Exporter (passthrough+h264 re-encode) /
-                                Thumbnailer (composition path; C API asset path lives in api/)
+                                CompositionThumbnailer (M6 stub; C API asset thumbnail lives in api/)
 
 docs/                           Design docs — VISION, this file, API.md, TIMELINE_SCHEMA.md,
                                 ARCHITECTURE_GRAPH.md, decisions/, PAIN_POINTS.md
@@ -119,7 +119,7 @@ explicit `STUB:` marker in source (see `tools/check_stubs.sh`).
 | `src/task/` | **Shipped** | `TaskKindId` registry, `TaskContext` (resource injection at dispatch), `KindInfo` with typed input/output/param schema. `IoDemux` is the first registered kernel. |
 | `src/scheduler/` | **Shipped** | Taskflow-backed CPU scheduler, `evaluate_port<T>` entry, `EvalInstance`, heterogeneous pool routing by `Affinity`. |
 | `src/resource/` | **Shipped (bootstrap)** | `FramePool` memory budget, `CodecPool` (stub body; actual codec caching lands with M4), `AssetHashCache` (URI → sha256 via libavutil), `content_hash` helper. |
-| `src/orchestrator/` | **Shipped (phase-1 scope)** | `Exporter` with passthrough concat (multi-clip) + h264/AAC re-encode (single-clip). `Previewer::frame_at` is a tracked stub (`frame-server-impl`). `Thumbnailer::png_at` is a tracked stub (`composition-thumbnail-impl`); the asset-level `me_thumbnail_png` in `src/api/` is fully implemented and bypasses it by design. |
+| `src/orchestrator/` | **Shipped (phase-1 scope)** | `Exporter` with passthrough concat (multi-clip) + h264/AAC re-encode (single-clip). `Previewer::frame_at` is a tracked stub (`frame-server-impl`). `CompositionThumbnailer::png_at` is a tracked stub (`composition-thumbnail-impl`); the asset-level `me_thumbnail_png` in `src/api/` is fully implemented and bypasses it by design. |
 
 ### Feature paths (cross-cutting)
 

@@ -55,7 +55,7 @@ add_library(media_engine
   orchestrator/output_sink.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
-  orchestrator/thumbnailer.cpp
+  orchestrator/composition_thumbnailer.cpp
   api/engine.cpp
   api/timeline.cpp
   api/render.cpp

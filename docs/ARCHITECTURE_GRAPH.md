@@ -13,7 +13,7 @@ The runtime engine inside media-engine is organized around five modules with cle
               ┌─────── orchestrator/ ───────┐
               │ Previewer(Timeline)         │  ← 单帧，latency-first
               │ Exporter(Timeline)          │  ← 批编码，throughput-first
-              │ Thumbnailer(Timeline)       │  ← 单帧 PNG
+              │ CompositionThumbnailer(Tl)  │  ← 单帧 PNG（合成后）
               │                             │
               │ 内部：segment → compile_segment
               │        缓存 per-segment Graph │
@@ -88,9 +88,9 @@ public:
     Future<void> export_to(const OutputSpec&, ProgressCb);
 };
 
-class Thumbnailer {
+class CompositionThumbnailer {
 public:
-    Thumbnailer(me_engine_t*, std::shared_ptr<const timeline::Timeline>);
+    CompositionThumbnailer(me_engine_t*, std::shared_ptr<const timeline::Timeline>);
     Future<Bytes> png_at(me_rational_t time, int max_w, int max_h);
 };
 }
@@ -374,7 +374,7 @@ Future<void> Exporter::export_to(const OutputSpec& spec, ProgressCb cb) {
 - **lookahead pipeline** 是段内的，跨段自然 flush
 - **encoder / mux** 顺序 drain，确定性
 
-Previewer / Thumbnailer 类似——先 `find_segment(t)` → 取（或 compile）对应 Graph → `evaluate_port(g, video_terminal, {.time=t})`。
+Previewer / CompositionThumbnailer 类似——先 `find_segment(t)` → 取（或 compile）对应 Graph → `evaluate_port(g, video_terminal, {.time=t})`。
 
 ---
 

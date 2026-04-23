@@ -12,7 +12,7 @@ See `docs/ARCHITECTURE_GRAPH.md` §用户面 API + §批编码 for the contract.
 
 - `previewer.hpp` / `previewer.cpp` — 单帧 / latency-first；未来加 skip-on-miss
 - `exporter.hpp` / `exporter.cpp` — 批编码 / throughput-first；持 `EncoderState / MuxerState`；lookahead pipeline
-- `thumbnailer.hpp` / `thumbnailer.cpp` — 单帧 → PNG；按 `max_w / max_h` 保比缩放
+- `composition_thumbnailer.hpp` / `composition_thumbnailer.cpp` — **composition-level** 单帧 → PNG（timeline + 时间 → 渲染后一帧）；按 `max_w / max_h` 保比缩放。**不是 asset-level thumbnail**——后者是 `src/api/thumbnail.cpp` 里的 C API 直连 demux+decode+encode 管线，不走 orchestrator
 - `segment_cache.hpp` / `segment_cache.cpp` — 轻量 `SegmentKey → shared_ptr<Graph>` 缓存；当前 per-orchestrator 持有
 
 ## 三者的共同形态
