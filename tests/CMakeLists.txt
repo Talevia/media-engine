@@ -35,6 +35,7 @@ set(_test_suites
   test_probe
   test_thumbnail
   test_asset_reuse
+  test_timeline_segment
 )
 
 foreach(_suite ${_test_suites})
@@ -53,6 +54,10 @@ target_include_directories(test_content_hash PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_timeline_schema verifies loader produces the right IR — reaches
 # into me::Timeline / me::Asset to check parsed Asset::color_space values.
 target_include_directories(test_timeline_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_timeline_segment calls me::timeline::segment() on hand-built
+# Timeline IR — same src/-as-include pattern as test_timeline_schema.
+target_include_directories(test_timeline_segment PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_output_sink calls the internal factory me::orchestrator::make_output_sink
 # directly — same src/-as-include pattern as the other internal-surface suites.
