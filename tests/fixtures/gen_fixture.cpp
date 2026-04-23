@@ -39,10 +39,14 @@ extern "C" {
 
 namespace {
 
-constexpr int kWidth     = 320;
-constexpr int kHeight    = 240;
-constexpr int kFrameRate = 10;
-constexpr int kNumFrames = 10;
+/* 640×480 @ 25 fps: passthrough determinism doesn't care about dimensions,
+ * but h264_videotoolbox refuses to open below roughly 480×270 or at <15 fps,
+ * so the fixture has to clear VT's minimums for test_determinism's reencode
+ * case to exercise the h264/aac path instead of skipping. */
+constexpr int kWidth     = 640;
+constexpr int kHeight    = 480;
+constexpr int kFrameRate = 25;
+constexpr int kNumFrames = 25;
 
 struct CodecCtxDel  { void operator()(AVCodecContext* p) const noexcept { if (p) avcodec_free_context(&p); } };
 struct FrameDel     { void operator()(AVFrame* p)        const noexcept { if (p) av_frame_free(&p); } };

@@ -25,12 +25,13 @@ std::vector<unsigned char> slurp(const fs::path& p) {
                                        std::istreambuf_iterator<char>());
 }
 
-/* Render the given timeline JSON through passthrough to out_path. Returns
- * ME_OK on success; test fails otherwise. Each call builds a fresh engine
- * so we prove determinism across engine instantiations, not just back-to-back
- * renders within a single process. */
-me_status_t render_passthrough(const std::string& timeline_json,
-                                const std::string& out_path) {
+/* Render the given timeline JSON with a configurable output spec. Fresh
+ * engine per call — so determinism holds across engine instantiations, not
+ * just back-to-back renders within a single process. */
+me_status_t render_with_spec(const std::string& timeline_json,
+                              const std::string& out_path,
+                              const char*        video_codec,
+                              const char*        audio_codec) {
     me_engine_t* eng = nullptr;
     me_status_t s = me_engine_create(nullptr, &eng);
     if (s != ME_OK) return s;
@@ -42,8 +43,8 @@ me_status_t render_passthrough(const std::string& timeline_json,
     me_output_spec_t spec{};
     spec.path        = out_path.c_str();
     spec.container   = "mp4";
-    spec.video_codec = "passthrough";
-    spec.audio_codec = "passthrough";
+    spec.video_codec = video_codec;
+    spec.audio_codec = audio_codec;
 
     me_render_job_t* job = nullptr;
     s = me_render_start(eng, tl, &spec, nullptr, nullptr, &job);
@@ -57,6 +58,11 @@ me_status_t render_passthrough(const std::string& timeline_json,
     me_timeline_destroy(tl);
     me_engine_destroy(eng);
     return s;
+}
+
+me_status_t render_passthrough(const std::string& timeline_json,
+                                const std::string& out_path) {
+    return render_with_spec(timeline_json, out_path, "passthrough", "passthrough");
 }
 
 }  // namespace
@@ -73,15 +79,15 @@ TEST_CASE("passthrough is byte-deterministic across two independent renders") {
         return;
     }
 
-    /* Timeline with a single passthrough clip referencing the fixture.
-     * Fixture is 10 frames at 10 fps = 1 second; timeRange matches. */
+    /* Timeline with a single clip referencing the fixture.
+     * Fixture is 25 frames at 25 fps = 1 second; timeRange matches. */
     namespace tb = me::tests::tb;
     const std::string timeline_json = tb::TimelineBuilder()
-        .frame_rate(10, 1).resolution(320, 240)
+        .frame_rate(25, 1).resolution(640, 480)
         .add_asset(tb::AssetSpec{.uri = "file://" + fixture_path})
         .add_clip(tb::ClipSpec{
-            .time_start_den = 10, .time_dur_num = 10, .time_dur_den = 10,
-            .source_start_den = 10, .source_dur_num = 10, .source_dur_den = 10,
+            .time_start_den = 25, .time_dur_num = 25, .time_dur_den = 25,
+            .source_start_den = 25, .source_dur_num = 25, .source_dur_den = 25,
         })
         .build();
 
@@ -161,4 +167,61 @@ TEST_CASE("passthrough determinism holds across engine restarts") {
     const auto bytes2 = slurp(out2);
     REQUIRE(!bytes1.empty());
     CHECK(bytes1 == bytes2);
+}
+
+TEST_CASE("h264/aac reencode is byte-deterministic across two independent renders") {
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping reencode determinism test: fixture not available");
+        return;
+    }
+
+    /* Same fixture, now fed through the h264_videotoolbox + libavcodec-aac
+     * reencode path. AVFMT_FLAG_BITEXACT + AV_CODEC_FLAG_BITEXACT are set
+     * upstream so mvhd creation_time + encoder version strings don't leak
+     * into the output. h264_videotoolbox is a HW encoder and thus "advisory"
+     * w.r.t. bit-exactness, but it's stable run-to-run on the same host —
+     * this case is a tripwire for both muxer-side metadata regressions and
+     * future HW-encoder behavior shifts. */
+    namespace tb = me::tests::tb;
+    const std::string timeline_json = tb::TimelineBuilder()
+        .frame_rate(25, 1).resolution(640, 480)
+        .add_asset(tb::AssetSpec{.uri = "file://" + fixture_path})
+        .add_clip(tb::ClipSpec{
+            .time_start_den = 25, .time_dur_num = 25, .time_dur_den = 25,
+            .source_start_den = 25, .source_dur_num = 25, .source_dur_den = 25,
+        })
+        .build();
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-determinism-test-reencode";
+    fs::create_directories(tmp_dir);
+    const fs::path out1 = tmp_dir / "reenc1.mp4";
+    const fs::path out2 = tmp_dir / "reenc2.mp4";
+    fs::remove(out1);
+    fs::remove(out2);
+
+    /* The reencode path needs a machine with h264_videotoolbox available.
+     * When unavailable (non-mac CI), skip rather than hard-fail — the
+     * passthrough cases above still provide software-path coverage. */
+    const me_status_t s1 = render_with_spec(timeline_json, out1.string(), "h264", "aac");
+    if (s1 == ME_E_UNSUPPORTED || s1 == ME_E_ENCODE) {
+        MESSAGE("skipping reencode determinism test: h264_videotoolbox unavailable (status="
+                << me_status_str(s1) << ")");
+        return;
+    }
+    REQUIRE(s1 == ME_OK);
+    REQUIRE(render_with_spec(timeline_json, out2.string(), "h264", "aac") == ME_OK);
+
+    const auto bytes1 = slurp(out1);
+    const auto bytes2 = slurp(out2);
+    REQUIRE(!bytes1.empty());
+    REQUIRE(!bytes2.empty());
+    CHECK(bytes1.size() == bytes2.size());
+    if (bytes1 != bytes2) {
+        size_t i = 0;
+        while (i < bytes1.size() && i < bytes2.size() && bytes1[i] == bytes2[i]) ++i;
+        FAIL("reencode outputs differ at byte offset " << i);
+    } else {
+        CHECK(true);
+    }
 }

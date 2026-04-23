@@ -47,6 +47,14 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
     /* MP4 / MOV need extradata carried in the container's 'avcC' box, not
      * prefixed to keyframes — MUST be set before avcodec_open2. */
     if (global_header) ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    /* Hint to the encoder / its helpers to avoid baking libav version
+     * strings into extradata or packets. Paired with AVFMT_FLAG_BITEXACT
+     * on the muxer — see test_determinism / decision
+     * 2026-04-23-debt-render-bitexact-flags. h264_videotoolbox is a HW
+     * encoder so this flag is advisory; it's still worth passing for the
+     * software-path intent and for other encoders future re-encode paths
+     * may pick up. */
+    ctx->flags |= AV_CODEC_FLAG_BITEXACT;
 
     int rc = avcodec_open2(ctx.get(), enc, nullptr);
     if (rc < 0) {

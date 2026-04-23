@@ -60,6 +60,10 @@ me_status_t open_audio_encoder(me::resource::CodecPool&      pool,
                                        ? dec->ch_layout.nb_channels : 2);
     }
     if (global_header) ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    /* See reencode_video's matching comment: paired with AVFMT_FLAG_BITEXACT
+     * on the muxer to make the software reencode path byte-deterministic
+     * across libav versions. */
+    ctx->flags |= AV_CODEC_FLAG_BITEXACT;
 
     int rc = avcodec_open2(ctx.get(), enc, nullptr);
     if (rc < 0) {

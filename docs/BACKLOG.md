@@ -15,7 +15,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **debt-render-bitexact-flags** — 现有 determinism 回归只覆盖 passthrough；reencode 路径的 `MuxContext` 没 set `AVFMT_FLAG_BITEXACT`、encoder 没 set `AV_CODEC_FLAG_BITEXACT`，产物 mvhd/tkhd 带 wallclock creation_time，两次跑不是 byte-identical（`gen_fixture` 已经走过这条路并证明 bitexact 可行）。**方向：** `reencode_pipeline` + `mux_context` 默认 OR 上 bitexact flags；再加 determinism test 第 3 个 case 覆盖 h264/aac reencode。Milestone §M1-debt，Rubric §5.3。
 - **test-probe-coverage** — `me_probe` + 新 6 个 `me_media_info_video_*` accessor 没有 doctest 覆盖，只靠 `04_probe` 端到端 print 手测。**方向：** `tests/test_probe.cpp`：用 determinism fixture 断言 container=mov / codec=mpeg4 / width=320 / height=240 / frame_rate={10,1} / bit_depth=8 / rotation=0 / color_range/primaries/transfer/space 的 "unknown" 返回路径；再生成一个 ffmpeg-tagged 的小 h264 fixture 断言 color_range="tv" / color_space="bt709"。Milestone §M1-debt，Rubric §5.2。
 - **test-thumbnail-coverage** — `me_thumbnail_png` 已 impl 但 `tests/` 无覆盖；未来 color-space 正确性改动没有 tripwire。**方向：** `tests/test_thumbnail.cpp`：用 determinism fixture，`me_thumbnail_png(engine, asset_id, {0,10}, 320, 240, &buf, &size)` → 断言 PNG magic `89 50 4E 47` + IHDR width/height = 320/240。Milestone §M1-debt，Rubric §5.2。
 - **debt-stub-count-source-unify** — `tools/scan-debt.sh` §2 按 grep 数 `ME_E_UNSUPPORTED` = 11；`tools/check_stubs.sh` 按 `STUB:` 标记 = 3。8 条 drift 没人报警；新 runtime-reject 或新 stub 忘打标记都滑过监控。**方向：** 把 `STUB:` 标记改成唯一事实源；`scan-debt.sh` §2 变一致性检查"raw − marked 应为 0 否则列出未标记行号"。Milestone §M1-debt，Rubric §5.2。

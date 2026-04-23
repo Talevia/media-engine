@@ -24,6 +24,14 @@ std::unique_ptr<MuxContext> MuxContext::open(std::string_view out_path,
         return nullptr;
     }
 
+    /* AVFMT_FLAG_BITEXACT zeroes mvhd/tkhd creation_time and skips
+     * "encoder" / "major_brand_version" string stamping that otherwise
+     * varies across libav builds. This is the precondition for byte-
+     * deterministic output across software paths (see test_determinism).
+     * Always-on is safe: the flag is about omitting non-essential metadata,
+     * not changing stream data. */
+    fmt->flags |= AVFMT_FLAG_BITEXACT;
+
     auto ctx      = std::unique_ptr<MuxContext>(new MuxContext());
     ctx->fmt_     = fmt;
     ctx->out_path_ = out;
