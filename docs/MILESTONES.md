@@ -32,7 +32,7 @@
 **目标**：多轨视频合成、音频混音、显式色彩管理。全 CPU，不碰 GPU。
 
 ### Exit criteria
-- [ ] 2+ video tracks 叠加，alpha / blend mode 正确
+- [x] 2+ video tracks 叠加，alpha / blend mode 正确
 - [ ] 2+ audio tracks 混音，带 peak limiter
 - [x] OpenColorIO 集成，源 / 工作 / 输出空间显式转换，支持 bt709/sRGB/linear
 - [ ] `Transform`（静态）端到端生效（translate/scale/rotate/opacity）
