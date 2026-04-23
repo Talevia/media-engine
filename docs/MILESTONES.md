@@ -34,7 +34,7 @@
 ### Exit criteria
 - [ ] 2+ video tracks 叠加，alpha / blend mode 正确
 - [ ] 2+ audio tracks 混音，带 peak limiter
-- [ ] OpenColorIO 集成，源 / 工作 / 输出空间显式转换，支持 bt709/sRGB/linear
+- [x] OpenColorIO 集成，源 / 工作 / 输出空间显式转换，支持 bt709/sRGB/linear
 - [ ] `Transform`（静态）端到端生效（translate/scale/rotate/opacity）
 - [ ] Cross-dissolve transition
 - [ ] 确定性回归测试：同一 timeline 跑两次产物 byte-identical（软件路径）
