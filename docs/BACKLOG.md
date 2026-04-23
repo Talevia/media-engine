@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-claude-md-refresh-reencode-multi-clip** — `CLAUDE.md:75` 还写 "re-encode path supports only single-clip h264/aac — multi-clip re-encode is the M1-addendum backlog bullet `reencode-multi-clip` (passthrough already concats N clips)"，但 `reencode-multi-clip` 已在 2bfa6cd 落地、backlog bullet 已删。CLAUDE.md Known incomplete 陈述过时。**方向：** 删或改写该条目（只保留剩余真正 incomplete 项：`me_render_frame`、`CompositionThumbnailer::thumbnail_png`）。Milestone §M1-debt，Rubric §5.2。
 - **docs-m1-audit** — `MILESTONES.md` 顶部"Current: M1"；10 条 M1 exit criteria 全是 `- [ ]` 未打勾，但 git log 显示对应 commit 全部落地（`me_probe` / `me_thumbnail_png` / `reencode-h264-videotoolbox` / `multi-clip-single-track` / `test-scaffold-doctest` / `determinism-regression-test` / `cache-stats-impl` / graph 五模块 skeleton / reencode-multi-clip / reencode bitexact）。skill 硬规则 9 禁止自动打勾；但可以生成证据表供用户 review 后手工 tick。**方向：** 新 `docs/M1_AUDIT.md`：逐条 exit criterion 列 commit shorthash + test coverage + verified 日期，user 看完一次改 MILESTONES.md 打勾推进到 M2。Milestone §M1-debt，Rubric §5.2。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
