@@ -1,11 +1,15 @@
 /*
  * Audio encoder helpers used by reencode_pipeline.cpp.
  *
- * Extracted from the orchestration TU so the open + per-frame encode
- * concerns sit next to each other. The FIFO-buffering / drain loop that
- * handles AAC's fixed frame_size constraint lives in reencode_pipeline.cpp
- * alongside the main decode dispatch — splitting that out would require
- * a multi-field state class that doesn't yet have a second consumer.
+ * The three concerns grouped here are:
+ *   1. Open the AAC encoder matched to a decoder's params (`open_audio_encoder`).
+ *   2. Push a single decoded audio frame into the encoder, possibly through
+ *      swr + a FIFO to match the encoder's fixed frame_size (`feed_audio_frame`).
+ *   3. Drain the FIFO in encoder-sized chunks (`drain_audio_fifo`).
+ *
+ * All four helpers live together so the orchestration TU
+ * (`reencode_pipeline.cpp`) stays focused on the main decode→dispatch→mux
+ * loop and doesn't carry per-sample swr / FIFO plumbing inline.
  */
 #pragma once
 
@@ -16,6 +20,8 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/audio_fifo.h>
+#include <libswresample/swresample.h>
 }
 
 #include <cstdint>
@@ -43,5 +49,35 @@ me_status_t encode_audio_frame(AVFrame*         in_frame,
                                AVFormatContext* ofmt,
                                int              out_stream_idx,
                                std::string*     err);
+
+/* Drain `afifo` into `aenc` in encoder-sized chunks. Each drained chunk
+ * gets stamped with `*next_pts_in_enc_tb`, which is then incremented by
+ * the chunk's sample count — this makes segment boundaries transparent
+ * to the encoder (reencode_multi_clip reuses the FIFO + the counter
+ * across N segments). When `flush=true` the final partial chunk is
+ * allowed; otherwise the function returns ME_OK as soon as the FIFO has
+ * less than `aenc->frame_size` samples. */
+me_status_t drain_audio_fifo(AVAudioFifo*     afifo,
+                             AVCodecContext*  aenc,
+                             AVFormatContext* ofmt,
+                             int              out_stream_idx,
+                             int64_t*         next_pts_in_enc_tb,
+                             bool             flush,
+                             std::string*     err);
+
+/* Convert a single decoded audio frame through `swr` into `afifo`, then
+ * drain any encoder-sized chunks that accumulated. Passing `nullptr` for
+ * `in_frame` signals "no more input samples" — swr's residual delay is
+ * flushed into the FIFO but the FIFO itself is not force-drained (caller
+ * uses `drain_audio_fifo(..., flush=true)` at end-of-stream for that). */
+me_status_t feed_audio_frame(AVFrame*         in_frame,
+                             SwrContext*      swr,
+                             int              src_sample_rate,
+                             AVAudioFifo*     afifo,
+                             AVCodecContext*  aenc,
+                             AVFormatContext* ofmt,
+                             int              out_stream_idx,
+                             int64_t*         next_pts_in_enc_tb,
+                             std::string*     err);
 
 }  // namespace me::orchestrator::detail

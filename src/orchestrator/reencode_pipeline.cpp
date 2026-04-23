@@ -44,6 +44,8 @@ using detail::open_video_encoder;
 using detail::encode_video_frame;
 using detail::open_audio_encoder;
 using detail::encode_audio_frame;
+using detail::drain_audio_fifo;
+using detail::feed_audio_frame;
 
 int best_stream(AVFormatContext* fmt, AVMediaType type) {
     return av_find_best_stream(fmt, type, -1, -1, nullptr, 0);
@@ -146,41 +148,6 @@ int64_t total_output_us(const std::vector<ReencodeSegment>& segs) {
         }
     }
     return total;
-}
-
-/* Drain the shared audio FIFO in encoder-sized chunks, stamping each
- * encoded frame with the cross-segment next_audio_pts. flush=true allows
- * a final short frame. */
-me_status_t drain_audio_fifo(SharedEncState& s, bool flush, std::string* err) {
-    while (s.afifo && s.aenc) {
-        const int have = av_audio_fifo_size(s.afifo);
-        const int need = s.aenc->frame_size;
-        if (!flush && have < need) return ME_OK;
-        if (flush && have == 0)    return ME_OK;
-
-        const int this_frame = flush ? std::min(have, need ? need : have) : need;
-        FramePtr out_af(av_frame_alloc());
-        out_af->nb_samples = this_frame;
-        out_af->format     = s.aenc->sample_fmt;
-        av_channel_layout_copy(&out_af->ch_layout, &s.aenc->ch_layout);
-        out_af->sample_rate = s.aenc->sample_rate;
-        int r = av_frame_get_buffer(out_af.get(), 0);
-        if (r < 0) {
-            if (err) *err = "frame_get_buffer(audio): " + av_err_str(r);
-            return ME_E_OUT_OF_MEMORY;
-        }
-        r = av_audio_fifo_read(s.afifo, (void**)out_af->data, this_frame);
-        if (r < 0) {
-            if (err) *err = "audio_fifo_read: " + av_err_str(r);
-            return ME_E_INTERNAL;
-        }
-        out_af->pts = s.next_audio_pts;
-        s.next_audio_pts += this_frame;
-
-        me_status_t st = encode_audio_frame(out_af.get(), s.aenc, s.ofmt, s.out_aidx, err);
-        if (st != ME_OK) return st;
-    }
-    return ME_OK;
 }
 
 /* Process one segment: open its decoders, seek, loop read→decode→encode
@@ -295,57 +262,9 @@ me_status_t process_segment(const ReencodeSegment&   seg,
     };
 
     auto push_audio_frame = [&](AVFrame* f) -> me_status_t {
-        if (!f) {
-            /* Upstream flush: drain the per-clip swr_convert residual then
-             * push whatever's left in the FIFO. */
-            std::vector<uint8_t*> out_ptrs(shared.aenc->ch_layout.nb_channels, nullptr);
-            uint8_t** out_data = nullptr;
-            int out_linesize = 0;
-            const int out_samples_est =
-                (int)av_rescale_rnd(swr_get_delay(swr.get(), adec->sample_rate),
-                                    shared.aenc->sample_rate, adec->sample_rate, AV_ROUND_UP);
-            if (out_samples_est > 0) {
-                int r = av_samples_alloc_array_and_samples(&out_data, &out_linesize,
-                                                            shared.aenc->ch_layout.nb_channels,
-                                                            out_samples_est, shared.aenc->sample_fmt, 0);
-                if (r < 0) return fail(ME_E_OUT_OF_MEMORY, "samples_alloc(flush): " + av_err_str(r));
-                int converted = swr_convert(swr.get(), out_data, out_samples_est, nullptr, 0);
-                if (converted > 0) {
-                    int fr = av_audio_fifo_realloc(shared.afifo,
-                                                    av_audio_fifo_size(shared.afifo) + converted);
-                    if (fr >= 0) av_audio_fifo_write(shared.afifo, (void**)out_data, converted);
-                }
-                if (out_data) { av_freep(&out_data[0]); av_freep(&out_data); }
-            }
-            return ME_OK;
-        }
-
-        const int in_samples = f->nb_samples;
-        const int out_samples_est =
-            (int)av_rescale_rnd(swr_get_delay(swr.get(), adec->sample_rate) + in_samples,
-                                shared.aenc->sample_rate, adec->sample_rate, AV_ROUND_UP);
-        uint8_t** out_data = nullptr;
-        int out_linesize = 0;
-        int r = av_samples_alloc_array_and_samples(&out_data, &out_linesize,
-                                                    shared.aenc->ch_layout.nb_channels,
-                                                    out_samples_est, shared.aenc->sample_fmt, 0);
-        if (r < 0) return fail(ME_E_OUT_OF_MEMORY, "samples_alloc: " + av_err_str(r));
-        int converted = swr_convert(swr.get(), out_data, out_samples_est,
-                                    (const uint8_t**)f->data, in_samples);
-        if (converted < 0) {
-            if (out_data) { av_freep(&out_data[0]); av_freep(&out_data); }
-            return fail(ME_E_INTERNAL, "swr_convert: " + av_err_str(converted));
-        }
-        r = av_audio_fifo_realloc(shared.afifo, av_audio_fifo_size(shared.afifo) + converted);
-        if (r < 0) {
-            if (out_data) { av_freep(&out_data[0]); av_freep(&out_data); }
-            return fail(ME_E_OUT_OF_MEMORY, "fifo_realloc: " + av_err_str(r));
-        }
-        r = av_audio_fifo_write(shared.afifo, (void**)out_data, converted);
-        if (out_data) { av_freep(&out_data[0]); av_freep(&out_data); }
-        if (r < 0) return fail(ME_E_INTERNAL, "fifo_write: " + av_err_str(r));
-
-        return drain_audio_fifo(shared, false, err);
+        return feed_audio_frame(f, swr.get(), adec ? adec->sample_rate : 0,
+                                 shared.afifo, shared.aenc, shared.ofmt,
+                                 shared.out_aidx, &shared.next_audio_pts, err);
     };
 
     while (terminal == ME_OK) {
@@ -583,7 +502,9 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
         if (s != ME_OK) terminal = s;
     }
     if (terminal == ME_OK && shared.aenc) {
-        me_status_t s = drain_audio_fifo(shared, true, err);
+        me_status_t s = drain_audio_fifo(shared.afifo, shared.aenc, ofmt,
+                                          shared.out_aidx, &shared.next_audio_pts,
+                                          /*flush=*/true, err);
         if (s != ME_OK) terminal = s;
         if (terminal == ME_OK) {
             s = encode_audio_frame(nullptr, shared.aenc, ofmt, shared.out_aidx, err);
