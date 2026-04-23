@@ -37,6 +37,7 @@ set(_test_suites
   test_asset_reuse
   test_timeline_segment
   test_color_pipeline
+  test_render_cancel
 )
 
 foreach(_suite ${_test_suites})
@@ -133,3 +134,12 @@ add_dependencies(test_thumbnail determinism_fixture determinism_fixture_tagged)
 target_compile_definitions(test_thumbnail PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
   ME_TEST_FIXTURE_MP4_TAGGED="${_fixture_mp4_tagged}")
+
+# test_render_cancel exercises me_render_start → me_render_cancel →
+# me_render_wait against the shared determinism fixture. Uses a 3-clip
+# h264/aac reencode timeline (not passthrough) + 200ms sleep so the
+# worker is reliably mid-encode when cancel fires — passthrough
+# stream-copy finishes in under 200ms even at 10 clips on dev hardware.
+add_dependencies(test_render_cancel determinism_fixture)
+target_compile_definitions(test_render_cancel PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
