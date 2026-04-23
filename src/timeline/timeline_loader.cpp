@@ -233,70 +233,115 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
         require(comp != nullptr, ME_E_PARSE,
                 "output.compositionId refers to unknown composition");
 
-        /* --- Phase-1 constraints: 1 video track, ≥1 video clip ---------- */
+        /* --- Tracks + clips --------------------------------------------
+         * Multi-track schema: walk each track, validate within-track
+         * constraints (contiguous, no gaps/overlaps, positive duration,
+         * sourceRange.duration == timeRange.duration — the same phase-1
+         * rules as single-track, applied per track), and flatten clips
+         * into the Timeline-level flat list with track_id stamped.
+         *
+         * Audio and text tracks are not yet in scope (audio-mix-two-track
+         * is a separate M2 bullet; text lands with M5). Loader rejects
+         * non-video tracks with ME_E_UNSUPPORTED.
+         *
+         * Timeline::duration = max of per-track cumulative durations.
+         * Multi-track compose reads tracks sequentially from the flat
+         * list by grouping on track_id; the Exporter asserts
+         * tracks.size() == 1 until the compose kernel lands (see
+         * multi-track-compose-kernel backlog item). */
         const auto& tracks = comp->at("tracks");
-        require(tracks.size() == 1, ME_E_UNSUPPORTED,
-                "phase-1: exactly one track supported");
-        const auto& track = tracks[0];
-        require(track.at("kind").get<std::string>() == "video",
-                ME_E_UNSUPPORTED, "phase-1: only video tracks supported");
-        const auto& clips = track.at("clips");
-        require(!clips.empty(), ME_E_PARSE, "track must have at least one clip");
+        require(!tracks.empty(), ME_E_PARSE,
+                "composition.tracks must have at least one track");
 
-        /* Walk clips in JSON order. Each clip's timeRange.start MUST equal the
-         * running cumulative duration — phase-1 forbids gaps and overlaps so
-         * the Exporter can emit a contiguous stream-copy without gap frames.
-         * timeRange.duration MUST equal sourceRange.duration (no speed change
-         * in phase-1). */
-        me_rational_t running{0, 1};
-        for (size_t i = 0; i < clips.size(); ++i) {
-            const auto& clip = clips[i];
-            const std::string where = "clip[" + std::to_string(i) + "]";
+        me_rational_t max_duration{0, 1};
+        auto rational_gt = [](me_rational_t a, me_rational_t b) {
+            return a.num * b.den > b.num * a.den;
+        };
 
-            require(clip.at("type").get<std::string>() == "video",
-                    ME_E_UNSUPPORTED, where + ": phase-1 only video clips");
-            require(!clip.contains("effects") || clip["effects"].empty(),
-                    ME_E_UNSUPPORTED, where + ": phase-1: clip.effects not supported");
+        /* Per-track id uniqueness check — repeated ids across tracks
+         * would break the track_id → Track back-reference. */
+        std::unordered_map<std::string, size_t> track_id_seen;
 
-            const std::string asset_id = clip.at("assetId").get<std::string>();
-            require(tl.assets.find(asset_id) != tl.assets.end(), ME_E_PARSE,
-                    where + ".assetId refers to unknown asset");
+        for (size_t ti = 0; ti < tracks.size(); ++ti) {
+            const auto& track = tracks[ti];
+            const std::string track_where = "track[" + std::to_string(ti) + "]";
 
-            const auto& tr = clip.at("timeRange");
-            me_rational_t t_start = as_rational(tr.at("start"),    where + ".timeRange.start");
-            me_rational_t t_dur   = as_rational(tr.at("duration"), where + ".timeRange.duration");
+            require(track.contains("id"), ME_E_PARSE,
+                    track_where + ": missing 'id'");
+            const std::string track_id = track.at("id").get<std::string>();
+            require(!track_id.empty(), ME_E_PARSE,
+                    track_where + ": 'id' must be non-empty");
+            require(track_id_seen.emplace(track_id, ti).second, ME_E_PARSE,
+                    track_where + ": duplicate track id '" + track_id + "'");
 
-            const auto& sr = clip.at("sourceRange");
-            me_rational_t s_start = as_rational(sr.at("start"),    where + ".sourceRange.start");
-            me_rational_t s_dur   = as_rational(sr.at("duration"), where + ".sourceRange.duration");
+            require(track.at("kind").get<std::string>() == "video",
+                    ME_E_UNSUPPORTED,
+                    track_where + ": phase-1: only video tracks supported");
 
-            require(rational_eq(t_start, running), ME_E_UNSUPPORTED,
-                    where + ".timeRange.start must equal cumulative prior clip duration "
-                    "(phase-1: no gaps or overlaps)");
-            require(rational_eq(t_dur, s_dur), ME_E_UNSUPPORTED,
-                    where + ": phase-1: timeRange.duration must equal sourceRange.duration");
-            require(t_dur.num > 0, ME_E_PARSE, where + ".timeRange.duration must be positive");
-            require(s_start.num >= 0, ME_E_PARSE, where + ".sourceRange.start must be >= 0");
+            const bool track_enabled =
+                track.contains("enabled") ? track.at("enabled").get<bool>() : true;
 
-            me::Clip c;
-            c.asset_id       = asset_id;
-            c.time_start     = t_start;
-            c.time_duration  = t_dur;
-            c.source_start   = s_start;
-            if (clip.contains("transform")) {
-                c.transform = parse_transform(clip["transform"], where + ".transform");
+            const auto& clips = track.at("clips");
+            require(!clips.empty(), ME_E_PARSE,
+                    track_where + ": clips must have at least one clip");
+
+            /* Walk this track's clips in JSON order. Per-track running
+             * cumulative must match each clip's timeRange.start
+             * exactly (same no-gap no-overlap rule as single-track
+             * phase-1). Gap / overlap across *different* tracks is
+             * fine — that's the point of multi-track compose. */
+            me_rational_t running{0, 1};
+            for (size_t i = 0; i < clips.size(); ++i) {
+                const auto& clip = clips[i];
+                const std::string where = track_where + ".clip[" + std::to_string(i) + "]";
+
+                require(clip.at("type").get<std::string>() == "video",
+                        ME_E_UNSUPPORTED, where + ": phase-1 only video clips");
+                require(!clip.contains("effects") || clip["effects"].empty(),
+                        ME_E_UNSUPPORTED, where + ": phase-1: clip.effects not supported");
+
+                const std::string asset_id = clip.at("assetId").get<std::string>();
+                require(tl.assets.find(asset_id) != tl.assets.end(), ME_E_PARSE,
+                        where + ".assetId refers to unknown asset");
+
+                const auto& tr = clip.at("timeRange");
+                me_rational_t t_start = as_rational(tr.at("start"),    where + ".timeRange.start");
+                me_rational_t t_dur   = as_rational(tr.at("duration"), where + ".timeRange.duration");
+
+                const auto& sr = clip.at("sourceRange");
+                me_rational_t s_start = as_rational(sr.at("start"),    where + ".sourceRange.start");
+                me_rational_t s_dur   = as_rational(sr.at("duration"), where + ".sourceRange.duration");
+
+                require(rational_eq(t_start, running), ME_E_UNSUPPORTED,
+                        where + ".timeRange.start must equal cumulative prior clip duration "
+                        "within this track (phase-1: no within-track gaps or overlaps)");
+                require(rational_eq(t_dur, s_dur), ME_E_UNSUPPORTED,
+                        where + ": phase-1: timeRange.duration must equal sourceRange.duration");
+                require(t_dur.num > 0, ME_E_PARSE, where + ".timeRange.duration must be positive");
+                require(s_start.num >= 0, ME_E_PARSE, where + ".sourceRange.start must be >= 0");
+
+                me::Clip c;
+                c.asset_id       = asset_id;
+                c.track_id       = track_id;
+                c.time_start     = t_start;
+                c.time_duration  = t_dur;
+                c.source_start   = s_start;
+                if (clip.contains("transform")) {
+                    c.transform = parse_transform(clip["transform"], where + ".transform");
+                }
+                tl.clips.push_back(std::move(c));
+
+                /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d). */
+                running = me_rational_t{
+                    running.num * t_dur.den + t_dur.num * running.den,
+                    running.den * t_dur.den
+                };
             }
-            tl.clips.push_back(std::move(c));
 
-            /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d).
-             * No simplification; den stays bounded because phase-1 frames
-             * rates produce modest denominators (30, 48000, 90000). */
-            running = me_rational_t{
-                running.num * t_dur.den + t_dur.num * running.den,
-                running.den * t_dur.den
-            };
+            tl.tracks.push_back(me::Track{track_id, track_enabled});
+            if (rational_gt(running, max_duration)) max_duration = running;
         }
-        tl.duration = running;
+        tl.duration = max_duration;
 
         *out = handle;
         return ME_OK;

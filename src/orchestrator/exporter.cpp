@@ -59,6 +59,19 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         if (err) *err = "phase-1: timeline must have at least one clip";
         return ME_E_UNSUPPORTED;
     }
+    /* Phase-1 sequential (passthrough / reencode) render path only
+     * handles a single track — multi-track composition is the job of
+     * the compose kernel (tracked by the multi-track-compose-kernel
+     * backlog item). Until it lands, reject multi-track timelines
+     * here rather than silently concatenating clips from different
+     * tracks (which would produce wrong output). The loader itself
+     * accepts multi-track JSON so IR consumers (segmentation, future
+     * compose) can exercise the full structure. */
+    if (tl_->tracks.size() > 1) {
+        if (err) *err = "multi-track compose not yet implemented — "
+                        "see multi-track-compose-kernel backlog item";
+        return ME_E_UNSUPPORTED;
+    }
 
     /* Compile a demux graph + carry a ClipTimeRange per clip. */
     std::vector<ClipPlan> plans;

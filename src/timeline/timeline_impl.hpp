@@ -94,6 +94,13 @@ struct Clip {
      * loader rejects clips with unknown asset_id. */
     std::string   asset_id;
 
+    /* Reference into Timeline::tracks by id. Stamped at load time by
+     * the loader (walking tracks JSON). Keeps Timeline::clips a single
+     * flat list while still letting multi-track consumers (compose
+     * kernel, when it lands) group clips by track. Always non-empty
+     * after load. */
+    std::string   track_id;
+
     me_rational_t time_start   { 0, 1 };
     me_rational_t time_duration{ 0, 1 };
     me_rational_t source_start { 0, 1 };
@@ -103,6 +110,24 @@ struct Clip {
      * defaults; absent = nullopt). Phase-1 is static-only; the loader
      * rejects the `keyframes` animated form. */
     std::optional<Transform> transform;
+};
+
+/* Compositing track metadata. Clips live in the flat Timeline::clips
+ * list stamped with track_id back-references; this struct carries just
+ * the track-level attributes that aren't per-clip (id, enabled flag,
+ * and the JSON declaration order which is preserved in the vector).
+ *
+ * Multi-track-video-compose (M2) consumes this: at any given timeline
+ * time T, group active clips by track_id and composite in
+ * Timeline::tracks vector order (bottom = tracks[0], top = tracks[N-1]).
+ *
+ * Phase-1 render path (passthrough / reencode sequential concat) still
+ * asserts `tracks.size() == 1` at the Exporter layer — the compose
+ * kernel itself is tracked by the `multi-track-compose-kernel` backlog
+ * item. */
+struct Track {
+    std::string id;
+    bool        enabled{true};
 };
 
 struct Timeline {
@@ -116,6 +141,14 @@ struct Timeline {
      * resolve by key. */
     std::unordered_map<std::string, Asset> assets;
 
+    /* Compositing tracks, in JSON declaration order (bottom→top when
+     * compose lands). For phase-1 (single-track passthrough/reencode)
+     * this is always size() == 1. */
+    std::vector<Track> tracks;
+
+    /* Flat clip list across all tracks. Each Clip carries its track_id
+     * so multi-track consumers can group. For phase-1 this is just
+     * tracks[0]'s clips in time order. */
     std::vector<Clip> clips;
 };
 

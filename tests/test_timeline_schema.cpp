@@ -217,13 +217,58 @@ TEST_CASE("output.compositionId pointing at unknown composition is rejected as M
     CHECK(std::string{me_engine_last_error(f.eng)}.find("unknown composition") != std::string::npos);
 }
 
-TEST_CASE("phase-1 rejects multi-track timeline as ME_E_UNSUPPORTED") {
-    /* Loader's single-track enforcement is the tripwire that keeps the
-     * Exporter / OutputSink path from silently dropping every track
-     * after the first. TimelineBuilder is single-track by design, so
-     * this negative case builds the JSON inline — cheaper than
-     * extending the builder for a gap that gets lifted once
-     * `multi-track-video-compose` lands. */
+TEST_CASE("multi-track timeline loads into IR with track_id stamped on each clip") {
+    /* Loader accepts N tracks and flattens clips into Timeline::clips
+     * with track_id back-references. Tracks metadata is preserved in
+     * Timeline::tracks in JSON declaration order. The Exporter still
+     * rejects multi-track (see multi-track-compose-kernel), but IR
+     * consumers (future compose kernel, segmentation variants) can
+     * see the full structure. */
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [
+        {"id":"a1","kind":"video","uri":"file:///tmp/input.mp4"}
+      ],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]},
+        {"id":"v1","kind":"video","enabled":false,"clips":[
+          {"type":"video","id":"c2","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":90,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":90,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    REQUIRE(tl != nullptr);
+    CHECK(tl->tl.tracks.size() == 2);
+    CHECK(tl->tl.tracks[0].id == "v0");
+    CHECK(tl->tl.tracks[0].enabled == true);
+    CHECK(tl->tl.tracks[1].id == "v1");
+    CHECK(tl->tl.tracks[1].enabled == false);
+    REQUIRE(tl->tl.clips.size() == 2);
+    CHECK(tl->tl.clips[0].track_id == "v0");
+    CHECK(tl->tl.clips[1].track_id == "v1");
+    /* Timeline duration is max across tracks: v1 is 3s, v0 is 2s. */
+    CHECK(tl->tl.duration.num == 90);
+    CHECK(tl->tl.duration.den == 30);
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("multi-track timeline is rejected at the render layer by Exporter") {
+    /* Loader accepts multi-track (see above test); me_render_start is
+     * where the "compose kernel not yet implemented" gate lives until
+     * multi-track-compose-kernel lands. */
     EngineFixture f;
     const std::string j = R"({
       "schemaVersion": 1,
@@ -249,12 +294,95 @@ TEST_CASE("phase-1 rejects multi-track timeline as ME_E_UNSUPPORTED") {
     })";
 
     me_timeline_t* tl = nullptr;
-    CHECK(load(f.eng, j, &tl) == ME_E_UNSUPPORTED);
-    CHECK(tl == nullptr);
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
 
+    me_output_spec_t spec{};
+    spec.path        = "/tmp/me-multi-track-reject.mp4";
+    spec.container   = "mp4";
+    spec.video_codec = "passthrough";
+    spec.audio_codec = "passthrough";
+
+    me_render_job_t* job = nullptr;
+    CHECK(me_render_start(f.eng, tl, &spec, nullptr, nullptr, &job) == ME_E_UNSUPPORTED);
+    CHECK(job == nullptr);
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("exactly one track") != std::string::npos);
+    CHECK(std::string{err}.find("multi-track compose not yet implemented") != std::string::npos);
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("duplicate track ids are rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///tmp/input.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]},
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c2","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("duplicate track id") != std::string::npos);
+}
+
+TEST_CASE("within-track gap is still rejected with per-track error message") {
+    /* Relaxing multi-track doesn't relax within-track contiguity —
+     * each track independently must be contiguous in phase-1. */
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///tmp/input.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}},
+          {"type":"video","id":"c2","assetId":"a1",
+           "timeRange":{"start":{"num":120,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_UNSUPPORTED);
+    CHECK(tl == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    const std::string s{err};
+    CHECK(s.find("within this track") != std::string::npos);
+    CHECK(s.find("track[0]") != std::string::npos);
+}
+
+TEST_CASE("single-track timeline stamps track_id on clip (backward-compat)") {
+    EngineFixture f;
+    me_timeline_t* tl = nullptr;
+    const std::string j = tb::minimal_video_clip().build();
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    CHECK(tl->tl.tracks.size() == 1);
+    CHECK(tl->tl.tracks[0].id == "v0");
+    REQUIRE(tl->tl.clips.size() == 1);
+    CHECK(tl->tl.clips[0].track_id == "v0");
+    me_timeline_destroy(tl);
 }
 
 TEST_CASE("phase-1 rejects clip.effects") {
