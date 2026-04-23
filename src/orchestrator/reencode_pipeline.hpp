@@ -26,6 +26,7 @@
 #pragma once
 
 #include "media_engine/types.h"
+#include "timeline/timeline_impl.hpp"   /* me::ColorSpace */
 
 #include <atomic>
 #include <cstdint>
@@ -46,6 +47,14 @@ struct ReencodeSegment {
     std::shared_ptr<me::io::DemuxContext> demux;   /* opened + outlives reencode_mux */
     me_rational_t                         source_start    { 0, 1 };
     me_rational_t                         source_duration { 0, 1 };  /* 0 = to EOF */
+    /* Per-clip source color space, from the Asset the clip references
+     * (see `me::Asset::color_space` populated by the timeline loader's
+     * `asset-colorspace-field` path). Default-constructed ColorSpace
+     * means UNSPECIFIED — when `IdentityPipeline` is the active
+     * pipeline this is a no-op; when OCIO is active the pipeline
+     * treats UNSPECIFIED as "assume timeline's target color space",
+     * i.e. skip conversion. */
+    me::ColorSpace                        source_color_space {};
 };
 
 struct ReencodeOptions {
@@ -72,6 +81,13 @@ struct ReencodeOptions {
      * height / pix_fmt / sample_rate / ch_layout. Subsequent segments
      * with incompatible codec params are rejected. */
     std::vector<ReencodeSegment> segments;
+
+    /* Timeline-level working / output color space (from
+     * `me::Timeline::color_space`). Threaded into `SharedEncState` so
+     * `process_segment` can hand the real `(src, dst)` pair to
+     * `me::color::Pipeline::apply()`. Default ColorSpace means
+     * UNSPECIFIED (identity / no-op on the IdentityPipeline path). */
+    me::ColorSpace target_color_space {};
 };
 
 /* Process all segments in order into a single output container. Returns

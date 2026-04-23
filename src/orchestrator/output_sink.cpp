@@ -91,15 +91,16 @@ public:
             return ME_E_INVALID_ARG;
         }
         ReencodeOptions opts;
-        opts.out_path          = common_.out_path;
-        opts.container         = common_.container;
-        opts.video_codec       = "h264";
-        opts.audio_codec       = "aac";
-        opts.video_bitrate_bps = video_bitrate_;
-        opts.audio_bitrate_bps = audio_bitrate_;
-        opts.cancel            = common_.cancel;
-        opts.on_ratio          = common_.on_ratio;
-        opts.pool              = pool_;
+        opts.out_path            = common_.out_path;
+        opts.container           = common_.container;
+        opts.video_codec         = "h264";
+        opts.audio_codec         = "aac";
+        opts.video_bitrate_bps   = video_bitrate_;
+        opts.audio_bitrate_bps   = audio_bitrate_;
+        opts.cancel              = common_.cancel;
+        opts.on_ratio            = common_.on_ratio;
+        opts.pool                = pool_;
+        opts.target_color_space  = common_.target_color_space;
         opts.segments.reserve(demuxes.size());
         for (size_t i = 0; i < demuxes.size(); ++i) {
             if (!demuxes[i]) {
@@ -111,6 +112,7 @@ public:
                 std::move(demuxes[i]),
                 ranges_[i].source_start,
                 ranges_[i].source_duration,
+                ranges_[i].source_color_space,
             });
         }
         return reencode_mux(opts, err);

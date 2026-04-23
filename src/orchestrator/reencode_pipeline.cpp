@@ -98,6 +98,7 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
      * point. When OCIO lands (ME_HAS_OCIO + OcioPipeline), swapping
      * the factory return type is the only client-side change. */
     shared.color_pipeline = me::color::make_pipeline();
+    shared.target_color_space = opts.target_color_space;
 
     CodecCtxPtr venc, aenc;
     int rc = 0;

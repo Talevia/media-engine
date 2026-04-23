@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **me-asset-color-space-thread-to-encoder** — `ocio-pipeline-wire-first-consumer` cycle 把 `me::color::make_pipeline()` 接进 reencode 路径，但 `src/orchestrator/reencode_segment.cpp:210` 写死 `const me::ColorSpace dummy{};` 传给 `pipeline->apply`。真正的 asset-level `me::Asset::color_space`（`me::timeline::Asset::color_space` std::optional<ColorSpace>，loader 在 `asset-colorspace-field` cycle 填充）**没有**被 thread 到 SharedEncState 或 process_segment。ME_WITH_OCIO 切 ON 那天真 OcioPipeline 会拿到 default-constructed ColorSpace → 识别成 unspecified → 无 transform → 效果等于未接入。**方向：** `SharedEncState` 加 `me::ColorSpace source_color_space` + `me::ColorSpace target_color_space`；`reencode_mux` 在 `ReencodeSegment` / `ReencodeOptions` 通路上接收 timeline working-space + segment[0] asset 的 color_space；`push_video_frame` 传真值给 `apply()`。Milestone §M2-prep，Rubric §5.1。
 - **debt-docs-api-md-stale-audit** — `docs/API.md` 163 行，最近 8 周有 me_probe 扩 6 accessor、reencode-multi-clip 落地、cache_stats 实装、`me_buffer_free` 加入等 API 变化。没人 audit 过 docs/API.md 还是否匹配当前 header 接口。**方向：** diff `include/media_engine/*.h` 的公开声明与 `docs/API.md` 描述；缺的补上、stale 的改；不出现已 deleted / renamed 的 symbol。写成 `docs(api)` 或 `refactor(docs)` commit。Milestone §M1-debt，Rubric §5.2。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）

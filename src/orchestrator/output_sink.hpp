@@ -19,6 +19,7 @@
 
 #include "media_engine/render.h"
 #include "media_engine/types.h"
+#include "timeline/timeline_impl.hpp"   /* me::ColorSpace */
 
 #include <atomic>
 #include <functional>
@@ -39,6 +40,12 @@ struct SinkCommon {
     std::string                container;          /* empty = infer */
     std::function<void(float)> on_ratio;
     const std::atomic<bool>*   cancel = nullptr;
+    /* Timeline-level target / working color space (from
+     * `me::Timeline::color_space`). Sink passes it down to the
+     * `me::color::Pipeline::apply()` call in the reencode path.
+     * Default-constructed ColorSpace means UNSPECIFIED (IdentityPipeline
+     * ignores; OcioPipeline treats as pass-through). */
+    me::ColorSpace             target_color_space {};
 };
 
 /* Per-clip time window. Paired positionally with the DemuxContexts that
@@ -47,6 +54,10 @@ struct ClipTimeRange {
     me_rational_t source_start    { 0, 1 };
     me_rational_t source_duration { 0, 1 };
     me_rational_t time_offset     { 0, 1 };
+    /* Per-clip source color space, from the Asset the clip references
+     * (`me::Asset::color_space` via `resolve_uri`-like lookup inside
+     * the Exporter). Default = UNSPECIFIED. */
+    me::ColorSpace source_color_space {};
 };
 
 class OutputSink {

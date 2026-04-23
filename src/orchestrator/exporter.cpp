@@ -67,12 +67,20 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         const std::string& uri = resolve_uri(*tl_, clip.asset_id);
         auto [g, term] = build_demux_graph(uri);
         graph_cache_.insert(g->content_hash(), g);
+        /* Per-clip source color space: the asset's `color_space` if the
+         * loader parsed one; otherwise UNSPECIFIED (default ColorSpace).
+         * Threaded through the sink so reencode_mux can feed (src, dst)
+         * pair to the me::color::Pipeline::apply call. */
+        const me::Asset& asset = tl_->assets.at(clip.asset_id);
+        const me::ColorSpace clip_cs =
+            asset.color_space.has_value() ? *asset.color_space : me::ColorSpace{};
         plans.push_back(ClipPlan{
             std::move(g), term,
             ClipTimeRange{
                 clip.source_start,
                 clip.time_duration,   /* phase-1: source_dur == time_dur */
                 clip.time_start,
+                clip_cs,
             },
         });
     }
@@ -95,6 +103,15 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     common.container = spec.container ? spec.container : "";
     common.cancel    = &job->cancel;
     if (cb) common.on_ratio = progress_cb;
+    /* Timeline-level working / output color space stays default-
+     * UNSPECIFIED today: `me::Timeline` doesn't carry a top-level
+     * color_space field (only per-Asset; see timeline_impl.hpp:77).
+     * Adding `Timeline::color_space` + loader parse is a separate
+     * cycle; until then `IdentityPipeline` ignores and `OcioPipeline`
+     * would treat UNSPECIFIED as "assume default scene-referred". The
+     * per-clip source color space below *is* threaded through, which
+     * is the main value of the asset-color-space-thread-to-encoder
+     * work. */
 
     std::vector<ClipTimeRange> ranges;
     ranges.reserve(plans.size());

@@ -207,13 +207,14 @@ me_status_t process_segment(const ReencodeSegment&      seg,
             f->pkt_dts = shared.next_video_pts;
             shared.next_video_pts += shared.video_pts_delta;
             if (shared.color_pipeline && f->data[0] && f->linesize[0] > 0) {
-                const me::ColorSpace dummy{};
                 const std::size_t y_plane_bytes =
                     static_cast<std::size_t>(f->linesize[0]) *
                     static_cast<std::size_t>(f->height);
                 std::string apply_err;
                 me_status_t ps = shared.color_pipeline->apply(
-                    f->data[0], y_plane_bytes, dummy, dummy, &apply_err);
+                    f->data[0], y_plane_bytes,
+                    seg.source_color_space, shared.target_color_space,
+                    &apply_err);
                 if (ps != ME_OK) {
                     if (err) *err = "color_pipeline.apply: " + std::move(apply_err);
                     return ps;

@@ -99,6 +99,11 @@ struct SharedEncState {
      * so per-segment decoders / encoders never see the Pipeline — it's
      * a SharedEncState concern, like the muxer / FIFO. */
     std::unique_ptr<me::color::Pipeline> color_pipeline;
+    /* Timeline-level target color space (copied from
+     * `ReencodeOptions::target_color_space` at reencode_mux init time).
+     * `process_segment` pairs this with the per-segment
+     * `ReencodeSegment::source_color_space` when invoking apply(). */
+    me::ColorSpace                        target_color_space {};
 };
 
 /* Open a decoder for `in_stream` via `pool`. Used by both `reencode_mux`
