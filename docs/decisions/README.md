@@ -50,3 +50,108 @@ docs/decisions/<YYYY-MM-DD>-<slug>.md
 - 愿景讨论（在 VISION.md 里）
 
 这里只记**本轮做了什么选择、为什么是这个选择、拒了什么选择**。
+
+## Finding a decision
+
+74+ files and counting. File names are `<date>-<slug>.md`; finding "why X was done like Y" by filename alone requires knowing the slug convention, which new contributors don't yet. This section lists the search patterns that actually surface answers.
+
+### By module / topic
+
+Each cycle tags the area it touched. Grep from repo root:
+
+```bash
+# Timeline IR / schema / loader
+grep -l 'timeline/\|Timeline::' docs/decisions/*.md
+
+# Orchestrator (Exporter / Previewer / CompositionThumbnailer / output sinks)
+grep -l 'orchestrator/\|Exporter\|OutputSink\|Previewer' docs/decisions/*.md
+
+# Render / reencode path (passthrough + h264/aac)
+grep -l 'reencode\|passthrough\|MuxContext\|DemuxContext\|muxer_state' docs/decisions/*.md
+
+# I/O layer (FFmpeg RAII wrappers, av_err_str, demux / mux plumbing)
+grep -l 'src/io/\|io/mux\|io/demux\|av_err_str' docs/decisions/*.md
+
+# Graph / task / scheduler / resource (execution model)
+grep -l 'graph/\|task/\|scheduler/\|resource/' docs/decisions/*.md
+
+# Color pipeline / OCIO
+grep -l 'color/\|OcioPipeline\|IdentityPipeline\|me::ColorSpace' docs/decisions/*.md
+
+# Cache (asset hash / frame / codec pool observability)
+grep -l 'AssetHashCache\|FramePool\|CodecPool\|me_cache_' docs/decisions/*.md
+
+# Public C API surface (include/media_engine/*.h contracts)
+grep -l 'include/media_engine/\|extern "C"\|me_engine_\|me_render_\|me_timeline_' docs/decisions/*.md
+
+# Build / CMake / FetchContent / fixture
+grep -l 'CMakeLists\|FetchContent\|ME_WITH_\|ME_BUILD_\|gen_fixture' docs/decisions/*.md
+
+# Tests / doctest framework / fixture patterns
+grep -l 'tests/test_\|doctest\|TEST_CASE\|TimelineBuilder' docs/decisions/*.md
+
+# Docs (README / ARCHITECTURE / VISION / CLAUDE / PAIN_POINTS edits)
+grep -l 'docs/VISION\|docs/ARCHITECTURE\|docs/API\|CLAUDE.md\|PAIN_POINTS\|MILESTONES' docs/decisions/*.md
+```
+
+### By rubric axis (VISION §5)
+
+Every decision header names its rubric axis — `(Milestone §M<x> · Rubric §5.<y>)`. Grep:
+
+```bash
+# §5.1 — Correctness / domain fidelity (schema, IR, render math, transitions)
+grep -l 'Rubric §5.1' docs/decisions/*.md
+
+# §5.2 — Developer experience / testability / error surfaces
+grep -l 'Rubric §5.2' docs/decisions/*.md
+
+# §5.3 — Performance / determinism / resource use
+grep -l 'Rubric §5.3' docs/decisions/*.md
+
+# §5.4 – §5.7 — extend per the VISION rubric table
+grep -l 'Rubric §5.4' docs/decisions/*.md
+```
+
+### By milestone
+
+```bash
+# Everything stamped for the current / past milestone (M1, M2, ...)
+grep -l 'Milestone §M1' docs/decisions/*.md
+grep -l 'Milestone §M2' docs/decisions/*.md
+```
+
+Use `ls docs/decisions | sort -r | head -20` for recent cycles without opening the files.
+
+### By decision keyword
+
+For "did we consider X?" or "why did we reject X?" queries, `grep` the body — every decision doc has an `**Alternatives considered.**` block listing what was rejected and why:
+
+```bash
+grep -l -F 'Alternatives considered' docs/decisions/*.md | xargs grep -H -F '<keyword>'
+```
+
+Practical examples:
+
+```bash
+# Why did we pick VideoToolbox over x264?
+grep -l -F 'x264' docs/decisions/*.md
+# Why is the task scheduler Taskflow rather than raw threads?
+grep -l -F 'Taskflow' docs/decisions/*.md
+# Was there a reason not to use nlohmann::json SAX mode?
+grep -l -F 'SAX' docs/decisions/*.md
+```
+
+### Common question → starting file
+
+| Question | Start here |
+|---|---|
+| How does the engine know which codec to use? | `2026-04-23-me-render-output-format-infer.md` + `2026-04-22-reencode-h264-videotoolbox.md` |
+| Why is the timeline schema shaped the way it is? | `docs/TIMELINE_SCHEMA.md`, then `grep Rubric §5.1` under decisions |
+| What's the graph / task / scheduler split for? | `2026-04-22-architecture-graph.md` + `2026-04-22-graph-task-bootstrap.md` + `docs/ARCHITECTURE_GRAPH.md` |
+| Why is there an IdentityPipeline? | `2026-04-23-ocio-integration-skeleton.md` → `2026-04-23-ocio-pipeline-enable.md` |
+| What counts as a stub vs a real impl? | `CLAUDE.md` "Known incomplete" + `tools/check_stubs.sh` |
+| Why is multi-track / cross-dissolve rejected right now? | `2026-04-23-multi-track-video-compose.md` + `2026-04-23-cross-dissolve-transition.md` + their `-kernel` follow-up bullets in `BACKLOG.md` |
+
+### If all else fails
+
+Open `docs/decisions/` in an editor and rely on full-text search across the directory. The "find a decision" UX bottoms out there; the grep patterns above get you to the right ~5 files faster than a filename scan.
