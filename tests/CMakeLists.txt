@@ -47,6 +47,7 @@ set(_test_suites
   test_audio_mix
   test_compose_cross_dissolve
   test_audio_resample
+  test_frame_puller
 )
 
 foreach(_suite ${_test_suites})
@@ -105,6 +106,16 @@ target_include_directories(test_compose_cross_dissolve PRIVATE ${CMAKE_SOURCE_DI
 target_include_directories(test_audio_resample PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_audio_resample PRIVATE
   FFMPEG::avutil FFMPEG::avcodec FFMPEG::swresample)
+
+# test_frame_puller opens the determinism fixture directly via libav
+# (avformat_open_input / avcodec decoder) to exercise the
+# pull_next_video_frame state machine. Needs src/ include + libav
+# link. The fixture-path define + dependency are set below, after
+# _fixture_mp4 is defined (mirrors the test_determinism / test_probe
+# pattern — CMake evaluates variables top-to-bottom).
+target_include_directories(test_frame_puller PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_frame_puller PRIVATE
+  FFMPEG::avformat FFMPEG::avcodec FFMPEG::avutil)
 
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from
@@ -192,6 +203,12 @@ target_compile_definitions(test_thumbnail PRIVATE
 # stream-copy finishes in under 200ms even at 10 clips on dev hardware.
 add_dependencies(test_render_cancel determinism_fixture)
 target_compile_definitions(test_render_cancel PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_frame_puller wires its fixture path + dependency now that
+# _fixture_mp4 is defined.
+add_dependencies(test_frame_puller determinism_fixture)
+target_compile_definitions(test_frame_puller PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
 # test_render_progress exercises the me_progress_event_t ordering contract

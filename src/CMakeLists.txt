@@ -147,6 +147,7 @@ add_library(media_engine STATIC
   orchestrator/output_sink.cpp
   orchestrator/compose_sink.cpp
   orchestrator/encoder_mux_setup.cpp
+  orchestrator/frame_puller.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
   orchestrator/composition_thumbnailer.cpp
