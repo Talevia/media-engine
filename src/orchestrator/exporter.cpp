@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace me::orchestrator {
 
@@ -31,11 +32,9 @@ bool is_h264_aac_spec(const me_output_spec_t& s) {
     return streq(s.video_codec, "h264") && streq(s.audio_codec, "aac");
 }
 
-/* Build a trivial Graph with a single io::demux node whose "source" output
- * is named as the "demux" terminal. Returns the compiled Graph + the
- * terminal PortRef. */
+/* Build a single-demux-node graph for one clip URI. */
 std::pair<std::shared_ptr<graph::Graph>, graph::PortRef>
-build_passthrough_graph(const std::string& uri) {
+build_demux_graph(const std::string& uri) {
     graph::Graph::Builder b;
     graph::Properties props;
     props["uri"].v = uri;
@@ -45,6 +44,14 @@ build_passthrough_graph(const std::string& uri) {
     auto g = std::make_shared<graph::Graph>(std::move(b).build());
     return {g, terminal};
 }
+
+struct ClipPlan {
+    std::shared_ptr<graph::Graph> graph;
+    graph::PortRef                term;
+    me_rational_t                 source_start;
+    me_rational_t                 source_duration;
+    me_rational_t                 time_offset;
+};
 
 }  // namespace
 
@@ -66,15 +73,21 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
                          "(video=passthrough, audio=passthrough) or (video=h264, audio=aac)";
         return ME_E_UNSUPPORTED;
     }
-    if (!tl_ || tl_->clips.size() != 1) {
-        if (err) *err = "phase-1: timeline must have exactly one clip";
+    if (!tl_ || tl_->clips.empty()) {
+        if (err) *err = "phase-1: timeline must have at least one clip";
+        return ME_E_UNSUPPORTED;
+    }
+    /* Re-encode path is still single-clip only. Tracked via the
+     * reencode-multi-clip backlog bullet. */
+    if (reencode && tl_->clips.size() != 1) {
+        if (err) *err = "phase-1: re-encode path supports a single clip only "
+                         "(see backlog: reencode-multi-clip)";
         return ME_E_UNSUPPORTED;
     }
 
     auto job = std::make_unique<Job>();
     job->output_path = spec.path;
 
-    const std::string in_uri    = tl_->clips[0].asset_uri;
     const std::string out_path  = spec.path;
     const std::string container = spec.container ? spec.container : "";
     const std::string vcodec    = spec.video_codec ? spec.video_codec : "";
@@ -82,18 +95,26 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     const int64_t     vbr       = spec.video_bitrate_bps;
     const int64_t     abr       = spec.audio_bitrate_bps;
 
+    /* Compile a demux graph for every clip. Each graph is cached under its
+     * content hash; multi-clip timelines that reuse the same asset URI hit
+     * the cache trivially. */
+    std::vector<ClipPlan> plans;
+    plans.reserve(tl_->clips.size());
+    for (const auto& clip : tl_->clips) {
+        auto [g, term] = build_demux_graph(clip.asset_uri);
+        graph_cache_.insert(g->content_hash(), g);
+        plans.push_back(ClipPlan{
+            g, term,
+            clip.source_start,
+            clip.time_duration,   /* phase-1: source_dur == time_dur */
+            clip.time_start,
+        });
+    }
+
     me_engine* eng = engine_;
     Job* raw = job.get();
 
-    /* Compile & cache the per-segment graph. Passthrough has a single
-     * trivial segment (single clip, no transitions), so the cache's
-     * boundary_hash keying is exercised end-to-end without being
-     * stressful yet. */
-    auto [g, terminal] = build_passthrough_graph(in_uri);
-    graph_cache_.insert(g->content_hash(), g);
-    graph::PortRef term = terminal;  /* capture-safe copy */
-
-    raw->worker = std::thread([eng, cb, user, raw, g, term,
+    raw->worker = std::thread([eng, cb, user, raw, plans,
                                out_path, container, passthrough,
                                vcodec, acodec, vbr, abr]() {
         if (cb) {
@@ -102,46 +123,53 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
             cb(&ev, user);
         }
 
-        /* Drive the graph: a single io::demux node whose output is a
-         * shared_ptr<io::DemuxContext>. Scheduler picks the kernel by
-         * Affinity hint (Cpu at bootstrap since we don't have an Io pool
-         * yet; io::demux registered with Affinity::Io so the lookup
-         * falls through to primary registration). */
-        graph::EvalContext ctx;
-        /* FramePool/CodecPool/GpuCtx live on the engine; bootstrap doesn't
-         * need to thread them explicitly — scheduler gets them via its
-         * own refs passed at construction. */
-        auto fut = eng->scheduler->evaluate_port<std::shared_ptr<io::DemuxContext>>(
-                       *g, term, ctx);
+        auto progress_cb = [cb, user](float r) {
+            if (!cb) return;
+            me_progress_event_t ev{};
+            ev.kind  = ME_PROGRESS_FRAMES;
+            ev.ratio = r;
+            cb(&ev, user);
+        };
 
+        graph::EvalContext ctx;
         me_status_t final_status = ME_OK;
         std::string work_err;
-        std::shared_ptr<io::DemuxContext> demux;
 
-        try {
-            demux = fut.await();
-        } catch (const std::exception& ex) {
-            final_status = ME_E_IO;
-            work_err     = std::string("demux: ") + ex.what();
+        /* Drive one demux graph per clip, collecting DemuxContext handles.
+         * Each DemuxContext stays alive until passthrough_mux returns (owned
+         * in `demuxes` below). */
+        std::vector<std::shared_ptr<io::DemuxContext>> demuxes;
+        demuxes.reserve(plans.size());
+        for (size_t i = 0; i < plans.size() && final_status == ME_OK; ++i) {
+            auto fut = eng->scheduler->evaluate_port<std::shared_ptr<io::DemuxContext>>(
+                           *plans[i].graph, plans[i].term, ctx);
+            try {
+                demuxes.push_back(fut.await());
+            } catch (const std::exception& ex) {
+                final_status = ME_E_IO;
+                work_err = "demux[" + std::to_string(i) + "]: " + ex.what();
+            }
         }
 
         if (final_status == ME_OK) {
-            auto progress_cb = [cb, user](float r) {
-                if (!cb) return;
-                me_progress_event_t ev{};
-                ev.kind  = ME_PROGRESS_FRAMES;
-                ev.ratio = r;
-                cb(&ev, user);
-            };
-
             if (passthrough) {
                 PassthroughMuxOptions opts;
                 opts.out_path  = out_path;
                 opts.container = container;
                 opts.cancel    = &raw->cancel;
                 if (cb) opts.on_ratio = progress_cb;
-                final_status = passthrough_mux(*demux, opts, &work_err);
+                opts.segments.reserve(plans.size());
+                for (size_t i = 0; i < plans.size(); ++i) {
+                    opts.segments.push_back(PassthroughSegment{
+                        demuxes[i],
+                        plans[i].source_start,
+                        plans[i].source_duration,
+                        plans[i].time_offset,
+                    });
+                }
+                final_status = passthrough_mux(opts, &work_err);
             } else {
+                /* reencode: single-clip enforced above. */
                 ReencodeOptions opts;
                 opts.out_path           = out_path;
                 opts.container          = container;
@@ -151,7 +179,7 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
                 opts.audio_bitrate_bps  = abr;
                 opts.cancel             = &raw->cancel;
                 if (cb) opts.on_ratio   = progress_cb;
-                final_status = reencode_mux(*demux, opts, &work_err);
+                final_status = reencode_mux(*demuxes.front(), opts, &work_err);
             }
         }
 

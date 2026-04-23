@@ -14,7 +14,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **multi-clip-single-track** — loader 强制"exactly one clip"。**方向：** 单轨多 clip concat + 裁剪（sourceRange.start / duration 可非零），输出顺序拼接。仍限制单 track。Milestone §M1，Rubric §5.1。
 - **content-hash-asset** — Asset schema 有 `contentHash` 字段但引擎没用。**方向：** 若 JSON 缺 contentHash，首次打开 asset 时流式 sha256 并缓存；若提供则信任。为后续 cache key 做准备。Milestone §M1，Rubric §5.1 + §5.4。
 - **determinism-regression-test** — 没有任何测试锁定"软件路径输出字节稳定"。**方向：** doctest 里加：同 JSON 渲染两次，断言两个 MP4 字节相同（passthrough 场景下 trivially 应成立，用它兜底）。Milestone §M1，Rubric §5.3。
 - **debt-stub-inventory** — 代码里 stub 散落（cache_*、thumbnail_*、render_frame），没有单一视图看「还有多少 API 没实装」。**方向：** `tools/check_stubs.sh`（grep `ME_E_UNSUPPORTED` 外加白名单），输出未实装函数表。CI / iterate-gap 的 M1 进度可直接读它。Milestone §M1，Rubric §5.2。
@@ -27,3 +26,4 @@
 - **multi-track-video-compose** — 只支持单轨。**方向：** 多 video track 叠加，alpha + blend mode（normal/multiply/screen）。Milestone §M2，Rubric §5.1。
 - **audio-mix-two-track** — 音频不合成。**方向：** 2+ audio track 重采样到公共输出率后相加，简单 peak limiter 防爆。Milestone §M2，Rubric §5.1。
 - **debt-schema-version-migration-hook** — schema v1 rejection 只认 `== 1`，没有 v2 迁移预演。**方向：** loader 里留 `migrate(v_from, v_to)` 接口，即使只支持 v1 也显式走一遍 migration path，未来 v2 接入零改动。Milestone §M2，Rubric §5.1。
+- **reencode-multi-clip** — 当前 reencode path 仍只支持 single clip（Exporter 在 `clips.size() != 1` 时返 ME_E_UNSUPPORTED）；passthrough 已支持 concat。**方向：** encoder state 跨 clip 处理：decoder/filter/encoder 可否复用（同 codec 可复用 encoder ctx + 重置 GOP bookkeeping；不同 codec 必须新开 encoder）；first-frame 应该是 keyframe；AAC encoder 的 priming 在 clip 边界要处理。Milestone §M1 / Rubric 外·顺手记录。

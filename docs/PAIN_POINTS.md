@@ -45,3 +45,11 @@ doctest v2.4.11 的 `CMakeLists.txt` 声明 `cmake_minimum_required(VERSION 2.8)
 ### 2026-04-23 · thumbnail-impl — 三份 AV* RAII unique_ptr deleter 在 src/ 里复制粘贴
 
 `src/api/probe.cpp`、`src/orchestrator/reencode_pipeline.cpp`、`src/api/thumbnail.cpp` 各自独立声明了 `CodecCtxDel / FrameDel / PacketDel / SwsDel`（+ 有的加 SwrDel）的 unique_ptr deleter 组。内容一字不差、只是 namespace 括号包一下。每加一个用 FFmpeg 的模块就要复制同一份。**方向：** 在 `src/io/ffmpeg_raii.hpp`（新文件）集中声明这组 deleter 和 alias（`AvCodecCtxPtr / AvFramePtr / AvPacketPtr / AvSwsPtr / AvSwrPtr`），让三处引用一个 header。本轮不改（会把本 commit 偏离 plan），下一轮 debt cycle 抽。
+
+### 2026-04-23 · multi-clip-single-track — `av_interleaved_write_frame` 清空 pkt 后再读字段是坑
+
+被这个坑了一个小时：我在 `av_interleaved_write_frame` 返回 0 之后读 `pkt->pts + pkt->duration` 来更新 per-stream `last_end_out_tb`，结果永远是 `AV_NOPTS_VALUE + 0` —— FFmpeg 文档清楚写了"takes ownership of the packet reference and resets pkt"，但调用点在非常典型的 stream-copy 循环里，很容易错过。调试路径也反直觉：ffprobe 报 non-monotonic DTS，我以为是 offset 公式 bug，其实是 offset 永远没在推进。**方向：** 把 mux write 封一层 `write_and_track(pkt, last_end_out_tb, mapped)`，把 snapshot → write → commit 一起收口；或者未来的 `io::MuxContext` RAII wrapper（参见 2026-04-22 的 PAIN_POINTS 条目）自带这套簿记。多处手写 snapshot pattern 每处都容易再踩一次。
+
+### 2026-04-23 · multi-clip-single-track — Timeline 的 `time_offset` 传进 passthrough 后被忽略
+
+`PassthroughSegment::time_offset` 当前是 advisory —— 实际的输出 PTS 由"接着前一段的 DTS 走"决定（按 libavformat concat demuxer 的习惯）。这对 phase-1"contiguous clips no gaps"的场景是对的，但 schema v2 要加 gaps / silence（`timeRange.start > prior_end`）时，这个字段就必须被认真读入。**方向：** 等 schema 允许 gaps 再动。当下：struct 上那个字段实际是 dead code，容易误导读者以为在用。（没有修，因为 phase-1 不支持 gaps；但文档 + struct comment 都已说明，降低读代码时的困惑。）

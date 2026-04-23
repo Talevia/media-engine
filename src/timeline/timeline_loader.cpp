@@ -5,6 +5,7 @@
 
 #include <new>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 
 namespace {
@@ -16,7 +17,7 @@ struct LoadError {
     std::string message;
 };
 
-me_rational_t as_rational(const json& j, const char* field) {
+me_rational_t as_rational(const json& j, std::string_view field) {
     if (!j.is_object() || !j.contains("num") || !j.contains("den")) {
         throw LoadError{ME_E_PARSE, std::string(field) + ": expected {num,den}"};
     }
@@ -84,7 +85,7 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
         require(comp != nullptr, ME_E_PARSE,
                 "output.compositionId refers to unknown composition");
 
-        /* --- Phase-1 constraints: 1 video track, 1 video clip ----------- */
+        /* --- Phase-1 constraints: 1 video track, ≥1 video clip ---------- */
         const auto& tracks = comp->at("tracks");
         require(tracks.size() == 1, ME_E_UNSUPPORTED,
                 "phase-1: exactly one track supported");
@@ -92,46 +93,62 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
         require(track.at("kind").get<std::string>() == "video",
                 ME_E_UNSUPPORTED, "phase-1: only video tracks supported");
         const auto& clips = track.at("clips");
-        require(clips.size() == 1, ME_E_UNSUPPORTED,
-                "phase-1: exactly one clip supported");
+        require(!clips.empty(), ME_E_PARSE, "track must have at least one clip");
 
-        const auto& clip = clips[0];
-        require(clip.at("type").get<std::string>() == "video",
-                ME_E_UNSUPPORTED, "phase-1: only video clips supported");
+        /* Walk clips in JSON order. Each clip's timeRange.start MUST equal the
+         * running cumulative duration — phase-1 forbids gaps and overlaps so
+         * the Exporter can emit a contiguous stream-copy without gap frames.
+         * timeRange.duration MUST equal sourceRange.duration (no speed change
+         * in phase-1). */
+        me_rational_t running{0, 1};
+        for (size_t i = 0; i < clips.size(); ++i) {
+            const auto& clip = clips[i];
+            const std::string where = "clip[" + std::to_string(i) + "]";
 
-        /* No effects / transforms in phase-1 passthrough. */
-        require(!clip.contains("effects") || clip["effects"].empty(),
-                ME_E_UNSUPPORTED, "phase-1: clip.effects not supported");
-        require(!clip.contains("transform"),
-                ME_E_UNSUPPORTED, "phase-1: clip.transform not supported");
+            require(clip.at("type").get<std::string>() == "video",
+                    ME_E_UNSUPPORTED, where + ": phase-1 only video clips");
+            require(!clip.contains("effects") || clip["effects"].empty(),
+                    ME_E_UNSUPPORTED, where + ": phase-1: clip.effects not supported");
+            require(!clip.contains("transform"),
+                    ME_E_UNSUPPORTED, where + ": phase-1: clip.transform not supported");
 
-        std::string asset_id = clip.at("assetId").get<std::string>();
-        auto it = asset_uri.find(asset_id);
-        require(it != asset_uri.end(), ME_E_PARSE,
-                "clip.assetId refers to unknown asset");
+            const std::string asset_id = clip.at("assetId").get<std::string>();
+            auto it = asset_uri.find(asset_id);
+            require(it != asset_uri.end(), ME_E_PARSE,
+                    where + ".assetId refers to unknown asset");
 
-        const auto& tr = clip.at("timeRange");
-        me_rational_t t_start = as_rational(tr.at("start"),    "clip.timeRange.start");
-        me_rational_t t_dur   = as_rational(tr.at("duration"), "clip.timeRange.duration");
+            const auto& tr = clip.at("timeRange");
+            me_rational_t t_start = as_rational(tr.at("start"),    where + ".timeRange.start");
+            me_rational_t t_dur   = as_rational(tr.at("duration"), where + ".timeRange.duration");
 
-        const auto& sr = clip.at("sourceRange");
-        me_rational_t s_start = as_rational(sr.at("start"),    "clip.sourceRange.start");
-        me_rational_t s_dur   = as_rational(sr.at("duration"), "clip.sourceRange.duration");
+            const auto& sr = clip.at("sourceRange");
+            me_rational_t s_start = as_rational(sr.at("start"),    where + ".sourceRange.start");
+            me_rational_t s_dur   = as_rational(sr.at("duration"), where + ".sourceRange.duration");
 
-        require(t_start.num == 0, ME_E_UNSUPPORTED,
-                "phase-1: clip.timeRange.start must be zero");
-        require(rational_eq(t_dur, s_dur), ME_E_UNSUPPORTED,
-                "phase-1: timeRange.duration must equal sourceRange.duration");
-        require(s_start.num == 0, ME_E_UNSUPPORTED,
-                "phase-1: clip.sourceRange.start must be zero");
+            require(rational_eq(t_start, running), ME_E_UNSUPPORTED,
+                    where + ".timeRange.start must equal cumulative prior clip duration "
+                    "(phase-1: no gaps or overlaps)");
+            require(rational_eq(t_dur, s_dur), ME_E_UNSUPPORTED,
+                    where + ": phase-1: timeRange.duration must equal sourceRange.duration");
+            require(t_dur.num > 0, ME_E_PARSE, where + ".timeRange.duration must be positive");
+            require(s_start.num >= 0, ME_E_PARSE, where + ".sourceRange.start must be >= 0");
 
-        me::Clip c;
-        c.asset_uri      = it->second;
-        c.time_start     = t_start;
-        c.time_duration  = t_dur;
-        c.source_start   = s_start;
-        tl.clips.push_back(std::move(c));
-        tl.duration = t_dur;
+            me::Clip c;
+            c.asset_uri      = it->second;
+            c.time_start     = t_start;
+            c.time_duration  = t_dur;
+            c.source_start   = s_start;
+            tl.clips.push_back(std::move(c));
+
+            /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d).
+             * No simplification; den stays bounded because phase-1 frames
+             * rates produce modest denominators (30, 48000, 90000). */
+            running = me_rational_t{
+                running.num * t_dur.den + t_dur.num * running.den,
+                running.den * t_dur.den
+            };
+        }
+        tl.duration = running;
 
         *out = handle;
         return ME_OK;
