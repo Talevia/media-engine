@@ -6,8 +6,7 @@
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
 #include "io/demux_context.hpp"
-#include "orchestrator/muxer_state.hpp"
-#include "orchestrator/reencode_pipeline.hpp"
+#include "orchestrator/output_sink.hpp"
 #include "scheduler/scheduler.hpp"
 #include "task/task_kind.hpp"
 
@@ -19,18 +18,6 @@
 namespace me::orchestrator {
 
 namespace {
-
-bool streq(const char* a, const char* b) {
-    return a && b && std::string(a) == b;
-}
-
-bool is_passthrough_spec(const me_output_spec_t& s) {
-    return streq(s.video_codec, "passthrough") && streq(s.audio_codec, "passthrough");
-}
-
-bool is_h264_aac_spec(const me_output_spec_t& s) {
-    return streq(s.video_codec, "h264") && streq(s.audio_codec, "aac");
-}
 
 /* Build a single-demux-node graph for one clip URI. */
 std::pair<std::shared_ptr<graph::Graph>, graph::PortRef>
@@ -48,9 +35,7 @@ build_demux_graph(const std::string& uri) {
 struct ClipPlan {
     std::shared_ptr<graph::Graph> graph;
     graph::PortRef                term;
-    me_rational_t                 source_start;
-    me_rational_t                 source_duration;
-    me_rational_t                 time_offset;
+    ClipTimeRange                 range;
 };
 
 /* Resolve asset_id → uri via the Timeline's asset table. Used by the
@@ -70,42 +55,12 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
                                  std::string*           err) {
     if (out_job) *out_job = nullptr;
 
-    if (!spec.path) {
-        if (err) *err = "output.path is required";
-        return ME_E_INVALID_ARG;
-    }
-    const bool passthrough = is_passthrough_spec(spec);
-    const bool reencode    = !passthrough && is_h264_aac_spec(spec);
-    if (!passthrough && !reencode) {
-        if (err) *err = "phase-1: supported specs are "
-                         "(video=passthrough, audio=passthrough) or (video=h264, audio=aac)";
-        return ME_E_UNSUPPORTED;
-    }
     if (!tl_ || tl_->clips.empty()) {
         if (err) *err = "phase-1: timeline must have at least one clip";
         return ME_E_UNSUPPORTED;
     }
-    /* Re-encode path is still single-clip only. Tracked via the
-     * reencode-multi-clip backlog bullet. */
-    if (reencode && tl_->clips.size() != 1) {
-        if (err) *err = "phase-1: re-encode path supports a single clip only "
-                         "(see backlog: reencode-multi-clip)";
-        return ME_E_UNSUPPORTED;
-    }
 
-    auto job = std::make_unique<Job>();
-    job->output_path = spec.path;
-
-    const std::string out_path  = spec.path;
-    const std::string container = spec.container ? spec.container : "";
-    const std::string vcodec    = spec.video_codec ? spec.video_codec : "";
-    const std::string acodec    = spec.audio_codec ? spec.audio_codec : "";
-    const int64_t     vbr       = spec.video_bitrate_bps;
-    const int64_t     abr       = spec.audio_bitrate_bps;
-
-    /* Compile a demux graph for every clip. Each graph is cached under its
-     * content hash; multi-clip timelines that reuse the same asset URI hit
-     * the cache trivially. */
+    /* Compile a demux graph + carry a ClipTimeRange per clip. */
     std::vector<ClipPlan> plans;
     plans.reserve(tl_->clips.size());
     for (const auto& clip : tl_->clips) {
@@ -113,40 +68,62 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         auto [g, term] = build_demux_graph(uri);
         graph_cache_.insert(g->content_hash(), g);
         plans.push_back(ClipPlan{
-            g, term,
-            clip.source_start,
-            clip.time_duration,   /* phase-1: source_dur == time_dur */
-            clip.time_start,
+            std::move(g), term,
+            ClipTimeRange{
+                clip.source_start,
+                clip.time_duration,   /* phase-1: source_dur == time_dur */
+                clip.time_start,
+            },
         });
     }
+
+    auto job = std::make_unique<Job>();
+    job->output_path = spec.path ? spec.path : "";
+
+    /* Build the sink up front so spec errors surface synchronously before
+     * the worker thread spawns. Progress callback + cancel flag bind into
+     * the sink at construction. */
+    auto progress_cb = [cb, user](float r) {
+        if (!cb) return;
+        me_progress_event_t ev{};
+        ev.kind  = ME_PROGRESS_FRAMES;
+        ev.ratio = r;
+        cb(&ev, user);
+    };
+    SinkCommon common;
+    common.out_path  = job->output_path;
+    common.container = spec.container ? spec.container : "";
+    common.cancel    = &job->cancel;
+    if (cb) common.on_ratio = progress_cb;
+
+    std::vector<ClipTimeRange> ranges;
+    ranges.reserve(plans.size());
+    for (const auto& p : plans) ranges.push_back(p.range);
+
+    std::unique_ptr<OutputSink> sink = make_output_sink(
+        spec, std::move(common), std::move(ranges), err);
+    if (!sink) return ME_E_UNSUPPORTED;
 
     me_engine* eng = engine_;
     Job* raw = job.get();
 
-    raw->worker = std::thread([eng, cb, user, raw, plans,
-                               out_path, container, passthrough,
-                               vcodec, acodec, vbr, abr]() {
+    /* Capture-list hygiene: the sink owns all spec-derived state so the
+     * worker doesn't need to capture spec fields separately. */
+    auto sink_shared = std::shared_ptr<OutputSink>(sink.release());
+
+    raw->worker = std::thread([eng, cb, user, raw, plans, sink_shared]() {
         if (cb) {
             me_progress_event_t ev{};
             ev.kind = ME_PROGRESS_STARTED;
             cb(&ev, user);
         }
 
-        auto progress_cb = [cb, user](float r) {
-            if (!cb) return;
-            me_progress_event_t ev{};
-            ev.kind  = ME_PROGRESS_FRAMES;
-            ev.ratio = r;
-            cb(&ev, user);
-        };
-
         graph::EvalContext ctx;
         me_status_t final_status = ME_OK;
         std::string work_err;
 
         /* Drive one demux graph per clip, collecting DemuxContext handles.
-         * Each DemuxContext stays alive until passthrough_mux returns (owned
-         * in `demuxes` below). */
+         * Each DemuxContext stays alive until sink->process returns. */
         std::vector<std::shared_ptr<io::DemuxContext>> demuxes;
         demuxes.reserve(plans.size());
         for (size_t i = 0; i < plans.size() && final_status == ME_OK; ++i) {
@@ -161,44 +138,13 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         }
 
         if (final_status == ME_OK) {
-            if (passthrough) {
-                PassthroughMuxOptions opts;
-                opts.out_path  = out_path;
-                opts.container = container;
-                opts.cancel    = &raw->cancel;
-                if (cb) opts.on_ratio = progress_cb;
-                opts.segments.reserve(plans.size());
-                for (size_t i = 0; i < plans.size(); ++i) {
-                    opts.segments.push_back(PassthroughSegment{
-                        demuxes[i],
-                        plans[i].source_start,
-                        plans[i].source_duration,
-                        plans[i].time_offset,
-                    });
-                }
-                final_status = passthrough_mux(opts, &work_err);
-            } else {
-                /* reencode: single-clip enforced above. */
-                ReencodeOptions opts;
-                opts.out_path           = out_path;
-                opts.container          = container;
-                opts.video_codec        = vcodec;
-                opts.audio_codec        = acodec;
-                opts.video_bitrate_bps  = vbr;
-                opts.audio_bitrate_bps  = abr;
-                opts.cancel             = &raw->cancel;
-                if (cb) opts.on_ratio   = progress_cb;
-                final_status = reencode_mux(*demuxes.front(), opts, &work_err);
-            }
+            final_status = sink_shared->process(std::move(demuxes), &work_err);
         }
 
         raw->result = final_status;
         if (final_status != ME_OK) {
             /* Stash on the Job; caller's thread-local last-error slot is
-             * populated in me_render_wait after the worker joins. The
-             * worker's own thread_local map is a different instance and
-             * writing to it here would leak into nowhere the API caller
-             * can query from. */
+             * populated in me_render_wait after the worker joins. */
             raw->err_msg = std::move(work_err);
         }
         (void)eng;  /* kept in capture list for future per-engine state */

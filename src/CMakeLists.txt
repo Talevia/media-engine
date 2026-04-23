@@ -46,6 +46,7 @@ add_library(media_engine
   orchestrator/reencode_video.cpp
   orchestrator/reencode_audio.cpp
   orchestrator/reencode_pipeline.cpp
+  orchestrator/output_sink.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
   orchestrator/thumbnailer.cpp

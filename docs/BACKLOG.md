@@ -15,7 +15,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **output-sink-interface** — `Exporter::export_to` 现有两个 if-else 分支派到 `passthrough_mux` / `reencode_mux`；加第三种（prores、hevc）要在 worker thread lambda 里再 capture 一圈变量 + 再加一个分支（PAIN_POINTS 2026-04-22）。**方向：** 抽 `class OutputSink { virtual me_status_t process(DemuxContext&, ...) = 0; }` 接口；两个现有实现包成 `PassthroughSink` / `H264AacSink`，按 spec 选一个注入 worker thread。与未来 codec registry 同构。Milestone §M2-prep，Rubric §5.2。
 - **codec-pool-impl** — `me::resource::CodecPool` 目前是空壳（构造即用、无缓存）；M4 audio polish + 多 clip re-encode 都需要 AVCodecContext 按 codec_id+profile+size 复用。**方向：** 内部 `unordered_map<CodecKey, shared_ptr<AVCodecContext>>` + mutex；get-or-create API；on_release 把 encoder 放回池（但 decoder 因为 stateful 仍要新建）。`me_cache_stats.codec_ctx_count` 也从这里来。Milestone §M1-close / §M4-prep，Rubric §5.3。
 - **debt-cmake-policy-centralize** — `FetchContent_MakeAvailable(doctest)` 前要 `set(CMAKE_POLICY_VERSION_MINIMUM 3.5)`（PAIN_POINTS 2026-04-23）；nlohmann/taskflow 未来任意一个踩同样地板，每处都要复制。**方向：** 新增 `cmake/fetchcontent_policy.cmake` 集中收口，`tests/` + `src/` 的 FetchContent 调用前都 `include()` 一次；doctest 当前 workaround 归位到新 helper 里。Milestone §M1-debt，Rubric §5.2。
 - **debt-test-timeline-builder-helper** — `test_timeline_schema.cpp` + `test_determinism.cpp` 都在代码里手写 "最小合法 timeline JSON"（PAIN_POINTS 2026-04-23 两次点过）；schema 字段任何改名都要在 N 个 test 同时改。**方向：** 新增 `tests/timeline_builder.hpp` 提供 `TimelineBuilder::minimal_video_clip(uri, dur_num, dur_den)` 之类 builder，返回 `std::string`。每个 test 改用 builder，消除"N 处 find+replace"的维护负担。Milestone §M1-debt，Rubric §5.2。
