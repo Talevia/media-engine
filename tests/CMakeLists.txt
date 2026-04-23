@@ -21,6 +21,7 @@ set(_test_suites
   test_status
   test_engine
   test_timeline_schema
+  test_content_hash
 )
 
 foreach(_suite ${_test_suites})
@@ -30,3 +31,8 @@ foreach(_suite ${_test_suites})
     doctest::doctest)
   add_test(NAME ${_suite} COMMAND ${_suite})
 endforeach()
+
+# test_content_hash pokes at internal resource headers (AssetHashCache,
+# content_hash) — expose src/ to this one suite the same way
+# 02_graph_smoke does for internal validation.
+target_include_directories(test_content_hash PRIVATE ${CMAKE_SOURCE_DIR}/src)

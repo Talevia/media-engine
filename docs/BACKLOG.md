@@ -14,7 +14,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **content-hash-asset** — Asset schema 有 `contentHash` 字段但引擎没用。**方向：** 若 JSON 缺 contentHash，首次打开 asset 时流式 sha256 并缓存；若提供则信任。为后续 cache key 做准备。Milestone §M1，Rubric §5.1 + §5.4。
 - **determinism-regression-test** — 没有任何测试锁定"软件路径输出字节稳定"。**方向：** doctest 里加：同 JSON 渲染两次，断言两个 MP4 字节相同（passthrough 场景下 trivially 应成立，用它兜底）。Milestone §M1，Rubric §5.3。
 - **debt-stub-inventory** — 代码里 stub 散落（cache_*、thumbnail_*、render_frame），没有单一视图看「还有多少 API 没实装」。**方向：** `tools/check_stubs.sh`（grep `ME_E_UNSUPPORTED` 外加白名单），输出未实装函数表。CI / iterate-gap 的 M1 进度可直接读它。Milestone §M1，Rubric §5.2。
 - **debt-thread-local-last-error** — `engine_impl.hpp` 目前用 mutex 守 last_error，但 API.md 承诺「thread-local per engine」。**方向：** 换成 `thread_local std::string` slot per engine（用 `std::unordered_map<std::thread::id, string>` 或真正 `thread_local` 变量带 engine 区分），mutex 保留给初始化/销毁。Milestone §M1，Rubric §5.2。

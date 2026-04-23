@@ -63,12 +63,42 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 "resolution must be positive");
 
         /* --- Assets (index by id) --------------------------------------- */
-        std::unordered_map<std::string, std::string> asset_uri;
+        /* Map id → (uri, content_hash). content_hash: if JSON has
+         * "contentHash": "sha256:<hex>", strip the prefix; any other
+         * algorithm string is rejected because the engine only computes
+         * sha256 (CLAUDE.md invariant: whitelist algo). */
+        struct AssetEntry { std::string uri; std::string hash_hex; };
+        std::unordered_map<std::string, AssetEntry> asset_map;
         if (doc.contains("assets")) {
             for (const auto& a : doc["assets"]) {
                 std::string id  = a.at("id").get<std::string>();
                 std::string uri = a.at("uri").get<std::string>();
-                asset_uri.emplace(std::move(id), std::move(uri));
+                std::string hex;
+                if (a.contains("contentHash") && a["contentHash"].is_string()) {
+                    const std::string raw = a["contentHash"].get<std::string>();
+                    constexpr std::string_view prefix{"sha256:"};
+                    if (raw.size() > prefix.size() &&
+                        raw.compare(0, prefix.size(), prefix) == 0) {
+                        hex = raw.substr(prefix.size());
+                        require(hex.size() == 64, ME_E_PARSE,
+                                "asset[" + id + "].contentHash: sha256 hex must be 64 chars");
+                        for (char c : hex) {
+                            require((c >= '0' && c <= '9') ||
+                                    (c >= 'a' && c <= 'f') ||
+                                    (c >= 'A' && c <= 'F'),
+                                    ME_E_PARSE,
+                                    "asset[" + id + "].contentHash: non-hex char");
+                        }
+                        /* Normalize to lowercase for cache key stability. */
+                        for (char& c : hex) {
+                            if (c >= 'A' && c <= 'F') c = static_cast<char>(c + ('a' - 'A'));
+                        }
+                    } else if (!raw.empty()) {
+                        throw LoadError{ME_E_UNSUPPORTED,
+                            "asset[" + id + "].contentHash: only \"sha256:\" prefix supported"};
+                    }
+                }
+                asset_map.emplace(std::move(id), AssetEntry{std::move(uri), std::move(hex)});
             }
         }
 
@@ -113,8 +143,8 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                     ME_E_UNSUPPORTED, where + ": phase-1: clip.transform not supported");
 
             const std::string asset_id = clip.at("assetId").get<std::string>();
-            auto it = asset_uri.find(asset_id);
-            require(it != asset_uri.end(), ME_E_PARSE,
+            auto it = asset_map.find(asset_id);
+            require(it != asset_map.end(), ME_E_PARSE,
                     where + ".assetId refers to unknown asset");
 
             const auto& tr = clip.at("timeRange");
@@ -134,10 +164,11 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
             require(s_start.num >= 0, ME_E_PARSE, where + ".sourceRange.start must be >= 0");
 
             me::Clip c;
-            c.asset_uri      = it->second;
+            c.asset_uri      = it->second.uri;
             c.time_start     = t_start;
             c.time_duration  = t_dur;
             c.source_start   = s_start;
+            c.content_hash   = it->second.hash_hex;
             tl.clips.push_back(std::move(c));
 
             /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d).

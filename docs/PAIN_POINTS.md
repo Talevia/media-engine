@@ -53,3 +53,25 @@ doctest v2.4.11 的 `CMakeLists.txt` 声明 `cmake_minimum_required(VERSION 2.8)
 ### 2026-04-23 · multi-clip-single-track — Timeline 的 `time_offset` 传进 passthrough 后被忽略
 
 `PassthroughSegment::time_offset` 当前是 advisory —— 实际的输出 PTS 由"接着前一段的 DTS 走"决定（按 libavformat concat demuxer 的习惯）。这对 phase-1"contiguous clips no gaps"的场景是对的，但 schema v2 要加 gaps / silence（`timeRange.start > prior_end`）时，这个字段就必须被认真读入。**方向：** 等 schema 允许 gaps 再动。当下：struct 上那个字段实际是 dead code，容易误导读者以为在用。（没有修，因为 phase-1 不支持 gaps；但文档 + struct comment 都已说明，降低读代码时的困惑。）
+
+### 2026-04-23 · content-hash-asset — Timeline IR 没有 asset 表，hash 跟着 clip 走
+
+`Timeline` 只有 `std::vector<Clip>`，没有 `assets` map。想把 `contentHash` 挂在 asset
+上就得塞进 `Clip`，结果是同一 asset 被多个 clip 引用时 hash 字段重复存储（不大，但
+不正交）。当前 loader 的局部 `asset_map`（id → uri + hash）本来就存在，但 drops 在栈帧
+末尾，调用方（`me_timeline_load_json`）只能从 `Clip` 里反查。**方向：** 把 `asset_map`
+提升到 `Timeline` IR 的一等成员（`std::unordered_map<std::string, me::Asset>`
+by id），然后 `Clip` 只带 `asset_id` 而不是 `asset_uri`；访问 uri / hash / colorSpace
+等都经 `timeline.assets.at(clip.asset_id)`。这样 multi-clip 同源时 hash / colorSpace
+只存一份。M2 做 multi-track / multi-asset 混合时几乎肯定要这么重构，先记下。
+
+### 2026-04-23 · content-hash-asset — 缓存 seed 的工作落在 C API 边界而非 loader 里
+
+`me_timeline_load_json`（`src/api/timeline.cpp`）在 loader 成功返回后循环 `tl->clips`
+把 content_hash 灌进 `engine->asset_hashes`。这个 seed 步骤本质是"loader 输出的附带
+效应"，但 loader 自己不知道 engine 的存在（`me::timeline::load_json` 签名只吃 JSON）。
+结果 extern "C" 入口同时承担"薄胶水层"和"业务副作用触发点"两份职责。**方向：** 要么
+把 engine* 传进 `me::timeline::load_json`（loader 不再 engine-agnostic，但一次调用完成
+所有持久化），要么在 Timeline 自身暴露一个"apply_to_engine(Engine&)" hook。现在保持
+边界 thin——seed 就 4 行——但这种 pattern 不扩展（未来每多一种"load 时要 seed 的
+engine 资源"都要在 api/timeline.cpp 加一圈）。

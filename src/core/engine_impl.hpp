@@ -2,6 +2,7 @@
 #pragma once
 
 #include "media_engine/engine.h"
+#include "resource/asset_hash_cache.hpp"
 #include "resource/frame_pool.hpp"
 #include "scheduler/scheduler.hpp"
 
@@ -15,9 +16,10 @@ struct me_engine {
     /* Resources owned by engine lifetime. Declaration order matters —
      * Scheduler holds references to FramePool and CodecPool, so those must
      * outlive it. Destruction is reverse order (Scheduler first, good). */
-    std::unique_ptr<me::resource::FramePool>  frames;
-    std::unique_ptr<me::resource::CodecPool>  codecs;
-    std::unique_ptr<me::sched::Scheduler>     scheduler;
+    std::unique_ptr<me::resource::FramePool>       frames;
+    std::unique_ptr<me::resource::CodecPool>       codecs;
+    std::unique_ptr<me::resource::AssetHashCache>  asset_hashes;
+    std::unique_ptr<me::sched::Scheduler>          scheduler;
 
     /* NOTE: API.md specifies thread-local last-error per engine.
      * Phase-1 stub uses a single string under a mutex. Upgrade to

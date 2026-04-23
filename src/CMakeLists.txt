@@ -36,6 +36,8 @@ add_library(media_engine
   graph/graph.cpp
   task/registry.cpp
   resource/frame_pool.cpp
+  resource/content_hash.cpp
+  resource/asset_hash_cache.cpp
   scheduler/eval_instance.cpp
   scheduler/scheduler.cpp
   orchestrator/segment_cache.cpp

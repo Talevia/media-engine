@@ -15,8 +15,19 @@ extern "C" me_status_t me_timeline_load_json(
     me_status_t s = me::timeline::load_json(std::string_view(json, len), out, &err);
     if (s != ME_OK) {
         me::detail::set_error(engine, std::move(err));
+        return s;
     }
-    return s;
+    /* Seed the engine's asset-hash cache with hashes the JSON declared.
+     * Clips that omit contentHash leave the cache cold for that URI —
+     * AssetHashCache::get_or_compute will stream-hash on first demand. */
+    if (*out && engine->asset_hashes) {
+        for (const auto& clip : (*out)->tl.clips) {
+            if (!clip.content_hash.empty()) {
+                engine->asset_hashes->seed(clip.asset_uri, clip.content_hash);
+            }
+        }
+    }
+    return ME_OK;
 }
 
 extern "C" void me_timeline_destroy(me_timeline_t* tl) {

@@ -26,12 +26,13 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
     try {
         /* Resources owned by engine. Budget / codec-cache sizes will flow from
          * config once we define the keys; bootstrap uses defaults. */
-        e->frames    = std::make_unique<me::resource::FramePool>(
-                           e->config.memory_cache_bytes);
-        e->codecs    = std::make_unique<me::resource::CodecPool>();
-        e->scheduler = std::make_unique<me::sched::Scheduler>(
-                           me::sched::Config{.cpu_threads = e->config.num_worker_threads},
-                           *e->frames, *e->codecs);
+        e->frames       = std::make_unique<me::resource::FramePool>(
+                              e->config.memory_cache_bytes);
+        e->codecs       = std::make_unique<me::resource::CodecPool>();
+        e->asset_hashes = std::make_unique<me::resource::AssetHashCache>();
+        e->scheduler    = std::make_unique<me::sched::Scheduler>(
+                              me::sched::Config{.cpu_threads = e->config.num_worker_threads},
+                              *e->frames, *e->codecs);
     } catch (const std::exception& ex) {
         me::detail::set_error(e, ex.what());
         delete e;

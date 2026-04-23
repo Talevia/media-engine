@@ -17,6 +17,12 @@ struct Clip {
     me_rational_t time_start   { 0, 1 };
     me_rational_t time_duration{ 0, 1 };
     me_rational_t source_start { 0, 1 };
+
+    /* Optional: lowercase hex sha256 digest (64 chars) of the underlying
+     * asset bytes. Sourced from JSON `contentHash` when present. Empty
+     * string = unknown; the engine's AssetHashCache computes lazily on
+     * first need. */
+    std::string   content_hash;
 };
 
 struct Timeline {
