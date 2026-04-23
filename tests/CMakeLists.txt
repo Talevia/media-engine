@@ -38,6 +38,7 @@ set(_test_suites
   test_timeline_segment
   test_color_pipeline
   test_render_cancel
+  test_render_progress
 )
 
 foreach(_suite ${_test_suites})
@@ -142,4 +143,12 @@ target_compile_definitions(test_thumbnail PRIVATE
 # stream-copy finishes in under 200ms even at 10 clips on dev hardware.
 add_dependencies(test_render_cancel determinism_fixture)
 target_compile_definitions(test_render_cancel PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_render_progress exercises the me_progress_event_t ordering contract
+# (STARTED first / terminal last / ratio monotonic) — uses the shared
+# fixture for a single-clip passthrough on the happy path and a 3-clip
+# reencode for the cancel path (same reasoning as test_render_cancel).
+add_dependencies(test_render_progress determinism_fixture)
+target_compile_definitions(test_render_progress PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
