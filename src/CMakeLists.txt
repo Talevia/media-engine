@@ -121,6 +121,7 @@ add_library(media_engine STATIC
   timeline/segmentation.cpp
   color/pipeline.cpp
   audio/mix.cpp
+  audio/resample.cpp
   compose/active_clips.cpp
   compose/alpha_over.cpp
   compose/cross_dissolve.cpp

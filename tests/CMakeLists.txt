@@ -46,6 +46,7 @@ set(_test_suites
   test_compose_frame_convert
   test_audio_mix
   test_compose_cross_dissolve
+  test_audio_resample
 )
 
 foreach(_suite ${_test_suites})
@@ -98,6 +99,12 @@ target_include_directories(test_audio_mix PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # known RGBA values at canonical t points. Same src/-as-include
 # pattern as the other me::compose tests.
 target_include_directories(test_compose_cross_dissolve PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_audio_resample constructs synthetic AVFrames to drive
+# me::audio::resample_to — needs libav headers + src/ include.
+target_include_directories(test_audio_resample PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_audio_resample PRIVATE
+  FFMPEG::avutil FFMPEG::avcodec FFMPEG::swresample)
 
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from
