@@ -32,6 +32,38 @@ FetchContent_MakeAvailable(taskflow)
 
 find_package(FFMPEG REQUIRED)
 
+# OpenColorIO — opt-in (off by default; see ME_WITH_OCIO in top-level
+# CMakeLists.txt for the rationale). When on, we FetchContent OCIO
+# 2.3.2 and let it pull its own transitive deps (Imath, yaml-cpp,
+# pystring, expat, minizip-ng). OCIO's internal CMake sets
+# `CMAKE_POLICY_VERSION_MINIMUM` via our shared helper so the CMake 4.x
+# floor issue doesn't bite. `me::color::OcioPipeline` (not yet written)
+# will live next to `IdentityPipeline` in `src/color/` and link
+# `OpenColorIO::OpenColorIO` conditionally here.
+if(ME_WITH_OCIO)
+  FetchContent_Declare(
+    OpenColorIO
+    GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/OpenColorIO.git
+    GIT_TAG        v2.3.2
+    GIT_SHALLOW    TRUE
+  )
+  set(OCIO_BUILD_APPS       OFF CACHE INTERNAL "")
+  set(OCIO_BUILD_TESTS      OFF CACHE INTERNAL "")
+  set(OCIO_BUILD_GPU_TESTS  OFF CACHE INTERNAL "")
+  set(OCIO_BUILD_DOCS       OFF CACHE INTERNAL "")
+  set(OCIO_BUILD_PYTHON     OFF CACHE INTERNAL "")
+  set(OCIO_BUILD_JAVA       OFF CACHE INTERNAL "")
+  set(OCIO_WARNING_AS_ERROR OFF CACHE INTERNAL "")
+  # OCIO's share/cmake/utils/CppVersion.cmake calls
+  # `set_property(CACHE CMAKE_CXX_STANDARD PROPERTY STRINGS ...)`, which
+  # requires CMAKE_CXX_STANDARD to be a CACHE variable. Our top-level
+  # CMakeLists.txt sets it as a plain variable. Promote to CACHE before
+  # MakeAvailable so OCIO's internal CMake finds it.
+  set(CMAKE_CXX_STANDARD 20 CACHE STRING "" FORCE)
+  include(fetchcontent_policy)
+  FetchContent_MakeAvailable(OpenColorIO)
+endif()
+
 # --- Build-time version header --------------------------------------------
 # Capture the git short SHA (+ "-dirty" if the working tree has uncommitted
 # changes) at configure time and expose it to the C API via a generated
@@ -124,6 +156,17 @@ target_link_libraries(media_engine
     FFMPEG::swscale
     FFMPEG::swresample
 )
+
+# Conditional: `me::color::OcioPipeline` (future) will need OCIO linked.
+# Done separately from the required-deps block so OFF builds stay clean.
+if(ME_WITH_OCIO)
+  # OCIO's in-tree target is the bare name `OpenColorIO` (no namespace).
+  # A `find_package(OpenColorIO)` on an installed copy would expose
+  # `OpenColorIO::OpenColorIO` — when that path lands, update here and
+  # prefer the namespaced alias.
+  target_link_libraries(media_engine PRIVATE OpenColorIO)
+  target_compile_definitions(media_engine PRIVATE ME_HAS_OCIO=1)
+endif()
 
 target_compile_features(media_engine PUBLIC cxx_std_20)
 set_target_properties(media_engine PROPERTIES

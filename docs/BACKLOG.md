@@ -15,7 +15,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **ocio-integration-skeleton** — OpenColorIO 集成是 M2 硬条件但现在仓库一行 OCIO 代码都没有。一次性落大块会冲击 PR；拆成"先 FetchContent 进 CMake + 搭 `me::color` 命名空间 + identity pipeline" 这一步骨架就能验证依赖链接 + `ARCHITECTURE.md` 白名单加条 OCIO 条目。**方向：** `FetchContent_Declare(OCIO ...)` + `find_package(OCIO REQUIRED)` + `src/color/pipeline.hpp` 定义 `me::color::IdentityPipeline`（什么都不做，just pass-through），`ARCHITECTURE.md` 的 License table 加 OCIO (BSD)。不接 asset-colorspace-field，下一轮再接。Milestone §M2-prep，Rubric §5.1。
 - **docs-architecture-graph-two-exec-models** — `ARCHITECTURE_GRAPH.md` 只写了 "graph per-frame + scheduler" 一种执行模型，但 M1 reencode path 走 orchestrator streaming（`reencode_pipeline` 自持 decode→encode→mux）不走 graph per-frame。两种模型并存不写文档会让读者误以为 graph 是唯一路径。**方向：** `ARCHITECTURE_GRAPH.md` 顶部加"两种执行模型"小节：(a) graph per-frame（preview / thumbnail / cache），(b) orchestrator streaming（export / re-encode），给判别标准（stateful streaming vs stateless per-frame）。Milestone §M2-prep，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）

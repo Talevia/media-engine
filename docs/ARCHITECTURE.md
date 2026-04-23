@@ -83,7 +83,7 @@ VISION §3.4 locks the supply chain at LGPL-clean. Enforcement happens here:
 | FFmpeg (LGPL build only, no `--enable-gpl`) | LGPL-2.1+ | Phase 1 (I/O) |
 | bgfx     | BSD-2  | Phase 3 (GPU backend) |
 | Skia     | BSD-3  | Phase 5 (text / vector) |
-| OpenColorIO | BSD-3 | Phase 2 (color mgmt) |
+| OpenColorIO | BSD-3 | Phase 2 (color mgmt) — CMake opt-in behind `ME_WITH_OCIO` (OFF default); `me::color` namespace reserved via `IdentityPipeline` stub |
 | libass   | ISC    | Phase 5 (subtitles) |
 | miniaudio | MIT / public domain | Phase 4 (audio I/O) |
 | SoundTouch | LGPL-2.1 | Phase 4 (time-stretch) |
