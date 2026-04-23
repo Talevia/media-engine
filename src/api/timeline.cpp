@@ -17,13 +17,15 @@ extern "C" me_status_t me_timeline_load_json(
         me::detail::set_error(engine, std::move(err));
         return s;
     }
-    /* Seed the engine's asset-hash cache with hashes the JSON declared.
-     * Clips that omit contentHash leave the cache cold for that URI —
+    /* Seed the engine's asset-hash cache from the Timeline's Asset table.
+     * Iterating Timeline::assets (unordered_map) is safe here — seed() is
+     * idempotent per URI, so iteration order can't affect observable state.
+     * Assets that omit contentHash leave the cache cold for that URI;
      * AssetHashCache::get_or_compute will stream-hash on first demand. */
     if (*out && engine->asset_hashes) {
-        for (const auto& clip : (*out)->tl.clips) {
-            if (!clip.content_hash.empty()) {
-                engine->asset_hashes->seed(clip.asset_uri, clip.content_hash);
+        for (const auto& [id, asset] : (*out)->tl.assets) {
+            if (!asset.content_hash.empty()) {
+                engine->asset_hashes->seed(asset.uri, asset.content_hash);
             }
         }
     }

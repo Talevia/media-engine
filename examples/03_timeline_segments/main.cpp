@@ -38,8 +38,8 @@ Timeline make_tl(std::vector<Clip> clips, me_rational_t duration) {
     return tl;
 }
 
-Clip mk_clip(me_rational_t start, me_rational_t dur, const char* uri = "x") {
-    return Clip{.asset_uri = uri, .time_start = start, .time_duration = dur};
+Clip mk_clip(me_rational_t start, me_rational_t dur, const char* asset_id = "x") {
+    return Clip{.asset_id = asset_id, .time_start = start, .time_duration = dur};
 }
 
 #define CHECK(cond) do { if (!(cond)) { \

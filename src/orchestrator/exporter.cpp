@@ -53,6 +53,14 @@ struct ClipPlan {
     me_rational_t                 time_offset;
 };
 
+/* Resolve asset_id → uri via the Timeline's asset table. Used by the
+ * per-clip demux graph builder; loader has already rejected unknown ids,
+ * so `at()` is safe here (missing id is a programmer error, not a
+ * runtime-recoverable one). */
+const std::string& resolve_uri(const me::Timeline& tl, const std::string& asset_id) {
+    return tl.assets.at(asset_id).uri;
+}
+
 }  // namespace
 
 me_status_t Exporter::export_to(const me_output_spec_t& spec,
@@ -101,7 +109,8 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     std::vector<ClipPlan> plans;
     plans.reserve(tl_->clips.size());
     for (const auto& clip : tl_->clips) {
-        auto [g, term] = build_demux_graph(clip.asset_uri);
+        const std::string& uri = resolve_uri(*tl_, clip.asset_id);
+        auto [g, term] = build_demux_graph(uri);
         graph_cache_.insert(g->content_hash(), g);
         plans.push_back(ClipPlan{
             g, term,

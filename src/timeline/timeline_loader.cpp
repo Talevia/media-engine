@@ -63,12 +63,10 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 "resolution must be positive");
 
         /* --- Assets (index by id) --------------------------------------- */
-        /* Map id → (uri, content_hash). content_hash: if JSON has
+        /* Populate Timeline::assets directly. content_hash: if JSON has
          * "contentHash": "sha256:<hex>", strip the prefix; any other
          * algorithm string is rejected because the engine only computes
          * sha256 (CLAUDE.md invariant: whitelist algo). */
-        struct AssetEntry { std::string uri; std::string hash_hex; };
-        std::unordered_map<std::string, AssetEntry> asset_map;
         if (doc.contains("assets")) {
             for (const auto& a : doc["assets"]) {
                 std::string id  = a.at("id").get<std::string>();
@@ -98,7 +96,8 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                             "asset[" + id + "].contentHash: only \"sha256:\" prefix supported"};
                     }
                 }
-                asset_map.emplace(std::move(id), AssetEntry{std::move(uri), std::move(hex)});
+                tl.assets.emplace(std::move(id),
+                                   me::Asset{std::move(uri), std::move(hex)});
             }
         }
 
@@ -143,8 +142,7 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                     ME_E_UNSUPPORTED, where + ": phase-1: clip.transform not supported");
 
             const std::string asset_id = clip.at("assetId").get<std::string>();
-            auto it = asset_map.find(asset_id);
-            require(it != asset_map.end(), ME_E_PARSE,
+            require(tl.assets.find(asset_id) != tl.assets.end(), ME_E_PARSE,
                     where + ".assetId refers to unknown asset");
 
             const auto& tr = clip.at("timeRange");
@@ -164,11 +162,10 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
             require(s_start.num >= 0, ME_E_PARSE, where + ".sourceRange.start must be >= 0");
 
             me::Clip c;
-            c.asset_uri      = it->second.uri;
+            c.asset_id       = asset_id;
             c.time_start     = t_start;
             c.time_duration  = t_dur;
             c.source_start   = s_start;
-            c.content_hash   = it->second.hash_hex;
             tl.clips.push_back(std::move(c));
 
             /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d).
