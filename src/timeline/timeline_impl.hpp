@@ -89,6 +89,15 @@ struct Transform {
     double anchor_y     = 0.5;
 };
 
+/* Media kind of a clip. Mirrors TIMELINE_SCHEMA.md §Clip `"type"` enum
+ * values "video" and "audio". Text clips (M5) will extend this enum.
+ * Loader enforces that a clip's type matches its parent track's kind
+ * (no audio clips on a video track or vice versa). */
+enum class ClipType : uint8_t {
+    Video = 0,
+    Audio = 1,
+};
+
 struct Clip {
     /* Reference into Timeline::assets. Guaranteed non-empty after load;
      * loader rejects clips with unknown asset_id. */
@@ -101,6 +110,8 @@ struct Clip {
      * after load. */
     std::string   track_id;
 
+    ClipType      type{ClipType::Video};
+
     me_rational_t time_start   { 0, 1 };
     me_rational_t time_duration{ 0, 1 };
     me_rational_t source_start { 0, 1 };
@@ -108,8 +119,28 @@ struct Clip {
     /* Optional 2D transform. Populated iff JSON clip carries a
      * `transform` object (empty object = Transform{} with identity
      * defaults; absent = nullopt). Phase-1 is static-only; the loader
-     * rejects the `keyframes` animated form. */
+     * rejects the `keyframes` animated form. Valid on video clips
+     * only — loader rejects transform on audio clips (semantically
+     * meaningless). */
     std::optional<Transform> transform;
+
+    /* Audio-only: optional static gain in decibels. Populated iff
+     * JSON clip carries a `gainDb` object of the form
+     * `{"static": <number>}`. Phase-1 static-only; `keyframes` form
+     * rejected by loader. Ignored on video clips (loader rejects
+     * gainDb on video). Consumer is audio-mix-kernel (M2 follow-up)
+     * and M4 audio-effect-chain. */
+    std::optional<double> gain_db;
+};
+
+/* Kind of a compositing track. Audio tracks carry audio clips, video
+ * tracks carry video clips; the loader enforces the match. The
+ * eventual compose kernel uses Kind to decide whether to route this
+ * track's frames through the video blend path (Video) or the audio
+ * mix path (Audio). */
+enum class TrackKind : uint8_t {
+    Video = 0,
+    Audio = 1,
 };
 
 /* Compositing track metadata. Clips live in the flat Timeline::clips
@@ -127,6 +158,7 @@ struct Clip {
  * item. */
 struct Track {
     std::string id;
+    TrackKind   kind{TrackKind::Video};
     bool        enabled{true};
 };
 

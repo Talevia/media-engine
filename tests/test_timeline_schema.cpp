@@ -593,3 +593,212 @@ TEST_CASE("clip transform missing static key rejected as ME_E_PARSE") {
     CHECK(load(f.eng, b.build(), &tl) == ME_E_PARSE);
     CHECK(tl == nullptr);
 }
+
+/* ========================================================================
+ * Audio tracks — audio-mix-two-track schema+IR scope. Loader accepts
+ * `kind: audio` tracks with `type: audio` clips and optional static
+ * `gainDb`; Exporter rejects audio tracks until audio-mix-kernel lands.
+ * ======================================================================== */
+
+TEST_CASE("audio track with audio clip + static gainDb loads into IR") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"audio","uri":"file:///tmp/audio.wav"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"audio","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "sourceRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "gainDb":{"static":-6.0}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    REQUIRE(tl != nullptr);
+    REQUIRE(tl->tl.tracks.size() == 1);
+    CHECK(tl->tl.tracks[0].kind == me::TrackKind::Audio);
+    REQUIRE(tl->tl.clips.size() == 1);
+    CHECK(tl->tl.clips[0].type == me::ClipType::Audio);
+    REQUIRE(tl->tl.clips[0].gain_db.has_value());
+    CHECK(*tl->tl.clips[0].gain_db == -6.0);
+    CHECK_FALSE(tl->tl.clips[0].transform.has_value());
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("audio track without gainDb loads with gain_db == nullopt") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"audio","uri":"file:///tmp/audio.wav"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"audio","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "sourceRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    CHECK(tl->tl.clips[0].type == me::ClipType::Audio);
+    CHECK_FALSE(tl->tl.clips[0].gain_db.has_value());
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("standalone audio track is rejected at render layer by Exporter") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"audio","uri":"file:///tmp/audio.wav"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"audio","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "sourceRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+
+    me_output_spec_t spec{};
+    spec.path = "/tmp/me-audio-reject.mp4";
+    spec.container = "mp4";
+    spec.video_codec = "passthrough";
+    spec.audio_codec = "passthrough";
+    me_render_job_t* job = nullptr;
+    CHECK(me_render_start(f.eng, tl, &spec, nullptr, nullptr, &job) == ME_E_UNSUPPORTED);
+    CHECK(job == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("standalone audio tracks not yet implemented") != std::string::npos);
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("audio clip inside a video track is rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///tmp/x.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"audio","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("must match parent track.kind") != std::string::npos);
+}
+
+TEST_CASE("video clip inside an audio track is rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"audio","uri":"file:///tmp/x.wav"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+}
+
+TEST_CASE("gainDb on a video clip is rejected as ME_E_PARSE") {
+    EngineFixture f;
+    tb::TimelineBuilder b;
+    b.add_asset(tb::AssetSpec{});
+    b.add_clip(tb::ClipSpec{.extra = R"("gainDb":{"static":0.0},)"});
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, b.build(), &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("gainDb") != std::string::npos);
+    CHECK(std::string{err}.find("not valid on video clip") != std::string::npos);
+}
+
+TEST_CASE("transform on an audio clip is rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"audio","uri":"file:///tmp/x.wav"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"audio","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "sourceRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "transform":{"opacity":{"static":0.5}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("transform") != std::string::npos);
+    CHECK(std::string{err}.find("audio clip") != std::string::npos);
+}
+
+TEST_CASE("unknown track.kind is rejected as ME_E_UNSUPPORTED") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":"file:///tmp/x.mp4"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"t0","kind":"subtitle","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_UNSUPPORTED);
+    CHECK(tl == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("only 'video' and 'audio'") != std::string::npos);
+}

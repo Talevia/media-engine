@@ -59,6 +59,19 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         if (err) *err = "phase-1: timeline must have at least one clip";
         return ME_E_UNSUPPORTED;
     }
+    /* Phase-1 sequential (passthrough / reencode) render path assumes
+     * a single video track. Audio comes from the video clips' embedded
+     * audio streams (bypassing any IR Track::Audio structure). Until
+     * the audio mix kernel lands, reject standalone audio tracks so
+     * hosts see an accurate error rather than a silently empty audio
+     * stream in the output. */
+    for (const auto& t : tl_->tracks) {
+        if (t.kind == me::TrackKind::Audio) {
+            if (err) *err = "standalone audio tracks not yet implemented — "
+                            "see audio-mix-kernel backlog item";
+            return ME_E_UNSUPPORTED;
+        }
+    }
     /* Phase-1 sequential (passthrough / reencode) render path only
      * handles a single track — multi-track composition is the job of
      * the compose kernel (tracked by the multi-track-compose-kernel

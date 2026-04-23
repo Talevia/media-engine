@@ -274,9 +274,17 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
             require(track_id_seen.emplace(track_id, ti).second, ME_E_PARSE,
                     track_where + ": duplicate track id '" + track_id + "'");
 
-            require(track.at("kind").get<std::string>() == "video",
-                    ME_E_UNSUPPORTED,
-                    track_where + ": phase-1: only video tracks supported");
+            const std::string track_kind_str = track.at("kind").get<std::string>();
+            me::TrackKind track_kind;
+            if      (track_kind_str == "video") track_kind = me::TrackKind::Video;
+            else if (track_kind_str == "audio") track_kind = me::TrackKind::Audio;
+            else {
+                throw LoadError{ME_E_UNSUPPORTED,
+                    track_where + ".kind: only 'video' and 'audio' supported (got '" +
+                    track_kind_str + "')"};
+            }
+            const char* expected_clip_type =
+                (track_kind == me::TrackKind::Video) ? "video" : "audio";
 
             const bool track_enabled =
                 track.contains("enabled") ? track.at("enabled").get<bool>() : true;
@@ -295,8 +303,10 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 const auto& clip = clips[i];
                 const std::string where = track_where + ".clip[" + std::to_string(i) + "]";
 
-                require(clip.at("type").get<std::string>() == "video",
-                        ME_E_UNSUPPORTED, where + ": phase-1 only video clips");
+                const std::string clip_type = clip.at("type").get<std::string>();
+                require(clip_type == expected_clip_type, ME_E_PARSE,
+                        where + ".type: must match parent track.kind (expected '" +
+                        expected_clip_type + "', got '" + clip_type + "')");
                 require(!clip.contains("effects") || clip["effects"].empty(),
                         ME_E_UNSUPPORTED, where + ": phase-1: clip.effects not supported");
 
@@ -323,11 +333,23 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 me::Clip c;
                 c.asset_id       = asset_id;
                 c.track_id       = track_id;
+                c.type           = (track_kind == me::TrackKind::Video)
+                                       ? me::ClipType::Video : me::ClipType::Audio;
                 c.time_start     = t_start;
                 c.time_duration  = t_dur;
                 c.source_start   = s_start;
                 if (clip.contains("transform")) {
+                    require(track_kind == me::TrackKind::Video, ME_E_PARSE,
+                            where + ".transform: not valid on audio clip (2D positional "
+                            "transform is meaningless for audio)");
                     c.transform = parse_transform(clip["transform"], where + ".transform");
+                }
+                if (clip.contains("gainDb")) {
+                    require(track_kind == me::TrackKind::Audio, ME_E_PARSE,
+                            where + ".gainDb: not valid on video clip (audio gain is "
+                            "only meaningful for audio clips)");
+                    c.gain_db = parse_animated_static_number(
+                        clip["gainDb"], where + ".gainDb");
                 }
                 tl.clips.push_back(std::move(c));
 
@@ -338,7 +360,7 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 };
             }
 
-            tl.tracks.push_back(me::Track{track_id, track_enabled});
+            tl.tracks.push_back(me::Track{track_id, track_kind, track_enabled});
             if (rational_gt(running, max_duration)) max_duration = running;
         }
         tl.duration = max_duration;
