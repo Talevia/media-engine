@@ -1,0 +1,89 @@
+/*
+ * Core graph data types — pure data, no logic.
+ *
+ * See docs/ARCHITECTURE_GRAPH.md §Graph 内部 for the contract.
+ */
+#pragma once
+
+#include "media_engine/types.h"
+
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <string>
+#include <variant>
+#include <vector>
+
+namespace me::graph { struct InputValue; }
+namespace me::resource { class FrameHandle; }
+
+namespace me::graph {
+
+/* Node index within a Graph::Builder / Graph. Stable through build(). */
+struct NodeId {
+    uint32_t v = 0;
+    constexpr bool operator==(const NodeId&) const = default;
+};
+
+/* Reference to a specific output port of a specific node. */
+struct PortRef {
+    NodeId  node{};
+    uint8_t port_idx = 0;
+    constexpr bool operator==(const PortRef&) const = default;
+};
+
+/* Typed tag for input/output values. Mirrors the order of the InputValue
+ * variant so index-to-type is 1:1 and hashable. */
+enum class TypeId : uint8_t {
+    Empty   = 0,   /* monostate */
+    Int64   = 1,
+    Float64 = 2,
+    Bool    = 3,
+    String  = 4,
+    Frame   = 5,   /* resource::FrameHandle */
+    /* AudioBuf / PacketStream / MetaBlob will be appended; never reordered. */
+};
+
+/* The typed value carried along a port. Kernels read inputs as InputValue
+ * and write outputs into the same variant type. */
+struct InputValue {
+    std::variant<
+        std::monostate,
+        int64_t,
+        double,
+        bool,
+        std::string,
+        std::shared_ptr<resource::FrameHandle>
+    > v;
+
+    TypeId type() const noexcept {
+        return static_cast<TypeId>(v.index());
+    }
+};
+
+/* OutputSlot is structurally identical; named separately for API clarity. */
+using OutputSlot = InputValue;
+
+/* Typed, named port declarations — used by both Node (runtime instances) and
+ * task::KindInfo (schema registration). */
+struct Port {
+    std::string name;    /* "video_in", "frame", "mask", … */
+    TypeId      type = TypeId::Empty;
+};
+
+struct InputPort {
+    std::string name;
+    TypeId      type = TypeId::Empty;
+    PortRef     source{};
+};
+
+struct OutputPort {
+    std::string name;
+    TypeId      type = TypeId::Empty;
+};
+
+/* Properties — typed map from string key to InputValue. Keys are sorted so
+ * content_hash is order-stable across platforms and rebuilds. */
+using Properties = std::map<std::string, InputValue>;
+
+}  // namespace me::graph

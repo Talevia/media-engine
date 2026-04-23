@@ -31,7 +31,11 @@ add_library(media_engine
   core/version.cpp
   timeline/timeline_loader.cpp
   io/ffmpeg_remux.cpp
-  scheduler/taskflow_probe.cpp
+  graph/graph.cpp
+  task/registry.cpp
+  resource/frame_pool.cpp
+  scheduler/eval_instance.cpp
+  scheduler/scheduler.cpp
   api/engine.cpp
   api/timeline.cpp
   api/render.cpp

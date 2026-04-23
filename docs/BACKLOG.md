@@ -12,7 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **graph-task-bootstrap** — `src/graph/` / `src/task/` / `src/scheduler/` 只有 README，五模块约定的基础类型都还没 code。**方向：** 按 `docs/ARCHITECTURE_GRAPH.md` 实装：Node/Graph/Builder 纯数据（多 I/O Port + 命名 terminal）、TaskKindId 枚举 + KernelFn 注册表 + TaskContext、Future + EvalInstance + Scheduler 最小执行环路——到"单 Node 的 Graph 能被 scheduler.evaluate_port 求值跑出 kernel 并产出 output"为止。Milestone §M1，Rubric §5.1 + §5.2。
 - **timeline-segmentation** — Timeline 按时间段对应多个 Graph 的前提是有切段算法；目前没有。**方向：** `src/timeline/segmentation.{hpp,cpp}` 实装 `Segment` + `segment(Timeline)`；单 clip Timeline → 1 段；两 clip + cross-dissolve Timeline → 3 段（前段独占、过渡段、后段独占）。带 doctest 单测覆盖两种 case。Milestone §M1，Rubric §5.1。
 - **refactor-passthrough-into-graph-exporter** — 当前 `src/io/ffmpeg_remux.cpp` 单线程直接跑 remux；要迁到 `io::demux` kernel + `orchestrator::Exporter` passthrough specialization。**方向：** 拆 demux 逻辑为 kernel，mux 逻辑归 Exporter 自持的 `MuxerState`；passthrough 走 stream-copy 特例路径；行为 bit-identical（`01_passthrough` 回归绿）。依赖 `graph-task-bootstrap` 和 `orchestrator-bootstrap`。Milestone §M1，Rubric §5.1 + §5.3。
 - **probe-impl** — `me_probe` / `me_media_info_*` 目前全部返回 `ME_E_UNSUPPORTED`。**方向：** 基于 libavformat 实装：open → find_stream_info → 填充 container / codec / W×H / 帧率 / 采样率 / 声道 / duration。Milestone §M1，Rubric §5.1 + §5.2。
