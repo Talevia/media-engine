@@ -17,6 +17,7 @@
 #include "graph/future.hpp"
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
+#include "resource/codec_pool.hpp"
 #include "resource/frame_pool.hpp"
 #include "scheduler/scheduler.hpp"
 #include "task/context.hpp"

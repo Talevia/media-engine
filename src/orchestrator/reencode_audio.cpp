@@ -18,22 +18,22 @@ std::string av_err_str(int rc) {
     return std::string(buf);
 }
 
-using CodecCtxPtr = me::io::AvCodecContextPtr;
 using PacketPtr   = me::io::AvPacketPtr;
 
 }  // namespace
 
-me_status_t open_audio_encoder(const AVCodecContext* dec,
-                               int64_t               bitrate_bps,
-                               bool                  global_header,
-                               CodecCtxPtr&          out_enc,
-                               std::string*          err) {
+me_status_t open_audio_encoder(me::resource::CodecPool&      pool,
+                               const AVCodecContext*         dec,
+                               int64_t                       bitrate_bps,
+                               bool                          global_header,
+                               me::resource::CodecPool::Ptr& out_enc,
+                               std::string*                  err) {
     const AVCodec* enc = avcodec_find_encoder_by_name("aac");
     if (!enc) {
         if (err) *err = "encoder aac not available";
         return ME_E_UNSUPPORTED;
     }
-    CodecCtxPtr ctx(avcodec_alloc_context3(enc));
+    auto ctx = pool.allocate(enc);
     if (!ctx) return ME_E_OUT_OF_MEMORY;
 
     /* FFmpeg's built-in AAC encoder supports a fixed sample rate set

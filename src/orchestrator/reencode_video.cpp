@@ -17,24 +17,24 @@ std::string av_err_str(int rc) {
     return std::string(buf);
 }
 
-using CodecCtxPtr = me::io::AvCodecContextPtr;
 using PacketPtr   = me::io::AvPacketPtr;
 
 }  // namespace
 
-me_status_t open_video_encoder(const AVCodecContext* dec,
-                               AVRational            stream_time_base,
-                               int64_t               bitrate_bps,
-                               bool                  global_header,
-                               CodecCtxPtr&          out_enc,
-                               AVPixelFormat&        out_target_pix,
-                               std::string*          err) {
+me_status_t open_video_encoder(me::resource::CodecPool&      pool,
+                               const AVCodecContext*         dec,
+                               AVRational                    stream_time_base,
+                               int64_t                       bitrate_bps,
+                               bool                          global_header,
+                               me::resource::CodecPool::Ptr& out_enc,
+                               AVPixelFormat&                out_target_pix,
+                               std::string*                  err) {
     const AVCodec* enc = avcodec_find_encoder_by_name("h264_videotoolbox");
     if (!enc) {
         if (err) *err = "encoder h264_videotoolbox not available in this FFmpeg build";
         return ME_E_UNSUPPORTED;
     }
-    CodecCtxPtr ctx(avcodec_alloc_context3(enc));
+    auto ctx = pool.allocate(enc);
     if (!ctx) return ME_E_OUT_OF_MEMORY;
 
     ctx->width               = dec->width;

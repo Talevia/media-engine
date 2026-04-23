@@ -10,6 +10,7 @@
 
 #include "io/ffmpeg_raii.hpp"
 #include "media_engine/types.h"
+#include "resource/codec_pool.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -27,13 +28,14 @@ namespace me::orchestrator::detail {
  * sws_scale into NV12 when the decoded pix_fmt differs. `global_header`
  * must be true when the output container has AVFMT_GLOBALHEADER (MP4/MOV)
  * — must be set before avcodec_open2. */
-me_status_t open_video_encoder(const AVCodecContext*      dec,
-                               AVRational                 stream_time_base,
-                               int64_t                    bitrate_bps,
-                               bool                       global_header,
-                               me::io::AvCodecContextPtr& out_enc,
-                               AVPixelFormat&             out_target_pix,
-                               std::string*               err);
+me_status_t open_video_encoder(me::resource::CodecPool&     pool,
+                               const AVCodecContext*        dec,
+                               AVRational                   stream_time_base,
+                               int64_t                      bitrate_bps,
+                               bool                         global_header,
+                               me::resource::CodecPool::Ptr& out_enc,
+                               AVPixelFormat&               out_target_pix,
+                               std::string*                 err);
 
 /* Encode one decoded video frame (or nullptr for flush). Scales into NV12
  * when `sws` is provided. Drains the encoder and writes produced packets

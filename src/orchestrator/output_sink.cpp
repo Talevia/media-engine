@@ -3,6 +3,7 @@
 #include "io/demux_context.hpp"
 #include "orchestrator/muxer_state.hpp"
 #include "orchestrator/reencode_pipeline.hpp"
+#include "resource/codec_pool.hpp"
 
 #include <string>
 #include <utility>
@@ -68,8 +69,10 @@ private:
  * ========================================================================== */
 class H264AacSink final : public OutputSink {
 public:
-    H264AacSink(SinkCommon common, const me_output_spec_t& spec)
+    H264AacSink(SinkCommon common, const me_output_spec_t& spec,
+                 me::resource::CodecPool* pool)
         : common_(std::move(common)),
+          pool_(pool),
           video_bitrate_(spec.video_bitrate_bps),
           audio_bitrate_(spec.audio_bitrate_bps) {}
 
@@ -93,13 +96,15 @@ public:
         opts.audio_bitrate_bps = audio_bitrate_;
         opts.cancel            = common_.cancel;
         opts.on_ratio          = common_.on_ratio;
+        opts.pool              = pool_;
         return reencode_mux(*demuxes.front(), opts, err);
     }
 
 private:
-    SinkCommon common_;
-    int64_t    video_bitrate_ = 0;
-    int64_t    audio_bitrate_ = 0;
+    SinkCommon                common_;
+    me::resource::CodecPool*  pool_          = nullptr;
+    int64_t                   video_bitrate_ = 0;
+    int64_t                   audio_bitrate_ = 0;
 };
 
 }  // namespace
@@ -108,6 +113,7 @@ std::unique_ptr<OutputSink> make_output_sink(
     const me_output_spec_t&     spec,
     SinkCommon                  common,
     std::vector<ClipTimeRange>  clip_ranges,
+    me::resource::CodecPool*    codec_pool,
     std::string*                err) {
 
     if (!spec.path) {
@@ -120,6 +126,7 @@ std::unique_ptr<OutputSink> make_output_sink(
     }
 
     if (is_passthrough_spec(spec)) {
+        /* Passthrough doesn't touch AVCodecContext; codec_pool ignored. */
         return std::make_unique<PassthroughSink>(std::move(common), std::move(clip_ranges));
     }
     if (is_h264_aac_spec(spec)) {
@@ -128,7 +135,11 @@ std::unique_ptr<OutputSink> make_output_sink(
                              "(see backlog: reencode-multi-clip)";
             return nullptr;
         }
-        return std::make_unique<H264AacSink>(std::move(common), spec);
+        if (!codec_pool) {
+            if (err) *err = "re-encode requires a codec pool (engine->codecs)";
+            return nullptr;
+        }
+        return std::make_unique<H264AacSink>(std::move(common), spec, codec_pool);
     }
 
     if (err) *err = "phase-1: supported specs are "

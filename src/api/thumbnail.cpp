@@ -1,6 +1,7 @@
 #include "media_engine/thumbnail.h"
 #include "core/engine_impl.hpp"
 #include "io/ffmpeg_raii.hpp"
+#include "resource/codec_pool.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -21,7 +22,7 @@ extern "C" {
 
 namespace {
 
-using CodecCtxPtr = me::io::AvCodecContextPtr;
+using CodecCtxPtr = me::resource::CodecPool::Ptr;
 using FramePtr    = me::io::AvFramePtr;
 using PacketPtr   = me::io::AvPacketPtr;
 using SwsPtr      = me::io::SwsContextPtr;
@@ -161,7 +162,9 @@ me_status_t probe_and_render(me_engine_t*  engine,
         avformat_close_input(&fmt);
         return ME_E_UNSUPPORTED;
     }
-    CodecCtxPtr dec(avcodec_alloc_context3(dec_codec));
+    CodecCtxPtr dec = engine->codecs
+        ? engine->codecs->allocate(dec_codec)
+        : CodecCtxPtr{nullptr, me::resource::CodecPool::Deleter{nullptr}};
     if (!dec) { avformat_close_input(&fmt); return ME_E_OUT_OF_MEMORY; }
     rc = avcodec_parameters_to_context(dec.get(), vstream->codecpar);
     if (rc < 0) {
@@ -253,7 +256,9 @@ me_status_t probe_and_render(me_engine_t*  engine,
         avformat_close_input(&fmt);
         return ME_E_UNSUPPORTED;
     }
-    CodecCtxPtr enc(avcodec_alloc_context3(png_enc));
+    CodecCtxPtr enc = engine->codecs
+        ? engine->codecs->allocate(png_enc)
+        : CodecCtxPtr{nullptr, me::resource::CodecPool::Deleter{nullptr}};
     if (!enc) { avformat_close_input(&fmt); return ME_E_OUT_OF_MEMORY; }
     enc->width      = out_w;
     enc->height     = out_h;

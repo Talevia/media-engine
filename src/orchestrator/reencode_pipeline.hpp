@@ -23,6 +23,7 @@
 #include <string>
 
 namespace me::io { class DemuxContext; }
+namespace me::resource { class CodecPool; }
 
 namespace me::orchestrator {
 
@@ -40,6 +41,11 @@ struct ReencodeOptions {
 
     std::function<void(float)> on_ratio;
     const std::atomic<bool>*   cancel = nullptr;
+
+    /* Required: engine's codec pool. All AVCodecContext allocations
+     * (decoders + encoders) run through this so `me_cache_stats.codec_ctx_count`
+     * reports live reality. */
+    me::resource::CodecPool*   pool   = nullptr;
 };
 
 /* Read packets from `demux`, decode + re-encode, write to a new container.

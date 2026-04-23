@@ -24,6 +24,12 @@ typedef struct me_cache_stats {
     int64_t entry_count;
     int64_t hit_count;
     int64_t miss_count;
+
+    /* Number of AVCodecContexts the engine currently owns. Rises during
+     * an active render (decoders + encoders allocated) and falls back to
+     * zero once the render job is destroyed. Observability handle into
+     * engine memory pressure. */
+    int64_t codec_ctx_count;
 } me_cache_stats_t;
 
 me_status_t me_cache_stats(me_engine_t* engine, me_cache_stats_t* out);

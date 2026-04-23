@@ -3,6 +3,7 @@
 
 #include "media_engine/engine.h"
 #include "resource/asset_hash_cache.hpp"
+#include "resource/codec_pool.hpp"
 #include "resource/frame_pool.hpp"
 #include "scheduler/scheduler.hpp"
 

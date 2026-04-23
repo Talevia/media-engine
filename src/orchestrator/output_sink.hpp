@@ -27,7 +27,8 @@
 #include <string_view>
 #include <vector>
 
-namespace me::io { class DemuxContext; }
+namespace me::io       { class DemuxContext; }
+namespace me::resource { class CodecPool; }
 
 namespace me::orchestrator {
 
@@ -68,6 +69,7 @@ std::unique_ptr<OutputSink> make_output_sink(
     const me_output_spec_t&            spec,
     SinkCommon                         common,
     std::vector<ClipTimeRange>         clip_ranges,
+    me::resource::CodecPool*           codec_pool,   /* required for re-encode sinks */
     std::string*                       err);
 
 }  // namespace me::orchestrator

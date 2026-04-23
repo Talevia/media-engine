@@ -11,6 +11,7 @@
 
 #include "io/ffmpeg_raii.hpp"
 #include "media_engine/types.h"
+#include "resource/codec_pool.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -26,11 +27,12 @@ namespace me::orchestrator::detail {
  * stays pure-LGPL. Clamps off-grid sample rates to 48 kHz (the MPEG-4
  * AAC table is fixed). Must be called before output_stream time_base
  * configuration. */
-me_status_t open_audio_encoder(const AVCodecContext*      dec,
-                               int64_t                    bitrate_bps,
-                               bool                       global_header,
-                               me::io::AvCodecContextPtr& out_enc,
-                               std::string*               err);
+me_status_t open_audio_encoder(me::resource::CodecPool&      pool,
+                               const AVCodecContext*         dec,
+                               int64_t                       bitrate_bps,
+                               bool                          global_header,
+                               me::resource::CodecPool::Ptr& out_enc,
+                               std::string*                  err);
 
 /* Encode one audio frame (or nullptr for flush). Drains the encoder and
  * writes produced packets via av_interleaved_write_frame. Unlike video,

@@ -38,7 +38,7 @@ std::string av_err_str(int rc) {
  * namespace-qualified name every few lines. AVFormatContext output stays
  * manually managed because its lifetime is entangled with avio_open/close
  * (see io-mux-context-raii backlog item). */
-using CodecCtxPtr = me::io::AvCodecContextPtr;
+using CodecCtxPtr = me::resource::CodecPool::Ptr;
 using FramePtr    = me::io::AvFramePtr;
 using PacketPtr   = me::io::AvPacketPtr;
 using SwsPtr      = me::io::SwsContextPtr;
@@ -57,13 +57,16 @@ using detail::encode_video_frame;
 using detail::open_audio_encoder;
 using detail::encode_audio_frame;
 
-me_status_t open_decoder(AVStream* in_stream, CodecCtxPtr& out, std::string* err) {
+me_status_t open_decoder(me::resource::CodecPool& pool,
+                          AVStream* in_stream,
+                          CodecCtxPtr& out,
+                          std::string* err) {
     const AVCodec* dec = avcodec_find_decoder(in_stream->codecpar->codec_id);
     if (!dec) {
         if (err) *err = std::string("no decoder for ") + avcodec_get_name(in_stream->codecpar->codec_id);
         return ME_E_UNSUPPORTED;
     }
-    CodecCtxPtr ctx(avcodec_alloc_context3(dec));
+    auto ctx = pool.allocate(dec);
     if (!ctx) return ME_E_OUT_OF_MEMORY;
 
     int rc = avcodec_parameters_to_context(ctx.get(), in_stream->codecpar);
@@ -103,6 +106,10 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
                     "audio_codec=\"" + opts.audio_codec + "\" not supported (expected \"aac\")");
     }
 
+    if (!opts.pool) {
+        return fail(ME_E_INVALID_ARG, "reencode_mux: opts.pool is required");
+    }
+
     const int vsi = best_stream(ifmt, AVMEDIA_TYPE_VIDEO);
     const int asi = best_stream(ifmt, AVMEDIA_TYPE_AUDIO);
     if (vsi < 0 && asi < 0) {
@@ -112,11 +119,11 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
     /* --- Decoders --------------------------------------------------------- */
     CodecCtxPtr vdec, adec;
     if (vsi >= 0) {
-        me_status_t s = open_decoder(ifmt->streams[vsi], vdec, err);
+        me_status_t s = open_decoder(*opts.pool, ifmt->streams[vsi], vdec, err);
         if (s != ME_OK) return s;
     }
     if (asi >= 0) {
-        me_status_t s = open_decoder(ifmt->streams[asi], adec, err);
+        me_status_t s = open_decoder(*opts.pool, ifmt->streams[asi], adec, err);
         if (s != ME_OK) return s;
     }
 
@@ -140,7 +147,8 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
         out_s->time_base = ifmt->streams[vsi]->time_base;
 
         const bool global_header = (ofmt->oformat->flags & AVFMT_GLOBALHEADER) != 0;
-        me_status_t s = open_video_encoder(vdec.get(), ifmt->streams[vsi]->time_base,
+        me_status_t s = open_video_encoder(*opts.pool, vdec.get(),
+                                           ifmt->streams[vsi]->time_base,
                                            opts.video_bitrate_bps, global_header,
                                            venc, venc_target_pix, err);
         if (s != ME_OK) return s;
@@ -156,7 +164,8 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
         if (!out_s) return fail(ME_E_OUT_OF_MEMORY, "new_stream(audio)");
 
         const bool global_header = (ofmt->oformat->flags & AVFMT_GLOBALHEADER) != 0;
-        me_status_t s = open_audio_encoder(adec.get(), opts.audio_bitrate_bps,
+        me_status_t s = open_audio_encoder(*opts.pool, adec.get(),
+                                           opts.audio_bitrate_bps,
                                            global_header, aenc, err);
         if (s != ME_OK) return s;
         out_s->time_base = aenc->time_base;

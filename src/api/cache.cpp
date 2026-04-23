@@ -1,6 +1,7 @@
 #include "media_engine/cache.h"
 #include "core/engine_impl.hpp"
 #include "resource/asset_hash_cache.hpp"
+#include "resource/codec_pool.hpp"
 #include "resource/frame_pool.hpp"
 
 #include <cstring>
@@ -26,6 +27,9 @@ extern "C" me_status_t me_cache_stats(me_engine_t* engine, me_cache_stats_t* out
         out->entry_count = static_cast<int64_t>(engine->asset_hashes->size());
         out->hit_count   = engine->asset_hashes->hit_count();
         out->miss_count  = engine->asset_hashes->miss_count();
+    }
+    if (engine->codecs) {
+        out->codec_ctx_count = engine->codecs->live_count();
     }
     return ME_OK;
 }

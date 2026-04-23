@@ -84,9 +84,9 @@ private:
     std::atomic<int64_t>  acquisitions_{0};
 };
 
-/* CodecPool / GpuContext — bootstrap empty classes. Methods added when
- * backlog items that need them land. */
-class CodecPool  {};
+/* GpuContext — bootstrap empty class; methods added when backlog items
+ * that need it land. CodecPool moved to its own header `codec_pool.hpp`
+ * once it grew past empty. */
 class GpuContext {};
 
 }  // namespace me::resource

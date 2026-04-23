@@ -101,7 +101,8 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     for (const auto& p : plans) ranges.push_back(p.range);
 
     std::unique_ptr<OutputSink> sink = make_output_sink(
-        spec, std::move(common), std::move(ranges), err);
+        spec, std::move(common), std::move(ranges),
+        engine_ ? engine_->codecs.get() : nullptr, err);
     if (!sink) return ME_E_UNSUPPORTED;
 
     me_engine* eng = engine_;
