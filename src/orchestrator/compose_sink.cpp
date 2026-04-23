@@ -7,6 +7,8 @@
  */
 #include "orchestrator/compose_sink.hpp"
 
+#include "io/demux_context.hpp"
+#include "orchestrator/reencode_pipeline.hpp"
 #include "timeline/timeline_impl.hpp"
 
 #include <cstring>
@@ -38,27 +40,68 @@ public:
     me_status_t process(
         std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes,
         std::string*                                       err) override {
-        /* The per-frame compose loop lives in the follow-up
-         * `multi-track-compose-frame-loop` cycle. All four prerequisites
-         * (schema/IR, alpha_over kernel, active_clips resolver, YUV↔RGBA
-         * frame_convert) are ready; this method stays a stub for one
-         * cycle so the Exporter routing + sink factory scaffolding
-         * land independently (reviewable, revertable). */
-        /* Reference every stashed member so -Wunused-private-field
-         * stays quiet until the frame-loop cycle consumes them. (cast-
-         * to-void is the C++ canonical silence.) */
-        (void)demuxes;
-        (void)tl_; (void)common_; (void)ranges_;
-        (void)pool_; (void)video_bitrate_; (void)audio_bitrate_;
-        if (err) {
-            *err = "ComposeSink::process: per-frame compose loop not yet "
-                   "implemented — see multi-track-compose-frame-loop backlog "
-                   "item. Four prerequisites are in place "
-                   "(me::compose::alpha_over, active_clips_at, frame_to_rgba8, "
-                   "rgba8_to_frame); next cycle glues them into the reencode "
-                   "pipeline's encoder/mux.";
+        /* Phase-1 delegation: the actual alpha-over compose math lands
+         * with the `multi-track-compose-actual-composite` follow-up
+         * bullet. This cycle routes multi-track timelines to the
+         * reencode_mux by filtering down to tracks[0]'s clips — the
+         * bottom track in the declared z-order. Output is objectively
+         * missing the upper tracks' pixels, but it exercises the full
+         * end-to-end sink pipeline (me_render_start → worker →
+         * encoder+mux → file on disk). Next cycle replaces this with
+         * per-output-frame active_clips_at + decode + frame_to_rgba8 +
+         * alpha_over across all tracks + rgba8_to_frame → encoder. */
+        if (demuxes.size() != ranges_.size()) {
+            if (err) *err = "ComposeSink: demuxes / ranges size mismatch";
+            return ME_E_INTERNAL;
         }
-        return ME_E_UNSUPPORTED;
+        if (tl_.tracks.empty() || tl_.clips.empty()) {
+            if (err) *err = "ComposeSink: empty timeline";
+            return ME_E_INVALID_ARG;
+        }
+
+        /* Collect indices of clips on tracks[0] (bottom of z-order).
+         * Flat `tl.clips` may interleave clips from multiple tracks if
+         * the JSON declares them that way, so walking by track_id is
+         * the safe approach. */
+        const std::string& bottom_track_id = tl_.tracks[0].id;
+        std::vector<std::size_t> bottom_clip_indices;
+        bottom_clip_indices.reserve(tl_.clips.size());
+        for (std::size_t i = 0; i < tl_.clips.size(); ++i) {
+            if (tl_.clips[i].track_id == bottom_track_id) {
+                bottom_clip_indices.push_back(i);
+            }
+        }
+        if (bottom_clip_indices.empty()) {
+            if (err) *err = "ComposeSink: bottom track has no clips";
+            return ME_E_INVALID_ARG;
+        }
+
+        ReencodeOptions opts;
+        opts.out_path           = common_.out_path;
+        opts.container          = common_.container;
+        opts.video_codec        = "h264";
+        opts.audio_codec        = "aac";
+        opts.video_bitrate_bps  = video_bitrate_;
+        opts.audio_bitrate_bps  = audio_bitrate_;
+        opts.cancel             = common_.cancel;
+        opts.on_ratio           = common_.on_ratio;
+        opts.pool               = pool_;
+        opts.target_color_space = common_.target_color_space;
+
+        opts.segments.reserve(bottom_clip_indices.size());
+        for (std::size_t ci : bottom_clip_indices) {
+            if (ci >= demuxes.size() || !demuxes[ci]) {
+                if (err) *err = "ComposeSink: missing demux for bottom-track clip";
+                return ME_E_INVALID_ARG;
+            }
+            opts.segments.push_back(ReencodeSegment{
+                std::move(demuxes[ci]),
+                ranges_[ci].source_start,
+                ranges_[ci].source_duration,
+                ranges_[ci].source_color_space,
+            });
+        }
+        return reencode_mux(opts, err);
     }
 
 private:

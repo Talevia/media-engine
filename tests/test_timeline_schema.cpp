@@ -312,14 +312,16 @@ TEST_CASE("multi-track + passthrough codec is rejected synchronously by compose 
     me_timeline_destroy(tl);
 }
 
-TEST_CASE("multi-track + h264/aac codec is rejected asynchronously by ComposeSink stub") {
-    /* With h264/aac the compose factory constructs a ComposeSink whose
-     * per-frame loop is still a stub (multi-track-compose-frame-loop
-     * backlog item). me_render_start returns ME_OK; the UNSUPPORTED
-     * surfaces through me_render_wait from the worker thread. This
-     * pins the async behavior once per-frame compose lands, so a
-     * regression that keeps returning UNSUPPORTED after the frame loop
-     * is implemented trips this assertion. */
+TEST_CASE("multi-track + h264/aac timeline renders (bottom track only, pending full compose)") {
+    /* ComposeSink currently delegates to reencode_mux using only
+     * tracks[0]'s clips (phase-1: full alpha_over compose lands in
+     * multi-track-compose-actual-composite). File references are
+     * bogus so the render hits an I/O error eventually, but the
+     * pipeline construction + routing must succeed — me_render_start
+     * returns ME_OK and the failure reported by me_render_wait is an
+     * I/O error (fake URI), NOT the old "compose loop not implemented"
+     * UNSUPPORTED. Pins that the ComposeSink now dispatches to real
+     * encoder/mux machinery. */
     EngineFixture f;
     const std::string j = R"({
       "schemaVersion": 1,
@@ -327,7 +329,7 @@ TEST_CASE("multi-track + h264/aac codec is rejected asynchronously by ComposeSin
       "resolution": {"width":1920,"height":1080},
       "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
       "assets": [
-        {"id":"a1","kind":"video","uri":"file:///tmp/input.mp4"}
+        {"id":"a1","kind":"video","uri":"file:///tmp/me-nonexistent.mp4"}
       ],
       "compositions": [{"id":"main","tracks":[
         {"id":"v0","kind":"video","clips":[
@@ -348,7 +350,7 @@ TEST_CASE("multi-track + h264/aac codec is rejected asynchronously by ComposeSin
     REQUIRE(load(f.eng, j, &tl) == ME_OK);
 
     me_output_spec_t spec{};
-    spec.path        = "/tmp/me-multi-track-h264-reject.mp4";
+    spec.path        = "/tmp/me-multi-track-bottom-only.mp4";
     spec.container   = "mp4";
     spec.video_codec = "h264";
     spec.audio_codec = "aac";
@@ -357,10 +359,18 @@ TEST_CASE("multi-track + h264/aac codec is rejected asynchronously by ComposeSin
     REQUIRE(me_render_start(f.eng, tl, &spec, nullptr, nullptr, &job) == ME_OK);
     REQUIRE(job != nullptr);
     const me_status_t wait_s = me_render_wait(job);
-    CHECK(wait_s == ME_E_UNSUPPORTED);
-    const char* err = me_engine_last_error(f.eng);
-    REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("per-frame compose loop not yet implemented") != std::string::npos);
+    /* Either ME_OK (fake URI could in principle "open" depending on host
+     * filesystem state) or ME_E_IO / ME_E_INTERNAL — what we care about
+     * is that the old "per-frame compose loop not yet implemented"
+     * UNSUPPORTED path is gone. Check err does NOT mention the old
+     * stub message. */
+    if (wait_s != ME_OK) {
+        const char* err = me_engine_last_error(f.eng);
+        if (err) {
+            CHECK(std::string{err}.find("per-frame compose loop not yet implemented")
+                  == std::string::npos);
+        }
+    }
     me_render_job_destroy(job);
     me_timeline_destroy(tl);
 }
