@@ -31,6 +31,7 @@ set(_test_suites
   test_content_hash
   test_determinism
   test_cache
+  test_output_sink
 )
 
 foreach(_suite ${_test_suites})
@@ -49,6 +50,10 @@ target_include_directories(test_content_hash PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_timeline_schema verifies loader produces the right IR — reaches
 # into me::Timeline / me::Asset to check parsed Asset::color_space values.
 target_include_directories(test_timeline_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_output_sink calls the internal factory me::orchestrator::make_output_sink
+# directly — same src/-as-include pattern as the other internal-surface suites.
+target_include_directories(test_output_sink PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # -----------------------------------------------------------------------------
 # Fixture for test_determinism — a tiny deterministic MP4 generated at build
