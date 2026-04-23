@@ -225,3 +225,73 @@ TEST_CASE("h264/aac reencode is byte-deterministic across two independent render
         CHECK(true);
     }
 }
+
+TEST_CASE("h264/aac reencode concat across N segments is byte-deterministic") {
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping multi-clip reencode determinism test: fixture not available");
+        return;
+    }
+
+    /* Two contiguous clips, each 25/25 = 1s of the same fixture. Shared
+     * encoder runs across both segments (reencode-multi-clip, 2bfa6cd);
+     * BITEXACT flags applied both to the muxer and the encoder (debt-
+     * render-bitexact-flags, 4ad072e). Single-clip reencode determinism
+     * is already pinned by the preceding TEST_CASE — this one
+     * additionally tripwires the multi-segment process_segment loop and
+     * the cross-segment next_video_pts / next_audio_pts counters.
+     *
+     * No audio in determinism_input.mp4 — shared_encoder's aenc stays
+     * null and the reencode path degrades to video-only. That's still
+     * the correct semantic for fixture with no audio track; h264 path is
+     * what we're tripping on regardless. */
+    namespace tb = me::tests::tb;
+    const std::string timeline_json = tb::TimelineBuilder()
+        .frame_rate(25, 1).resolution(640, 480)
+        .add_asset(tb::AssetSpec{.uri = "file://" + fixture_path})
+        .add_clip(tb::ClipSpec{
+            .clip_id = "c1",
+            .time_start_num = 0,  .time_start_den = 25,
+            .time_dur_num   = 25, .time_dur_den   = 25,
+            .source_start_den = 25,
+            .source_dur_num = 25, .source_dur_den = 25,
+        })
+        .add_clip(tb::ClipSpec{
+            .clip_id = "c2",
+            .time_start_num = 25, .time_start_den = 25,
+            .time_dur_num   = 25, .time_dur_den   = 25,
+            .source_start_den = 25,
+            .source_dur_num = 25, .source_dur_den = 25,
+        })
+        .build();
+
+    const fs::path tmp_dir =
+        fs::temp_directory_path() / "me-determinism-test-reencode-multi";
+    fs::create_directories(tmp_dir);
+    const fs::path out1 = tmp_dir / "multi1.mp4";
+    const fs::path out2 = tmp_dir / "multi2.mp4";
+    fs::remove(out1);
+    fs::remove(out2);
+
+    const me_status_t s1 = render_with_spec(timeline_json, out1.string(), "h264", "aac");
+    if (s1 == ME_E_UNSUPPORTED || s1 == ME_E_ENCODE) {
+        MESSAGE("skipping multi-clip reencode determinism test: h264_videotoolbox unavailable "
+                "(status=" << me_status_str(s1) << ")");
+        return;
+    }
+    REQUIRE(s1 == ME_OK);
+    REQUIRE(render_with_spec(timeline_json, out2.string(), "h264", "aac") == ME_OK);
+
+    const auto bytes1 = slurp(out1);
+    const auto bytes2 = slurp(out2);
+    REQUIRE(!bytes1.empty());
+    REQUIRE(!bytes2.empty());
+    CHECK(bytes1.size() == bytes2.size());
+    if (bytes1 != bytes2) {
+        size_t i = 0;
+        while (i < bytes1.size() && i < bytes2.size() && bytes1[i] == bytes2[i]) ++i;
+        FAIL("multi-clip reencode outputs differ at byte offset " << i);
+    } else {
+        CHECK(true);
+    }
+}
