@@ -82,6 +82,20 @@ git pull --rebase origin main
 
 分档建议：P0 约 3 条（含 1 条 debt）、P1 约 7-8 条（含 2-3 条 debt）、P2 剩余。找不满 15 条可少（最少 6 条，其中 debt ≥ 2）。
 
+**Grep-verified Gap（硬性要求，2026-04-23 后）**：每条 bullet 的 `Gap:` 部分**必须引用具体 `path:line` 证据**，不凭印象写"静默丢掉"/"没覆盖"/"未实装"等转述。写 bullet 前跑：
+
+```
+grep -rn '<relevant_symbol>' src tests include docs
+```
+
+验证 bullet 描述的 gap **真的存在**：
+
+- 声称 "X 没实装" → `grep -n 'return ME_E_UNSUPPORTED\|STUB:' src/<module>/<file>.cpp` 或 `grep -n '^void X\|^me_status_t X' src/` 必须空或只返回 stub marker。
+- 声称 "Y 没测" → `grep -rn 'Y\|<slug>' tests/` 必须空或只命中不相关 case。
+- 声称 "Z 行为可疑" → 直接 `Read` 相关文件 + 引用具体行号到 bullet 的 Gap 里。
+
+写 bullet 时在 Gap 部分明写 `<path>:<line>` 或 `grep returns empty`；这样未来 cycle 选到这条 bullet 时看到证据链能直接 Read 对应位置 sanity-check，不用自己重新找。**不按这条做的后果**：bullet premise 和代码不一致，cycle 浪费在"补边角"或纯粹 skip（2026-04-23 session 有过 3 次连续失误：`debt-render-bitexact-flags` / `me-timeline-loader-multi-track-reject` / `debt-test-cache-invalidate-coverage`，每次都耗半个 cycle 搞清楚 bullet 错在哪——比打字几行 `path:line` 贵几十倍）。
+
 ### R.5 技术债扫描（repopulate 必做）
 
 **先跑 `bash tools/scan-debt.sh`**——这份脚本把下面 8 类信号固化成结构化输出，避免每次 repopulate 重新手搓 grep 命令造成结果漂移。把脚本的 stdout 完整粘到 `docs(backlog)` commit message body 里；下面的"阈值 → debt 任务"映射仍由本节规约：
