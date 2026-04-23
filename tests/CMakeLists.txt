@@ -1,5 +1,11 @@
 include(FetchContent)
 
+# FFmpeg imported targets are created at src/ scope by the sibling CMakeLists;
+# re-find here so tests/ sees FFMPEG::avcodec et al. for the fixture generator.
+# FindFFMPEG guards target creation with `if(NOT TARGET ...)`, so this is safe
+# to call in multiple scopes.
+find_package(FFMPEG REQUIRED)
+
 FetchContent_Declare(
   doctest
   GIT_REPOSITORY https://github.com/doctest/doctest.git
@@ -45,30 +51,30 @@ target_include_directories(test_content_hash PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(test_timeline_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # -----------------------------------------------------------------------------
-# Fixture for test_determinism — a tiny deterministic MP4 generated via the
-# system ffmpeg CLI at build time. MPEG-4 Part 2 video picked because it's
-# built into every LGPL libavcodec (no libx264 needed, so CI won't break if
-# the system ffmpeg happens to be LGPL-only). Fixture is rebuilt only if the
-# output file is missing or older than this CMakeLists.txt.
+# Fixture for test_determinism — a tiny deterministic MP4 generated at build
+# time by `gen_fixture`, a small helper that links libavcodec / libavformat
+# directly. MPEG-4 Part 2 video picked because it ships with every LGPL
+# libavcodec (no libx264 needed). Using libav at fixture-gen time removes the
+# previous dependency on a system ffmpeg CLI, so CI without ffmpeg-on-PATH no
+# longer silently skips the determinism regression. Fixture is rebuilt only if
+# gen_fixture itself or this CMakeLists.txt changes.
 # -----------------------------------------------------------------------------
-find_program(FFMPEG_EXECUTABLE ffmpeg)
-if(FFMPEG_EXECUTABLE)
-  set(_fixture_dir "${CMAKE_CURRENT_BINARY_DIR}/fixtures")
-  set(_fixture_mp4 "${_fixture_dir}/determinism_input.mp4")
-  add_custom_command(
-    OUTPUT ${_fixture_mp4}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
-    COMMAND ${FFMPEG_EXECUTABLE} -y -hide_banner -loglevel error
-            -f lavfi -i "testsrc=duration=1:size=320x240:rate=10"
-            -c:v mpeg4 -q:v 5
-            ${_fixture_mp4}
-    DEPENDS ${CMAKE_CURRENT_LIST_FILE}
-    COMMENT "Generating determinism test fixture: ${_fixture_mp4}"
-    VERBATIM)
-  add_custom_target(determinism_fixture DEPENDS ${_fixture_mp4})
-  add_dependencies(test_determinism determinism_fixture)
-  target_compile_definitions(test_determinism PRIVATE
-    ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
-else()
-  message(STATUS "ffmpeg CLI not found — test_determinism will skip at runtime")
-endif()
+add_executable(gen_fixture fixtures/gen_fixture.cpp)
+target_link_libraries(gen_fixture PRIVATE
+  FFMPEG::avformat
+  FFMPEG::avcodec
+  FFMPEG::avutil)
+
+set(_fixture_dir "${CMAKE_CURRENT_BINARY_DIR}/fixtures")
+set(_fixture_mp4 "${_fixture_dir}/determinism_input.mp4")
+add_custom_command(
+  OUTPUT ${_fixture_mp4}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
+  COMMAND $<TARGET_FILE:gen_fixture> ${_fixture_mp4}
+  DEPENDS gen_fixture ${CMAKE_CURRENT_LIST_FILE}
+  COMMENT "Generating determinism test fixture: ${_fixture_mp4}"
+  VERBATIM)
+add_custom_target(determinism_fixture DEPENDS ${_fixture_mp4})
+add_dependencies(test_determinism determinism_fixture)
+target_compile_definitions(test_determinism PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
