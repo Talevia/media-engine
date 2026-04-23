@@ -51,6 +51,12 @@ int main(int argc, char** argv) {
                me_media_info_video_width(info),
                me_media_info_video_height(info),
                (long long)fr.num, (long long)fr.den, rat_to_double(fr));
+        printf("  rotation    : %d°\n", me_media_info_video_rotation(info));
+        printf("  bit depth   : %d\n", me_media_info_video_bit_depth(info));
+        printf("  color range : %s\n", me_media_info_video_color_range(info));
+        printf("  primaries   : %s\n", me_media_info_video_color_primaries(info));
+        printf("  transfer    : %s\n", me_media_info_video_color_transfer(info));
+        printf("  matrix      : %s\n", me_media_info_video_color_space(info));
     } else {
         printf("video         : (none)\n");
     }

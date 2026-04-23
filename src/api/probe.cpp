@@ -4,12 +4,17 @@
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
+#include <libavutil/display.h>
+#include <libavutil/pixdesc.h>
+#include <libavutil/pixfmt.h>
 #include <libavutil/rational.h>
 }
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <new>
@@ -29,6 +34,14 @@ struct me_media_info {
     int           video_height = 0;
     me_rational_t video_frame_rate{0, 1};
     std::string   video_codec;
+
+    /* Extended video metadata — see probe.h for the Why. */
+    int           video_rotation = 0;          /* degrees; 0/90/180/270 */
+    std::string   video_color_range;
+    std::string   video_color_primaries;
+    std::string   video_color_transfer;
+    std::string   video_color_space;
+    int           video_bit_depth = 0;
 
     bool          has_audio = false;
     int           audio_sample_rate = 0;
@@ -51,6 +64,33 @@ me_rational_t to_me_rational(AVRational r) {
     return me_rational_t{static_cast<int64_t>(r.num),
                          r.den > 0 ? static_cast<int64_t>(r.den) : 1};
 }
+
+/* Read AV_PKT_DATA_DISPLAYMATRIX from stream codecpar side-data and round
+ * to the nearest quarter-turn. Container rotation metadata is always a
+ * multiple of 90°; anything else is container corruption and we discard. */
+int extract_display_rotation(const AVCodecParameters* cp) {
+    if (!cp || !cp->coded_side_data || cp->nb_coded_side_data <= 0) return 0;
+    const AVPacketSideData* sd = av_packet_side_data_get(
+        cp->coded_side_data, cp->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX);
+    if (!sd || sd->size < static_cast<size_t>(9 * sizeof(int32_t))) return 0;
+
+    const int32_t* matrix = reinterpret_cast<const int32_t*>(sd->data);
+    const double deg = av_display_rotation_get(matrix);
+    if (std::isnan(deg)) return 0;
+
+    /* av_display_rotation_get returns CCW degrees in the range [-180, 180].
+     * The external convention used by ffprobe / mediainfo is CW degrees in
+     * [0, 360); convert by negating and normalising. */
+    double cw = -deg;
+    while (cw < 0)     cw += 360.0;
+    while (cw >= 360)  cw -= 360.0;
+    const int snapped = static_cast<int>(std::lround(cw / 90.0)) * 90;
+    return (snapped == 360) ? 0 : snapped;
+}
+
+/* Defensive against nullptr returns from av_*_name() for unknown enums —
+ * hand out "" rather than letting a crash slip across the C ABI. */
+std::string name_or_empty(const char* p) { return p ? std::string{p} : std::string{}; }
 
 using me::io::av_err_str;
 
@@ -107,6 +147,15 @@ extern "C" me_status_t me_probe(me_engine_t* engine, const char* uri, me_media_i
             info->video_frame_rate = to_me_rational(av_guess_frame_rate(fmt, s, nullptr));
             if (const char* name = avcodec_get_name(cp->codec_id)) {
                 info->video_codec = name;
+            }
+            info->video_rotation        = extract_display_rotation(cp);
+            info->video_color_range     = name_or_empty(av_color_range_name(cp->color_range));
+            info->video_color_primaries = name_or_empty(av_color_primaries_name(cp->color_primaries));
+            info->video_color_transfer  = name_or_empty(av_color_transfer_name(cp->color_trc));
+            info->video_color_space     = name_or_empty(av_color_space_name(cp->color_space));
+            if (const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(
+                    static_cast<AVPixelFormat>(cp->format))) {
+                info->video_bit_depth = desc->comp[0].depth;
             }
         }
 
@@ -186,4 +235,28 @@ extern "C" int me_media_info_audio_channels(const me_media_info_t* info) {
 
 extern "C" const char* me_media_info_audio_codec(const me_media_info_t* info) {
     return info ? info->audio_codec.c_str() : "";
+}
+
+extern "C" int me_media_info_video_rotation(const me_media_info_t* info) {
+    return info ? info->video_rotation : 0;
+}
+
+extern "C" const char* me_media_info_video_color_range(const me_media_info_t* info) {
+    return info ? info->video_color_range.c_str() : "";
+}
+
+extern "C" const char* me_media_info_video_color_primaries(const me_media_info_t* info) {
+    return info ? info->video_color_primaries.c_str() : "";
+}
+
+extern "C" const char* me_media_info_video_color_transfer(const me_media_info_t* info) {
+    return info ? info->video_color_transfer.c_str() : "";
+}
+
+extern "C" const char* me_media_info_video_color_space(const me_media_info_t* info) {
+    return info ? info->video_color_space.c_str() : "";
+}
+
+extern "C" int me_media_info_video_bit_depth(const me_media_info_t* info) {
+    return info ? info->video_bit_depth : 0;
 }
