@@ -12,7 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **me-version-real-git-sha** — `me_version().git_sha` 当前硬编码空串；host 写 bug 报告时想知道引擎确切构建版本，拿不到。**方向：** CMake `execute_process(git rev-parse --short HEAD)` 在配置阶段拿 sha，`configure_file()` 生成 `src/core/version.inl` 让 `me_version()` 返回。无 git 仓库 fallback 到 `"unknown"`。Milestone §M1-close，Rubric §5.2。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 

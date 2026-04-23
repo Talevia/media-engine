@@ -1,7 +1,10 @@
 #include "media_engine/types.h"
 
+#include "core/version.inl"
+
 extern "C" me_version_t me_version(void) {
-    return me_version_t{0, 0, 1, ""};
+    return me_version_t{ME_VERSION_MAJOR, ME_VERSION_MINOR, ME_VERSION_PATCH,
+                        ME_GIT_SHA};
 }
 
 extern "C" const char* me_status_str(me_status_t status) {

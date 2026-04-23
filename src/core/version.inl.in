@@ -1,0 +1,8 @@
+/* Auto-generated at CMake configure time from version.inl.in. Do not edit
+ * the .inl; edit the .in template instead. */
+#pragma once
+
+#define ME_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define ME_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define ME_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define ME_GIT_SHA       "@ME_GIT_SHA@"

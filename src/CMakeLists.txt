@@ -32,6 +32,46 @@ FetchContent_MakeAvailable(taskflow)
 
 find_package(FFMPEG REQUIRED)
 
+# --- Build-time version header --------------------------------------------
+# Capture the git short SHA (+ "-dirty" if the working tree has uncommitted
+# changes) at configure time and expose it to the C API via a generated
+# header. Hosts use me_version().git_sha when filing bug reports to pin
+# the exact build. Empty-string fallback when not in a git checkout.
+set(ME_GIT_SHA "")
+find_package(Git QUIET)
+if(Git_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE ME_GIT_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE _git_sha_rc
+  )
+  if(NOT _git_sha_rc EQUAL 0)
+    set(ME_GIT_SHA "")
+  endif()
+  if(ME_GIT_SHA)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} status --porcelain --untracked-files=no
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      OUTPUT_VARIABLE _git_dirty
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(_git_dirty)
+      set(ME_GIT_SHA "${ME_GIT_SHA}-dirty")
+    endif()
+  endif()
+endif()
+message(STATUS "media-engine git SHA: ${ME_GIT_SHA}")
+
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/core/version.inl.in
+  ${CMAKE_CURRENT_BINARY_DIR}/core/version.inl
+  @ONLY
+)
+
 add_library(media_engine
   core/version.cpp
   timeline/timeline_loader.cpp
@@ -71,6 +111,7 @@ target_include_directories(media_engine
     $<INSTALL_INTERFACE:include>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 target_link_libraries(media_engine
