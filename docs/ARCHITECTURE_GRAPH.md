@@ -48,6 +48,50 @@ The runtime engine inside media-engine is organized around five modules with cle
 
 Read `docs/VISION.md` first if you haven't. This file is *how the engine actually executes*; VISION is *why*.
 
+## 两种执行模型
+
+本文件描述的 five-module 架构（graph / task / scheduler / resource / orchestrator）只是 media-engine 里**两种**执行模型中的一种。实际代码库里**两种并存**，选哪条路径由 output 的**状态性（statefulness）**决定。不区分清楚会让新 orchestrator 作者把 encoder lifecycle 塞进 Node kernel，破坏纯函数约束。
+
+### (a) Graph per-frame + scheduler —— stateless per-frame
+
+用于 **preview / thumbnail / frame-cache / future `me_render_frame`**——"给定 time，产一帧"的场景。
+
+- Orchestrator（Previewer / CompositionThumbnailer）每次 `frame_at(t)` 从 Timeline compile 出 per-segment Graph（cached），喂 `EvalContext{time: t}` 给 scheduler。
+- Scheduler 对 Graph 的每个 Node 物化一个 Task，执行完即回收；调度顺序不影响输出（VISION §3.1 确定性）。
+- Kernel 是纯函数、**不持跨帧状态**。所有 frame-to-frame 依赖走 `resource::FrameHandle` 引用。
+- **判别特征**：每次调用**独立**；不要求上次调用留下的 decoder / encoder 状态。
+- 适用场景：低延迟单帧、scrubbing、cache lookup、重绘。
+
+本文件下面 §关键理念 / §Node / §Kernel / §scheduler 各节描述的就是这条路径。M1 的 `02_graph_smoke` 走这条。
+
+### (b) Orchestrator streaming —— stateful per-job
+
+用于 **export / re-encode / passthrough concat**——"给定 Timeline，产一整个输出文件"的场景。
+
+- Orchestrator（Exporter → OutputSink → `reencode_mux` / `passthrough_mux`）拿着 `std::vector<DemuxContext>` 和 `OutputSpec`，**开一次** encoder + muxer，**自持** decode → encode → mux 的流式循环。
+- 状态**跨帧 / 跨 clip / 跨 segment**：encoder GOP 结构、AAC priming samples、`MuxContext` DTS 连续性、`next_video_pts` / `next_audio_pts` 累加、`AVAudioFifo` 缓冲——都是一次 allocate、多次 reuse。
+- 不经过 Graph / Task / scheduler 的 per-frame 循环——若把 "open encoder" / "flush encoder" 塞进 Node kernel，kernel 就不再纯函数，违反关键理念 #3 #4。
+- **判别特征**：encoder / muxer / FIFO 状态必须**活过多次帧 / 段调用**。
+- 适用场景：完整 MP4 export、passthrough concat、h264/aac re-encode、带 AAC priming 的 multi-clip。
+
+M1 的 `01_passthrough` / `05_reencode` 走这条。主实现在 `src/orchestrator/muxer_state.cpp`（passthrough）+ `src/orchestrator/reencode_pipeline.cpp` / `reencode_audio.cpp` / `reencode_video.cpp`（re-encode）。
+
+### 何时选哪种
+
+| 输出性质 | per-frame (a) | streaming (b) |
+|---|---|---|
+| 单帧 PNG / thumbnail | ✅ | ❌ |
+| 完整 MP4 export | ❌（encoder state 无处放） | ✅ |
+| Scrubbing / preview | ✅ | ❌ |
+| Multi-clip concat / reencode | ❌ | ✅ |
+| Future frame-server `me_render_frame` | ✅ | ❌ |
+| GPU effect chain on single frame | ✅ | ❌ |
+| Audio mixing over a timeline | ❌ | ✅ |
+
+一句话判别：**"合法的 encoder / muxer / FIFO state 必须在两次调用之间持续"——有，就 streaming；无，就 per-frame。** 这条规则直接决定新 orchestrator 挂哪条路径。越界（例如想在 Previewer 里流式保留 encoder）→ 停下来重想；不是 path 选错就是 feature 设计错。
+
+两条路径**共用** `resource::FramePool / CodecPool / AssetHashCache`（资源层不区分消费者）和 `timeline::Timeline / timeline::segment()`（IR 是两条路径的共同输入）。分歧只在：状态如何跨调用持续，以及 Task 是否被 scheduler 物化。
+
 ## 关键理念（本文件的不可让步点）
 
 1. **Node / Graph 纯数据**——`{kind, properties, input ports, output ports, output types}`；没有 `execute()` 方法、不含函数指针、无 vtable；完全可序列化、可哈希、可 diff。
