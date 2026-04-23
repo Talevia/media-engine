@@ -34,6 +34,7 @@ set(_test_suites
   test_output_sink
   test_probe
   test_thumbnail
+  test_asset_reuse
 )
 
 foreach(_suite ${_test_suites})

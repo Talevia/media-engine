@@ -12,7 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-test-multi-track-asset-reuse** — `timeline-asset-map` 决定（2026-04-23）承诺"多 clip 共享同一 assetId 时 DemuxContext / CodecPool 只分配一次"，但没有直接 doctest 断言；未来改 `Exporter::export_to` 的 demux 分发策略时会无声破坏。**方向：** `tests/test_asset_reuse.cpp`：两 clip 引用同一 assetId，通过 Exporter 跑 passthrough；断言 `engine.codecs.live_count()` 峰值 ≤ 预期 decoder 数 + `FramePool` 也不膨胀。Milestone §M1-debt，Rubric §5.2。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
