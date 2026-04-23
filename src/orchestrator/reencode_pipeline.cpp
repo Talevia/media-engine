@@ -3,6 +3,8 @@
 #include "io/demux_context.hpp"
 #include "io/ffmpeg_raii.hpp"
 #include "io/mux_context.hpp"
+#include "orchestrator/reencode_audio.hpp"
+#include "orchestrator/reencode_video.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -47,102 +49,13 @@ int best_stream(AVFormatContext* fmt, AVMediaType type) {
     return av_find_best_stream(fmt, type, -1, -1, nullptr, 0);
 }
 
-/* Video encoder bootstrap. Opens h264_videotoolbox sized / framed to match
- * the decoded stream. NV12 is the native VideoToolbox surface format; if the
- * decoder yields something else we stage an sws_scale into NV12. */
-me_status_t open_video_encoder(const AVCodecContext* dec,
-                               AVRational            stream_time_base,
-                               int64_t               bitrate_bps,
-                               bool                  global_header,
-                               CodecCtxPtr&          out_enc,
-                               AVPixelFormat&        out_target_pix,
-                               std::string*          err) {
-    const AVCodec* enc = avcodec_find_encoder_by_name("h264_videotoolbox");
-    if (!enc) {
-        if (err) *err = "encoder h264_videotoolbox not available in this FFmpeg build";
-        return ME_E_UNSUPPORTED;
-    }
-    CodecCtxPtr ctx(avcodec_alloc_context3(enc));
-    if (!ctx) return ME_E_OUT_OF_MEMORY;
-
-    ctx->width      = dec->width;
-    ctx->height     = dec->height;
-    ctx->pix_fmt    = AV_PIX_FMT_NV12;
-    ctx->time_base  = stream_time_base;            /* same tb as input stream */
-    ctx->framerate  = dec->framerate;
-    ctx->sample_aspect_ratio = dec->sample_aspect_ratio;
-    ctx->color_range    = dec->color_range;
-    ctx->color_primaries = dec->color_primaries;
-    ctx->color_trc      = dec->color_trc;
-    ctx->colorspace     = dec->colorspace;
-    ctx->bit_rate       = (bitrate_bps > 0) ? bitrate_bps : 6'000'000;
-    /* MP4 / MOV need extradata carried in the container's 'avcC' box, not
-     * prefixed to keyframes — MUST be set before avcodec_open2. */
-    if (global_header) ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-    int rc = avcodec_open2(ctx.get(), enc, nullptr);
-    if (rc < 0) {
-        if (err) *err = "open h264_videotoolbox: " + av_err_str(rc);
-        return ME_E_ENCODE;
-    }
-    out_enc = std::move(ctx);
-    out_target_pix = AV_PIX_FMT_NV12;
-    return ME_OK;
-}
-
-/* Audio encoder bootstrap. libavcodec's built-in AAC (not aac_at) stays in
- * pure LGPL. Sample rate and channel layout track the decoded stream when
- * possible; AAC only supports certain rates, so we fall back to 48000 if
- * the source is off-grid. */
-me_status_t open_audio_encoder(const AVCodecContext* dec,
-                               int64_t               bitrate_bps,
-                               bool                  global_header,
-                               CodecCtxPtr&          out_enc,
-                               std::string*          err) {
-    const AVCodec* enc = avcodec_find_encoder_by_name("aac");
-    if (!enc) {
-        if (err) *err = "encoder aac not available";
-        return ME_E_UNSUPPORTED;
-    }
-    CodecCtxPtr ctx(avcodec_alloc_context3(enc));
-    if (!ctx) return ME_E_OUT_OF_MEMORY;
-
-    /* FFmpeg's built-in AAC encoder supports a fixed sample rate set
-     * (MPEG-4 AAC table). Clamp off-grid input to 48 kHz; native
-     * avcodec_get_supported_config could be used instead but adds API
-     * version surface without benefit — these rates don't change. */
-    static const int aac_rates[] = {
-        8000, 11025, 12000, 16000, 22050, 24000, 32000,
-        44100, 48000, 64000, 88200, 96000, 0
-    };
-    int sample_rate = 48000;
-    for (int i = 0; aac_rates[i]; ++i) {
-        if (aac_rates[i] == dec->sample_rate) { sample_rate = dec->sample_rate; break; }
-    }
-    ctx->sample_rate = sample_rate;
-    ctx->bit_rate    = (bitrate_bps > 0) ? bitrate_bps : 128'000;
-
-    /* Built-in AAC encoder only accepts planar float samples. */
-    ctx->sample_fmt  = AV_SAMPLE_FMT_FLTP;
-    ctx->time_base   = AVRational{1, sample_rate};
-
-    /* Channel layout: inherit when set; otherwise default by nb_channels. */
-    if (dec->ch_layout.nb_channels > 0 && dec->ch_layout.order != AV_CHANNEL_ORDER_UNSPEC) {
-        av_channel_layout_copy(&ctx->ch_layout, &dec->ch_layout);
-    } else {
-        av_channel_layout_default(&ctx->ch_layout, dec->ch_layout.nb_channels > 0
-                                                       ? dec->ch_layout.nb_channels : 2);
-    }
-    if (global_header) ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-    int rc = avcodec_open2(ctx.get(), enc, nullptr);
-    if (rc < 0) {
-        if (err) *err = "open aac: " + av_err_str(rc);
-        return ME_E_ENCODE;
-    }
-    out_enc = std::move(ctx);
-    return ME_OK;
-}
+/* Pulled in so the orchestration flow below can call these by their short
+ * local-namespace names — definitions live in reencode_video.cpp /
+ * reencode_audio.cpp. */
+using detail::open_video_encoder;
+using detail::encode_video_frame;
+using detail::open_audio_encoder;
+using detail::encode_audio_frame;
 
 me_status_t open_decoder(AVStream* in_stream, CodecCtxPtr& out, std::string* err) {
     const AVCodec* dec = avcodec_find_decoder(in_stream->codecpar->codec_id);
@@ -165,91 +78,6 @@ me_status_t open_decoder(AVStream* in_stream, CodecCtxPtr& out, std::string* err
         return ME_E_DECODE;
     }
     out = std::move(ctx);
-    return ME_OK;
-}
-
-/* Encode one decoded video frame (or nullptr for flush). Scales into NV12
- * when needed. The FIFO of encoded packets is drained by avcodec_receive_packet
- * and written to the output mux. */
-me_status_t encode_video_frame(AVFrame*           in_frame,       /* may be nullptr for flush */
-                               AVCodecContext*    enc,
-                               SwsContext*        sws,            /* may be nullptr */
-                               AVFrame*           scratch_nv12,   /* may be nullptr if sws nullptr */
-                               AVFormatContext*   ofmt,
-                               int                out_stream_idx,
-                               AVRational         in_stream_tb,
-                               std::string*       err) {
-    AVFrame* to_encode = in_frame;
-
-    if (in_frame && sws) {
-        int rc = sws_scale(sws,
-                           in_frame->data, in_frame->linesize,
-                           0, in_frame->height,
-                           scratch_nv12->data, scratch_nv12->linesize);
-        if (rc < 0) {
-            if (err) *err = "sws_scale: " + av_err_str(rc);
-            return ME_E_INTERNAL;
-        }
-        scratch_nv12->pts        = av_rescale_q(in_frame->pts, in_stream_tb, enc->time_base);
-        scratch_nv12->pkt_dts    = av_rescale_q(in_frame->pkt_dts, in_stream_tb, enc->time_base);
-        to_encode = scratch_nv12;
-    } else if (in_frame) {
-        in_frame->pts = av_rescale_q(in_frame->pts, in_stream_tb, enc->time_base);
-    }
-
-    int rc = avcodec_send_frame(enc, to_encode);
-    if (rc < 0 && rc != AVERROR_EOF) {
-        if (err) *err = "send_frame(video): " + av_err_str(rc);
-        return ME_E_ENCODE;
-    }
-
-    PacketPtr out_pkt(av_packet_alloc());
-    while (true) {
-        rc = avcodec_receive_packet(enc, out_pkt.get());
-        if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) break;
-        if (rc < 0) {
-            if (err) *err = "receive_packet(video): " + av_err_str(rc);
-            return ME_E_ENCODE;
-        }
-        out_pkt->stream_index = out_stream_idx;
-        av_packet_rescale_ts(out_pkt.get(), enc->time_base, ofmt->streams[out_stream_idx]->time_base);
-        rc = av_interleaved_write_frame(ofmt, out_pkt.get());
-        av_packet_unref(out_pkt.get());
-        if (rc < 0) {
-            if (err) *err = "write_frame(video): " + av_err_str(rc);
-            return ME_E_ENCODE;
-        }
-    }
-    return ME_OK;
-}
-
-me_status_t encode_audio_frame(AVFrame*           in_frame,         /* may be nullptr */
-                               AVCodecContext*    enc,
-                               AVFormatContext*   ofmt,
-                               int                out_stream_idx,
-                               std::string*       err) {
-    int rc = avcodec_send_frame(enc, in_frame);
-    if (rc < 0 && rc != AVERROR_EOF) {
-        if (err) *err = "send_frame(audio): " + av_err_str(rc);
-        return ME_E_ENCODE;
-    }
-    PacketPtr out_pkt(av_packet_alloc());
-    while (true) {
-        rc = avcodec_receive_packet(enc, out_pkt.get());
-        if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) break;
-        if (rc < 0) {
-            if (err) *err = "receive_packet(audio): " + av_err_str(rc);
-            return ME_E_ENCODE;
-        }
-        out_pkt->stream_index = out_stream_idx;
-        av_packet_rescale_ts(out_pkt.get(), enc->time_base, ofmt->streams[out_stream_idx]->time_base);
-        rc = av_interleaved_write_frame(ofmt, out_pkt.get());
-        av_packet_unref(out_pkt.get());
-        if (rc < 0) {
-            if (err) *err = "write_frame(audio): " + av_err_str(rc);
-            return ME_E_ENCODE;
-        }
-    }
     return ME_OK;
 }
 

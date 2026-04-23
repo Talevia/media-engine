@@ -43,6 +43,8 @@ add_library(media_engine
   scheduler/scheduler.cpp
   orchestrator/segment_cache.cpp
   orchestrator/muxer_state.cpp
+  orchestrator/reencode_video.cpp
+  orchestrator/reencode_audio.cpp
   orchestrator/reencode_pipeline.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
