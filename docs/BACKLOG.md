@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **debt-test-thumbnail-color-tagged-fixture** — `tests/test_thumbnail.cpp` 五 case 全部基于 `determinism_input.mp4`（gen_fixture BITEXACT-encoded 所有 color tag 均 UNSPECIFIED）；`grep -n 'color\|tagged' tests/test_thumbnail.cpp` 无 tagged fixture case。`me_thumbnail_png` 未来加 color-managed scaling 时，untagged path 正常不保证 tagged path 正常。**方向：** `gen_fixture.cpp` 加 `--color-range tv --primaries bt709`-style 参数或新 `gen_tagged_fixture.cpp`；`tests/test_thumbnail.cpp` 加一 case 断言 PNG tEXt / iCCP chunk 里带色彩标记（如果 impl 保留）或至少 PNG 仍是合法的 IHDR。Milestone §M2-prep，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 

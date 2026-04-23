@@ -35,6 +35,7 @@ extern "C" {
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 
 namespace {
@@ -106,11 +107,33 @@ int drain_packets(AVCodecContext* enc, AVFormatContext* oc, AVPacket* pkt,
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::fprintf(stderr, "usage: gen_fixture <out.mp4>\n");
+    const char* out_path = nullptr;
+    bool tagged = false;
+
+    /* Accept `gen_fixture <out>` (original shape) or `gen_fixture
+     * --tagged <out>`. The tagged variant sets bt709 / limited color
+     * metadata on the encoder before avcodec_open2; whether it survives
+     * into the MP4 container depends on the muxer — MPEG-4 Part 2 in
+     * mov doesn't reliably round-trip every field, so the tagged
+     * fixture is a scaffold for future color-aware thumbnail /
+     * probe tests rather than a strict "these fields will ffprobe
+     * correctly" guarantee. See decision
+     * 2026-04-23-debt-test-thumbnail-color-tagged-fixture.md. */
+    for (int i = 1; i < argc; ++i) {
+        const char* a = argv[i];
+        if (std::strcmp(a, "--tagged") == 0) {
+            tagged = true;
+        } else if (!out_path) {
+            out_path = a;
+        } else {
+            std::fprintf(stderr, "gen_fixture: unexpected extra arg: %s\n", a);
+            return 2;
+        }
+    }
+    if (!out_path) {
+        std::fprintf(stderr, "usage: gen_fixture [--tagged] <out.mp4>\n");
         return 2;
     }
-    const char* out_path = argv[1];
 
     AVFormatContext* oc_raw = nullptr;
     int rc = avformat_alloc_output_context2(&oc_raw, nullptr, "mp4", out_path);
@@ -150,6 +173,12 @@ int main(int argc, char** argv) {
     enc->global_quality = FF_QP2LAMBDA * 5;   /* -q:v 5 equivalent */
     if (oc->oformat->flags & AVFMT_GLOBALHEADER) {
         enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    }
+    if (tagged) {
+        enc->color_range     = AVCOL_RANGE_MPEG;  /* limited / tv */
+        enc->color_primaries = AVCOL_PRI_BT709;
+        enc->color_trc       = AVCOL_TRC_BT709;
+        enc->colorspace      = AVCOL_SPC_BT709;
     }
 
     rc = avcodec_open2(enc.get(), codec, nullptr);

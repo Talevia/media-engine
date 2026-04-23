@@ -31,6 +31,10 @@ namespace fs = std::filesystem;
 #define ME_TEST_FIXTURE_MP4 ""
 #endif
 
+#ifndef ME_TEST_FIXTURE_MP4_TAGGED
+#define ME_TEST_FIXTURE_MP4_TAGGED ""
+#endif
+
 namespace {
 
 struct EngineHandle {
@@ -175,6 +179,45 @@ TEST_CASE("me_thumbnail_png returns ME_E_IO for a non-existent URI") {
     const char* le = me_engine_last_error(eng.p);
     REQUIRE(le != nullptr);
     CHECK(std::string{le}.find("avformat_open_input") != std::string::npos);
+}
+
+TEST_CASE("me_thumbnail_png produces a valid PNG from a color-tagged fixture") {
+    /* Scaffold case for future color-aware thumbnail work. The tagged
+     * fixture has bt709/limited metadata set on the encoder side
+     * (gen_fixture --tagged, see tests/fixtures/gen_fixture.cpp and
+     * decision 2026-04-23-debt-test-thumbnail-color-tagged-fixture.md).
+     * Whether those tags survive into the MP4 container depends on the
+     * muxer — MPEG-4 Part 2 in mov drops most — so this test stays on
+     * structural invariants (valid PNG, correct dimensions) rather than
+     * strict tag round-trip.
+     *
+     * When M2 compose adds color-aware thumbnail (OCIO pipeline applied
+     * before PNG encode), this case is the spot to upgrade from
+     * "produces valid PNG" to "pixel output reflects correct
+     * input→output color transform". */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4_TAGGED;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping tagged-fixture thumbnail test: tagged fixture not available");
+        return;
+    }
+
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    PngBuffer png;
+    const std::string uri = "file://" + fixture_path;
+    REQUIRE(me_thumbnail_png(eng.p, uri.c_str(),
+                              me_rational_t{0, 1}, 0, 0,
+                              &png.data, &png.size) == ME_OK);
+    REQUIRE(png.data != nullptr);
+    REQUIRE(png.size > 24);
+
+    CHECK(std::memcmp(png.data, kPngSignature, 8) == 0);
+    const PngHeader h = parse_png_header(png.data, png.size);
+    /* Same dimensions as the untagged fixture: gen_fixture's kWidth /
+     * kHeight constants apply to both variants. */
+    CHECK(h.width  == 640);
+    CHECK(h.height == 480);
 }
 
 TEST_CASE("me_thumbnail_png rejects null arguments with ME_E_INVALID_ARG") {

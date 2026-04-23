@@ -99,6 +99,22 @@ add_dependencies(test_determinism determinism_fixture)
 target_compile_definitions(test_determinism PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
+# Tagged variant: same shape as the main fixture but with bt709 /
+# limited color metadata set on the encoder (see gen_fixture's
+# --tagged branch). Scaffold for color-aware thumbnail / probe tests;
+# today the tags don't all survive into the MP4 container (MPEG-4
+# Part 2 in mov drops most), so tests that use it stay on structural
+# invariants (valid PNG, valid probe) rather than strict tag round-trip.
+set(_fixture_mp4_tagged "${_fixture_dir}/determinism_input_tagged.mp4")
+add_custom_command(
+  OUTPUT ${_fixture_mp4_tagged}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
+  COMMAND $<TARGET_FILE:gen_fixture> --tagged ${_fixture_mp4_tagged}
+  DEPENDS gen_fixture ${CMAKE_CURRENT_LIST_FILE}
+  COMMENT "Generating tagged determinism test fixture: ${_fixture_mp4_tagged}"
+  VERBATIM)
+add_custom_target(determinism_fixture_tagged DEPENDS ${_fixture_mp4_tagged})
+
 # test_probe reuses the determinism fixture — same build-time MP4 gives
 # us a known codec / dimensions / framerate / color-tag state to assert
 # probe output against.
@@ -109,6 +125,11 @@ target_compile_definitions(test_probe PRIVATE
 # test_thumbnail also reuses the determinism fixture — the PNG encoder
 # asserts pin down dimensions (640×480 native, scale-to-bound variants),
 # PNG magic + IHDR. Same rationale as test_probe for fixture reuse.
-add_dependencies(test_thumbnail determinism_fixture)
+# Also depends on the tagged variant so one case can assert thumbnail
+# still produces a valid PNG from a color-metadata-carrying source (a
+# canary for future color-aware thumbnail work when M2 compose
+# lands OCIO wiring).
+add_dependencies(test_thumbnail determinism_fixture determinism_fixture_tagged)
 target_compile_definitions(test_thumbnail PRIVATE
-  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+  ME_TEST_FIXTURE_MP4_TAGGED="${_fixture_mp4_tagged}")
