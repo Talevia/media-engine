@@ -19,13 +19,13 @@
 - [x] `me_engine_create` / `me_engine_destroy` 可用
 - [x] `me_timeline_load_json` 解析 schema v1（phase-1 子集：单轨单 clip）
 - [x] `me_render_start` passthrough 路径正确（已验证 2s 测试视频产出合法 MP4）
-- [ ] `me_probe` 实装：container / codec / duration / W×H / 帧率 / sample_rate / channels 全部从 libavformat 拉
-- [ ] `me_thumbnail_png` 实装：任意 asset 指定时间点产 PNG
-- [ ] `me_render_start` 新增至少 1 条 re-encode 路径（建议 h264 via VideoToolbox，mac 上可 HW 加速且 LGPL-clean）
-- [ ] `me_timeline_load_json` 支持单轨 N clip（concat / trim 组合），phase-1 的"必须单 clip"限制解除
-- [ ] 单元测试框架接入（doctest），至少 1 条通过的 passthrough 确定性回归
-- [ ] `me_cache_stats` 返回真实计数（hit/miss/entry_count 不全为 0，配合至少一层 asset 级缓存）
-- [ ] graph / task / scheduler / resource / orchestrator 五模块骨架就位（见 `docs/ARCHITECTURE_GRAPH.md`），timeline 按段切分，passthrough 已迁到 Timeline → Exporter 执行路径
+- [x] `me_probe` 实装：container / codec / duration / W×H / 帧率 / sample_rate / channels 全部从 libavformat 拉
+- [x] `me_thumbnail_png` 实装：任意 asset 指定时间点产 PNG
+- [x] `me_render_start` 新增至少 1 条 re-encode 路径（建议 h264 via VideoToolbox，mac 上可 HW 加速且 LGPL-clean）
+- [x] `me_timeline_load_json` 支持单轨 N clip（concat / trim 组合），phase-1 的"必须单 clip"限制解除
+- [x] 单元测试框架接入（doctest），至少 1 条通过的 passthrough 确定性回归
+- [x] `me_cache_stats` 返回真实计数（hit/miss/entry_count 不全为 0，配合至少一层 asset 级缓存）
+- [x] graph / task / scheduler / resource / orchestrator 五模块骨架就位（见 `docs/ARCHITECTURE_GRAPH.md`），timeline 按段切分，passthrough 已迁到 Timeline → Exporter 执行路径
 
 ## M2 — Multi-track CPU compose + color management
 
