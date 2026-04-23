@@ -72,6 +72,12 @@ public:
     };
     Stats stats() const noexcept;
 
+    /* Reset bytes_used + acquisitions counters. Handles already acquired
+     * stay owned by their callers; this only clears the pool's accounting.
+     * Used by me_cache_clear so `me_cache_stats.memory_bytes_used` returns
+     * to a fresh baseline. */
+    void reset_counters() noexcept;
+
 private:
     int64_t               budget_ = 0;
     std::atomic<int64_t>  used_{0};

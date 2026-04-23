@@ -23,6 +23,7 @@ set(_test_suites
   test_timeline_schema
   test_content_hash
   test_determinism
+  test_cache
 )
 
 foreach(_suite ${_test_suites})

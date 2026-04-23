@@ -12,7 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **cache-stats-impl** — `me_cache_stats` 目前返回全 0 的 stub（`STUB:` 标记于 `src/api/cache.cpp`）；M1 exit criterion 明确要求 hit/miss/entry_count 非零。**方向：** 在 `FramePool` / `AssetHashCache` / `CodecPool` 里计数（bytes_used, entry_count, hit/miss counters），`me_cache_stats_t` 字段挂到真实数；stub 标记删除。Milestone §M1，Rubric §5.3。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 

@@ -36,4 +36,9 @@ FramePool::Stats FramePool::stats() const noexcept {
     };
 }
 
+void FramePool::reset_counters() noexcept {
+    used_.store(0, std::memory_order_relaxed);
+    acquisitions_.store(0, std::memory_order_relaxed);
+}
+
 }  // namespace me::resource
