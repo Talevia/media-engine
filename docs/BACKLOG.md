@@ -15,7 +15,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **debt-test-cache-invalidate-coverage** — `tests/test_cache.cpp` 断言 `me_cache_stats` 随 asset 插入递增，但没断言 `me_cache_invalidate_asset` 的反向语义（invalidate → stats 回退）。invalidate 现在是 impl 完了的（`a4a1c1c`），应该覆盖。**方向：** test_cache.cpp 加一个 case：load timeline → stats.entry_count ≥ 1 → `me_cache_invalidate_asset(eng, asset_id)` → stats.entry_count 减少 1。Milestone §M1-debt，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 
