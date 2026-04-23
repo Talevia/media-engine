@@ -19,7 +19,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **orchestrator-bootstrap** — Previewer / Exporter / Thumbnailer 只有 README；需要最小骨架能跑。**方向：** 每个 class 构造收 Timeline + engine；内置 `SegmentCache`；提供 `frame_at(t)` / `export_to(spec, cb)` / `png_at(t, ...)` 的最小实装（先委托到现有 passthrough 路径即可，不要求功能完整）；C API `me_render_start` / `me_render_frame` / `me_thumbnail_png` 桥接到对应 orchestrator。依赖 `graph-task-bootstrap` + `engine-owns-resources`。Milestone §M1，Rubric §5.1。
 - **thumbnail-impl** — `me_thumbnail_png` stub。**方向：** seek 到目标时刻 → 解码 1 帧 → 按 max_w/h 保比缩放 → PNG 编码。走 libavcodec 软解即可，不走 HW。Milestone §M1，Rubric §5.1。
 - **multi-clip-single-track** — loader 强制"exactly one clip"。**方向：** 单轨多 clip concat + 裁剪（sourceRange.start / duration 可非零），输出顺序拼接。仍限制单 track。Milestone §M1，Rubric §5.1。
 - **content-hash-asset** — Asset schema 有 `contentHash` 字段但引擎没用。**方向：** 若 JSON 缺 contentHash，首次打开 asset 时流式 sha256 并缓存；若提供则信任。为后续 cache key 做准备。Milestone §M1，Rubric §5.1 + §5.4。

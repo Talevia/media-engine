@@ -1,28 +1,27 @@
 #include "media_engine/render.h"
 #include "core/engine_impl.hpp"
+#include "orchestrator/exporter.hpp"
+#include "orchestrator/previewer.hpp"
 #include "timeline/timeline_impl.hpp"
-#include "io/ffmpeg_remux.hpp"
 
-#include <atomic>
+#include <memory>
 #include <string>
-#include <thread>
 
+/* me_render_job wraps the orchestrator's opaque Job — the C API shape stays
+ * stable even as the orchestrator evolves. */
 struct me_render_job {
-    std::thread              worker;
-    std::atomic<bool>        cancel{false};
-    std::atomic<bool>        finished{false};
-    me_status_t              result{ME_OK};
-    std::string              output_path;
+    std::unique_ptr<me::orchestrator::Exporter::Job> job;
 };
 
 namespace {
 
-bool is_passthrough(const me_output_spec_t* out) {
-    auto streq = [](const char* a, const char* b) {
-        return a && b && std::string(a) == b;
-    };
-    return streq(out->video_codec, "passthrough") &&
-           streq(out->audio_codec, "passthrough");
+/* Bootstrap: Timeline ownership. me_timeline owns me::Timeline directly; the
+ * orchestrator wants a shared_ptr<const Timeline>. We wrap the borrowed
+ * Timeline in a shared_ptr with a no-op deleter so lifetime stays with the
+ * caller's me_timeline_t handle. Real shared ownership arrives with the
+ * refactor-passthrough-into-graph-exporter migration. */
+std::shared_ptr<const me::Timeline> borrow_timeline(const me_timeline_t* h) {
+    return std::shared_ptr<const me::Timeline>(&h->tl, [](const me::Timeline*) {});
 }
 
 }  // namespace
@@ -39,94 +38,52 @@ extern "C" me_status_t me_render_start(
     *out_job = nullptr;
     me::detail::clear_error(engine);
 
-    if (!is_passthrough(output)) {
-        me::detail::set_error(engine,
-            "phase-1: only video_codec=\"passthrough\" + audio_codec=\"passthrough\" supported");
-        return ME_E_UNSUPPORTED;
-    }
-    if (timeline->tl.clips.size() != 1) {
-        me::detail::set_error(engine, "phase-1: timeline must have exactly one clip");
-        return ME_E_UNSUPPORTED;
-    }
-    if (!output->path) {
-        me::detail::set_error(engine, "output.path is required");
-        return ME_E_INVALID_ARG;
+    me::orchestrator::Exporter exporter(engine, borrow_timeline(timeline));
+    std::unique_ptr<me::orchestrator::Exporter::Job> job;
+    std::string err;
+    me_status_t s = exporter.export_to(*output, cb, user, &job, &err);
+    if (s != ME_OK) {
+        me::detail::set_error(engine, std::move(err));
+        return s;
     }
 
-    auto* job = new me_render_job{};
-    job->output_path = output->path;
-
-    const std::string in_uri        = timeline->tl.clips[0].asset_uri;
-    const std::string out_path      = output->path;
-    const std::string container     = output->container ? output->container : "";
-
-    job->worker = std::thread([engine, cb, user, job, in_uri, out_path, container]() {
-        if (cb) {
-            me_progress_event_t ev{};
-            ev.kind = ME_PROGRESS_STARTED;
-            cb(&ev, user);
-        }
-
-        std::string err;
-        auto on_ratio = [&](float r) {
-            if (!cb) return;
-            me_progress_event_t ev{};
-            ev.kind  = ME_PROGRESS_FRAMES;
-            ev.ratio = r;
-            cb(&ev, user);
-        };
-
-        me_status_t s = me::io::remux_passthrough(
-            in_uri, out_path, container, on_ratio, job->cancel, &err);
-
-        job->result = s;
-        job->finished.store(true, std::memory_order_release);
-
-        if (s != ME_OK) {
-            me::detail::set_error(engine, err);
-        }
-
-        if (cb) {
-            me_progress_event_t ev{};
-            if (s == ME_OK) {
-                ev.kind        = ME_PROGRESS_COMPLETED;
-                ev.output_path = job->output_path.c_str();
-            } else {
-                ev.kind   = ME_PROGRESS_FAILED;
-                ev.status = s;
-            }
-            cb(&ev, user);
-        }
-    });
-
-    *out_job = job;
+    auto* wrapper = new me_render_job{};
+    wrapper->job = std::move(job);
+    *out_job = wrapper;
     return ME_OK;
 }
 
 extern "C" me_status_t me_render_cancel(me_render_job_t* job) {
-    if (!job) return ME_E_INVALID_ARG;
-    job->cancel.store(true, std::memory_order_release);
+    if (!job || !job->job) return ME_E_INVALID_ARG;
+    job->job->cancel.store(true, std::memory_order_release);
     return ME_OK;
 }
 
 extern "C" me_status_t me_render_wait(me_render_job_t* job) {
-    if (!job) return ME_E_INVALID_ARG;
-    if (job->worker.joinable()) job->worker.join();
-    return job->result;
+    if (!job || !job->job) return ME_E_INVALID_ARG;
+    if (job->job->worker.joinable()) job->job->worker.join();
+    return job->job->result;
 }
 
 extern "C" void me_render_job_destroy(me_render_job_t* job) {
     if (!job) return;
-    if (job->worker.joinable()) job->worker.join();
+    if (job->job && job->job->worker.joinable()) job->job->worker.join();
     delete job;
 }
 
-/* --- Frame server: not implemented in phase 1 ---------------------------- */
+/* --- Frame server: delegates to Previewer, which stubs until M6 --------- */
 
 extern "C" me_status_t me_render_frame(
-    me_engine_t*, const me_timeline_t*, me_rational_t, me_frame_t** out_frame) {
-    if (out_frame) *out_frame = nullptr;
-    return ME_E_UNSUPPORTED;
+    me_engine_t*         engine,
+    const me_timeline_t* timeline,
+    me_rational_t        time,
+    me_frame_t**         out_frame) {
+
+    if (!engine || !timeline || !out_frame) return ME_E_INVALID_ARG;
+    me::detail::clear_error(engine);
+
+    me::orchestrator::Previewer previewer(engine, borrow_timeline(timeline));
+    return previewer.frame_at(time, out_frame);
 }
 
 extern "C" void           me_frame_destroy(me_frame_t*)     {}

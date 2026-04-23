@@ -37,6 +37,10 @@ add_library(media_engine
   resource/frame_pool.cpp
   scheduler/eval_instance.cpp
   scheduler/scheduler.cpp
+  orchestrator/segment_cache.cpp
+  orchestrator/exporter.cpp
+  orchestrator/previewer.cpp
+  orchestrator/thumbnailer.cpp
   api/engine.cpp
   api/timeline.cpp
   api/render.cpp
