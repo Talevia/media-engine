@@ -33,6 +33,7 @@ set(_test_suites
   test_cache
   test_output_sink
   test_probe
+  test_thumbnail
 )
 
 foreach(_suite ${_test_suites})
@@ -90,4 +91,11 @@ target_compile_definitions(test_determinism PRIVATE
 # probe output against.
 add_dependencies(test_probe determinism_fixture)
 target_compile_definitions(test_probe PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_thumbnail also reuses the determinism fixture — the PNG encoder
+# asserts pin down dimensions (640×480 native, scale-to-bound variants),
+# PNG magic + IHDR. Same rationale as test_probe for fixture reuse.
+add_dependencies(test_thumbnail determinism_fixture)
+target_compile_definitions(test_thumbnail PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
