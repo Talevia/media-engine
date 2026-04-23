@@ -16,7 +16,6 @@
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
 - **me-probe-more-fields** — `me_media_info_*` 返回 container / codec / duration / W×H / 帧率 / sample_rate / channels，已经满足 M1 exit。但 M2 compose / OCIO 需要更多：rotation（iOS 竖屏视频常见）、color_range（limited vs full）、color_primaries / transfer / matrix（避免色彩转换错）、bit_depth。**方向：** 扩 `me_media_info_*` accessor（ABI 末尾 append），loader 端已经能从 `AVCodecParameters` 拿到，只需暴露。Milestone §M2-prep / Rubric §5.1。
-- **debt-consolidate-example-cmakelists** — `examples/01_passthrough/` ~ `06_thumbnail/` 每个目录一个 2-行 CMakeLists.txt，内容完全一样 (`add_executable + target_link_libraries`)，加 01_passthrough 还额外复制 sample.timeline.json。未来每加一个 example 就要再复制一份。**方向：** `examples/CMakeLists.txt` 顶部加 `function(me_add_example name)` 封装；各子目录 CMakeLists 降到 `me_add_example(01_passthrough)`。01_passthrough 的 post-build copy 作为函数的可选参数。Milestone §M1-debt，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 
