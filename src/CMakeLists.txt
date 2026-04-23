@@ -123,6 +123,7 @@ add_library(media_engine STATIC
   audio/mix.cpp
   compose/active_clips.cpp
   compose/alpha_over.cpp
+  compose/cross_dissolve.cpp
   compose/frame_convert.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp

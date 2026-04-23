@@ -45,6 +45,7 @@ set(_test_suites
   test_compose_active_clips
   test_compose_frame_convert
   test_audio_mix
+  test_compose_cross_dissolve
 )
 
 foreach(_suite ${_test_suites})
@@ -92,6 +93,11 @@ target_link_libraries(test_compose_frame_convert PRIVATE
 # db_to_linear from src/audio/mix.hpp — pure math, needs src/ on
 # the include path.
 target_include_directories(test_audio_mix PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_cross_dissolve pins cross_dissolve lerp math via
+# known RGBA values at canonical t points. Same src/-as-include
+# pattern as the other me::compose tests.
+target_include_directories(test_compose_cross_dissolve PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from
