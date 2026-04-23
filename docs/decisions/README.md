@@ -29,6 +29,15 @@ docs/decisions/<YYYY-MM-DD>-<slug>.md
 
 **License impact.** 是否引入新依赖？新依赖的 license 是否在 ARCHITECTURE.md 白名单里？
 （纯代码改动写「无新依赖」。）
+
+**Registration.** 本轮动了哪些注册点 / 入口点？逐项列出（或写「无注册点变更」）：
+- `TaskKindId` / kernel registry 条目（`src/task/`）
+- `CodecPool` / `FramePool` / resource factory（`src/resource/`）
+- `Orchestrator` factory（Exporter / Previewer / Thumbnailer）
+- 新导出的 C API 函数（`include/media_engine/*.h`）
+- CMake target / install export / `FetchContent_Declare`
+- JSON schema 新字段 / 新 effect kind / 新 codec 名
+这一段是未来重构时反向追踪「动了哪些契约」的唯一入口，请完整记录，不要省略。
 ```
 
 不记 commit 号——`git log` 本身就能按文件名 / 日期查到对应 commit，归档文件里再重复反而会过时。

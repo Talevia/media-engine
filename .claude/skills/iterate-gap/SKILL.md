@@ -64,7 +64,7 @@ git pull --rebase origin main
 
 依次读：
 
-1. `docs/VISION.md` §5 的 6 条 rubric 轴（5.1–5.6）。
+1. `docs/VISION.md` §5 的 7 条 rubric 轴（5.1–5.7）。
 2. `docs/MILESTONES.md` 顶部的 current milestone 及其未打勾的 exit criteria。
 3. `CLAUDE.md` 的 "Architecture invariants" + "Anti-requirements" + "Known incomplete"——已承认的非回归项别当缺口重复报。
 4. `docs/decisions/` 最近 ~15 个文件（`ls docs/decisions | sort -r | head -15`）——近期已做决策约束了不该再做一遍的内容。
@@ -83,6 +83,8 @@ git pull --rebase origin main
 分档建议：P0 约 3 条（含 1 条 debt）、P1 约 7-8 条（含 2-3 条 debt）、P2 剩余。找不满 15 条可少（最少 6 条，其中 debt ≥ 2）。
 
 ### R.5 技术债扫描（repopulate 必做）
+
+**先跑 `bash tools/scan-debt.sh`**——这份脚本把下面 8 类信号固化成结构化输出，避免每次 repopulate 重新手搓 grep 命令造成结果漂移。把脚本的 stdout 完整粘到 `docs(backlog)` commit message body 里；下面的"阈值 → debt 任务"映射仍由本节规约：
 
 每类命中产一条 `debt-` 任务。信号与上次 `docs(backlog)` commit 所在的快照对比：
 
