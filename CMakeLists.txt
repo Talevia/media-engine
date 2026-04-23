@@ -23,13 +23,17 @@ option(ME_BUILD_TESTS    "Build unit tests" OFF)
 option(ME_WERROR         "Treat warnings as errors" OFF)
 
 # OCIO is the M2 compose-path color management library (see
-# `docs/ARCHITECTURE.md` dependency table). Off by default: no current-
-# milestone consumer needs it, fetching + building OCIO + its transitive
-# Imath / yaml-cpp / pystring / expat stack is heavy, and CI hosts
-# without a preinstalled OCIO shouldn't pay that cost until the first
-# real consumer lands. Flip ON to validate the FetchContent path locally
-# or to start wiring `me::color::OcioPipeline`.
-option(ME_WITH_OCIO      "Fetch and link OpenColorIO (M2 color pipeline)" OFF)
+# `docs/ARCHITECTURE.md` dependency table). Default ON as of the
+# `ocio-pipeline-enable` cycle — OCIO v2.5.1 upstream now passes
+# `CMAKE_POLICY_VERSION_MINIMUM=3.5` into its yaml-cpp_install
+# ExternalProject, which unblocks the CMake-4.x floor issue that made
+# 2.3.2 un-buildable on our dev machine. The compose kernel cycles
+# (multi-track-compose-kernel, cross-dissolve-kernel) assume OCIO is
+# linked and `make_pipeline()` returns `OcioPipeline` by default.
+# Flip OFF to produce a color-unaware build (skips the ~5min first-
+# configure cost at the expense of all color paths running through
+# `IdentityPipeline`).
+option(ME_WITH_OCIO      "Fetch and link OpenColorIO (M2 color pipeline)" ON)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)

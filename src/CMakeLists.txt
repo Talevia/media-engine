@@ -34,17 +34,21 @@ find_package(FFMPEG REQUIRED)
 
 # OpenColorIO — opt-in (off by default; see ME_WITH_OCIO in top-level
 # CMakeLists.txt for the rationale). When on, we FetchContent OCIO
-# 2.3.2 and let it pull its own transitive deps (Imath, yaml-cpp,
-# pystring, expat, minizip-ng). OCIO's internal CMake sets
-# `CMAKE_POLICY_VERSION_MINIMUM` via our shared helper so the CMake 4.x
-# floor issue doesn't bite. `me::color::OcioPipeline` (not yet written)
-# will live next to `IdentityPipeline` in `src/color/` and link
-# `OpenColorIO::OpenColorIO` conditionally here.
+# v2.5.1 and let it pull its own transitive deps (Imath, yaml-cpp,
+# pystring, expat, minizip-ng). v2.5.1 matters: upstream
+# share/cmake/modules/install/Installyaml-cpp.cmake now passes
+# `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` into its nested
+# ExternalProject_Add for yaml-cpp 0.7.0, which is what unblocks the
+# CMake-4.x floor + yaml-cpp's old `cmake_minimum_required(VERSION 3.4)`
+# combo on our dev machine. 2.3.2 — our previous pin — lacked that
+# flag and the build died at the yaml-cpp_install step.
+# `me::color::OcioPipeline` lives next to `IdentityPipeline` in
+# `src/color/` and links `OpenColorIO::OpenColorIO` conditionally.
 if(ME_WITH_OCIO)
   FetchContent_Declare(
     OpenColorIO
     GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/OpenColorIO.git
-    GIT_TAG        v2.3.2
+    GIT_TAG        v2.5.1
     GIT_SHALLOW    TRUE
   )
   set(OCIO_BUILD_APPS       OFF CACHE INTERNAL "")
@@ -104,11 +108,19 @@ configure_file(
   @ONLY
 )
 
-add_library(media_engine
+# STATIC explicitly: without this the library follows BUILD_SHARED_LIBS,
+# which OCIO's own CMakeLists defaults ON when we FetchContent it. Once
+# flipped to shared, our hidden-by-default visibility would require
+# explicit export annotations on every extern "C" API — work we don't
+# want to take on just because a dep's defaults drift. STATIC sidesteps
+# that entirely and matches the historical behavior of this library.
+add_library(media_engine STATIC
   core/version.cpp
   core/engine_seed.cpp
   timeline/timeline_loader.cpp
   timeline/segmentation.cpp
+  color/pipeline.cpp
+  $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
   io/demux_kernel.cpp
   io/mux_context.cpp

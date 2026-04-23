@@ -67,8 +67,13 @@ target_include_directories(test_timeline_segment PRIVATE ${CMAKE_SOURCE_DIR}/src
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from
 # `src/timeline/timeline_impl.hpp` to exercise the abstract Pipeline
-# contract with typed color-space tags.
+# contract with typed color-space tags. Mirrors the ME_HAS_OCIO compile
+# definition from media_engine so the OcioPipeline-specific test cases
+# (behind `#if ME_HAS_OCIO`) participate in the build when OCIO is on.
 target_include_directories(test_color_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_OCIO)
+  target_compile_definitions(test_color_pipeline PRIVATE ME_HAS_OCIO=1)
+endif()
 
 # test_output_sink calls the internal factory me::orchestrator::make_output_sink
 # directly — same src/-as-include pattern as the other internal-surface suites.

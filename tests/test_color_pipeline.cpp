@@ -26,12 +26,13 @@ TEST_CASE("me::color::make_pipeline returns a non-null Pipeline") {
     REQUIRE(p != nullptr);
 }
 
-TEST_CASE("IdentityPipeline::apply is a no-op returning ME_OK") {
+TEST_CASE("Pipeline::apply is a no-op returning ME_OK on src == dst") {
     auto p = me::color::make_pipeline();
     REQUIRE(p != nullptr);
 
-    /* bt709 limited → bt709 limited: identity transform semantically,
-     * and the concrete IdentityPipeline just returns ME_OK. */
+    /* bt709 limited → bt709 limited: identity transform. Both the
+     * IdentityPipeline (ME_WITH_OCIO=OFF) and OcioPipeline
+     * (ME_WITH_OCIO=ON) fast-path this case. */
     me::ColorSpace src{};
     src.primaries = me::ColorSpace::Primaries::BT709;
     src.transfer  = me::ColorSpace::Transfer::BT709;
@@ -50,3 +51,29 @@ TEST_CASE("IdentityPipeline::apply is a no-op returning ME_OK") {
     /* Identity path must not mutate the buffer. */
     CHECK(buf == copy_before);
 }
+
+#if ME_HAS_OCIO
+TEST_CASE("OcioPipeline returns ME_E_UNSUPPORTED on non-identity pair") {
+    /* Skeletal OCIO wiring returns UNSUPPORTED for any pair the
+     * identity fast-path doesn't cover. The real bt709 ↔ sRGB ↔
+     * linear conversions land with the ocio-colorspace-conversions
+     * backlog bullet. Contract pinned here so the test flips the
+     * moment that cycle upgrades to a real transform. */
+    auto p = me::color::make_pipeline();
+    REQUIRE(p != nullptr);
+
+    me::ColorSpace src{};
+    src.primaries = me::ColorSpace::Primaries::BT709;
+    src.transfer  = me::ColorSpace::Transfer::BT709;
+
+    me::ColorSpace dst = src;
+    dst.transfer = me::ColorSpace::Transfer::SRGB;   /* only axis differs */
+
+    std::vector<uint8_t> buf(64, 0);
+    std::string err;
+    const me_status_t s = p->apply(buf.data(), buf.size(), src, dst, &err);
+    CHECK(s == ME_E_UNSUPPORTED);
+    CHECK(err.find("non-identity colorspace conversion") != std::string::npos);
+    CHECK(err.find("transfer") != std::string::npos);
+}
+#endif  /* ME_HAS_OCIO */
