@@ -59,7 +59,7 @@ Rule of thumb: **if an API call hands you a pointer via an out-param, you own it
 | `me_render_job_t**`     | `me_render_job_destroy`   | until destroyed (after terminal state) |
 | `me_frame_t**`          | `me_frame_destroy`        | until destroyed |
 | `me_media_info_t**`     | `me_media_info_destroy`   | until destroyed |
-| `uint8_t**` (PNG, etc.) | `me_buffer_free`          | until freed |
+| `uint8_t**` from `me_thumbnail_png` | `me_buffer_free` | until freed |
 | `const char*` from query | (none)                   | until parent handle destroyed or next call on parent |
 | `const uint8_t*` from `me_frame_pixels` | (none) | until `me_frame_destroy` |
 
@@ -116,6 +116,8 @@ me_engine_destroy(eng);
 
 ### Frame-server scrub
 
+> **Stubbed until M6.** `me_render_frame` currently returns `ME_E_UNSUPPORTED`; the frame-server path + `me_frame_*` accessor bodies land with the M6 milestone. The shape below is the committed API surface so host code can be written against it today (the `if (... == ME_OK)` branch silently won't fire until the impl lands).
+
 ```c
 me_rational_t t = { 30, 30 };   /* 1.0 s */
 me_frame_t* f;
@@ -123,6 +125,45 @@ if (me_render_frame(eng, tl, t, &f) == ME_OK) {
     upload_to_texture(me_frame_pixels(f), me_frame_width(f), me_frame_height(f));
     me_frame_destroy(f);
 }
+```
+
+### Probe asset metadata
+
+```c
+me_media_info_t* info;
+if (me_probe(eng, "file:///path/to/clip.mp4", &info) == ME_OK) {
+    printf("container=%s codec=%s %dx%d @ %lld/%lld fps\n",
+           me_media_info_container(info),
+           me_media_info_video_codec(info),
+           me_media_info_video_width(info),
+           me_media_info_video_height(info),
+           (long long)me_media_info_video_frame_rate(info).num,
+           (long long)me_media_info_video_frame_rate(info).den);
+    /* Extended fields for M2 compose + OCIO: rotation, color_range,
+     * color_primaries, color_transfer, color_space, bit_depth — see
+     * probe.h. */
+    me_media_info_destroy(info);
+}
+```
+
+### Cache observability
+
+```c
+me_cache_stats_t stats;
+if (me_cache_stats(eng, &stats) == ME_OK) {
+    printf("assets cached: %lld  (hit=%lld miss=%lld)\n",
+           (long long)stats.entry_count,
+           (long long)stats.hit_count,
+           (long long)stats.miss_count);
+}
+
+/* Drop a specific asset from the content-hash cache (after a host-side
+ * file modification, for example). Accepts both "sha256:<hex>" and bare
+ * "<hex>" forms. */
+me_cache_invalidate_asset(eng, "sha256:5d41402abc4b2a76b9719d911017c592c3a1f0e8adf2eb0a0f8b5c7f3ec6f3a9");
+
+/* Nuke all cache state (used at process shutdown or test teardown). */
+me_cache_clear(eng);
 ```
 
 ### Progress callback

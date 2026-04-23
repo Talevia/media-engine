@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-docs-api-md-stale-audit** — `docs/API.md` 163 行，最近 8 周有 me_probe 扩 6 accessor、reencode-multi-clip 落地、cache_stats 实装、`me_buffer_free` 加入等 API 变化。没人 audit 过 docs/API.md 还是否匹配当前 header 接口。**方向：** diff `include/media_engine/*.h` 的公开声明与 `docs/API.md` 描述；缺的补上、stale 的改；不出现已 deleted / renamed 的 symbol。写成 `docs(api)` 或 `refactor(docs)` commit。Milestone §M1-debt，Rubric §5.2。
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
