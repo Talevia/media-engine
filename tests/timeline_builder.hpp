@@ -46,6 +46,9 @@ struct AssetSpec {
     /* Empty = omit the `contentHash` field entirely. Non-empty should be
      * the full `sha256:<64-hex>` form; the loader normalizes. */
     std::string content_hash;
+    /* Empty = omit the `colorSpace` field entirely. Non-empty should be
+     * a full JSON object body e.g. `{"primaries":"bt709","range":"limited"}`. */
+    std::string color_space_json;
 };
 
 struct ClipSpec {
@@ -102,6 +105,9 @@ public:
                << "\",\"uri\":\"" << a.uri << "\"";
             if (!a.content_hash.empty()) {
                 os << ",\"contentHash\":\"" << a.content_hash << "\"";
+            }
+            if (!a.color_space_json.empty()) {
+                os << ",\"colorSpace\":" << a.color_space_json;
             }
             os << "}";
         }

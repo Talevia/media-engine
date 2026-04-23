@@ -3,6 +3,7 @@
 #include <media_engine.h>
 
 #include "timeline_builder.hpp"
+#include "timeline/timeline_impl.hpp"
 
 #include <string>
 #include <string_view>
@@ -118,4 +119,54 @@ TEST_CASE("load_json populates last_error on rejection") {
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
     CHECK(std::string_view{err}.find("schemaVersion") != std::string_view::npos);
+}
+
+TEST_CASE("asset.colorSpace parsed into me::Asset::color_space") {
+    EngineFixture f;
+    tb::TimelineBuilder b;
+    b.add_asset(tb::AssetSpec{
+        .color_space_json = R"({"primaries":"bt2020","transfer":"pq",)"
+                            R"("matrix":"bt2020nc","range":"full"})",
+    });
+    b.add_clip(tb::ClipSpec{});
+
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, b.build(), &tl) == ME_OK);
+    REQUIRE(tl != nullptr);
+
+    const auto& assets = tl->tl.assets;
+    REQUIRE(assets.count("a1") == 1);
+    const auto& cs = assets.at("a1").color_space;
+    REQUIRE(cs.has_value());
+    CHECK(cs->primaries == me::ColorSpace::Primaries::BT2020);
+    CHECK(cs->transfer  == me::ColorSpace::Transfer::PQ);
+    CHECK(cs->matrix    == me::ColorSpace::Matrix::BT2020NC);
+    CHECK(cs->range     == me::ColorSpace::Range::Full);
+
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("asset without colorSpace leaves color_space as nullopt") {
+    EngineFixture f;
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, tb::minimal_video_clip().build(), &tl) == ME_OK);
+    REQUIRE(tl != nullptr);
+    CHECK_FALSE(tl->tl.assets.at("a1").color_space.has_value());
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("asset.colorSpace with unknown enum is rejected as ME_E_PARSE") {
+    EngineFixture f;
+    tb::TimelineBuilder b;
+    b.add_asset(tb::AssetSpec{
+        .color_space_json = R"({"primaries":"xyz-wide"})",
+    });
+    b.add_clip(tb::ClipSpec{});
+
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, b.build(), &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string_view{err}.find("primaries") != std::string_view::npos);
 }

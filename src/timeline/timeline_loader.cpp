@@ -36,6 +36,53 @@ bool rational_eq(me_rational_t a, me_rational_t b) {
     return a.num * b.den == b.num * a.den;
 }
 
+/* String → enum tables for me::ColorSpace. Keep in lock-step with
+ * TIMELINE_SCHEMA.md §Color and me::ColorSpace in timeline_impl.hpp.
+ * Unknown string → ME_E_PARSE (caller wraps with field name). */
+me::ColorSpace::Primaries to_primaries(const std::string& s) {
+    using P = me::ColorSpace::Primaries;
+    if (s == "bt709")  return P::BT709;
+    if (s == "bt601")  return P::BT601;
+    if (s == "bt2020") return P::BT2020;
+    if (s == "p3-d65") return P::P3_D65;
+    throw LoadError{ME_E_PARSE, "colorSpace.primaries: unknown '" + s + "'"};
+}
+me::ColorSpace::Transfer to_transfer(const std::string& s) {
+    using T = me::ColorSpace::Transfer;
+    if (s == "bt709")   return T::BT709;
+    if (s == "srgb")    return T::SRGB;
+    if (s == "linear")  return T::Linear;
+    if (s == "pq")      return T::PQ;
+    if (s == "hlg")     return T::HLG;
+    if (s == "gamma22") return T::Gamma22;
+    if (s == "gamma28") return T::Gamma28;
+    throw LoadError{ME_E_PARSE, "colorSpace.transfer: unknown '" + s + "'"};
+}
+me::ColorSpace::Matrix to_matrix(const std::string& s) {
+    using M = me::ColorSpace::Matrix;
+    if (s == "bt709")    return M::BT709;
+    if (s == "bt601")    return M::BT601;
+    if (s == "bt2020nc") return M::BT2020NC;
+    if (s == "identity") return M::Identity;
+    throw LoadError{ME_E_PARSE, "colorSpace.matrix: unknown '" + s + "'"};
+}
+me::ColorSpace::Range to_range(const std::string& s) {
+    using R = me::ColorSpace::Range;
+    if (s == "limited") return R::Limited;
+    if (s == "full")    return R::Full;
+    throw LoadError{ME_E_PARSE, "colorSpace.range: unknown '" + s + "'"};
+}
+
+me::ColorSpace parse_color_space(const json& j, const std::string& where) {
+    require(j.is_object(), ME_E_PARSE, where + ".colorSpace: expected object");
+    me::ColorSpace cs;
+    if (j.contains("primaries")) cs.primaries = to_primaries(j["primaries"].get<std::string>());
+    if (j.contains("transfer"))  cs.transfer  = to_transfer (j["transfer" ].get<std::string>());
+    if (j.contains("matrix"))    cs.matrix    = to_matrix   (j["matrix"   ].get<std::string>());
+    if (j.contains("range"))     cs.range     = to_range    (j["range"    ].get<std::string>());
+    return cs;
+}
+
 }  // namespace
 
 namespace me::timeline {
@@ -96,8 +143,13 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                             "asset[" + id + "].contentHash: only \"sha256:\" prefix supported"};
                     }
                 }
+                std::optional<me::ColorSpace> cs;
+                if (a.contains("colorSpace")) {
+                    cs = parse_color_space(a["colorSpace"], "asset[" + id + "]");
+                }
                 tl.assets.emplace(std::move(id),
-                                   me::Asset{std::move(uri), std::move(hex)});
+                                   me::Asset{std::move(uri), std::move(hex),
+                                             std::move(cs)});
             }
         }
 

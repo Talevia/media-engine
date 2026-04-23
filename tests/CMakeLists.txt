@@ -40,6 +40,10 @@ endforeach()
 # 02_graph_smoke does for internal validation.
 target_include_directories(test_content_hash PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# test_timeline_schema verifies loader produces the right IR — reaches
+# into me::Timeline / me::Asset to check parsed Asset::color_space values.
+target_include_directories(test_timeline_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # -----------------------------------------------------------------------------
 # Fixture for test_determinism — a tiny deterministic MP4 generated via the
 # system ffmpeg CLI at build time. MPEG-4 Part 2 video picked because it's
