@@ -212,6 +212,93 @@ TEST_CASE("ComposeSink e2e: 2-track with per-clip transform opacity renders") {
     CHECK(fs::file_size(out_path) > 4096);
 }
 
+TEST_CASE("ComposeSink e2e: per-clip translate renders (spatial transform wired)") {
+    /* Pin that `Clip::transform.translate_*` actually reaches the
+     * compose loop via the affine_blit pre-composite path. Render
+     * twice: once with top track at translate (0, 0) (identity
+     * fast-path), once with top track at translate (100, 50)
+     * (forces affine path). The renders must produce different
+     * output — size differs, since shifted content compresses
+     * differently under h264. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+
+    auto render = [&](const std::string& translate_json,
+                      const fs::path& out) -> me_status_t {
+        EngineHandle eng;
+        REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+        const std::string fixture_uri = "file://" + fixture_path;
+        const std::string j = R"({
+          "schemaVersion": 1,
+          "frameRate":  {"num":25,"den":1},
+          "resolution": {"width":640,"height":480},
+          "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+          "assets": [{"id":"a1","kind":"video","uri":")" + fixture_uri + R"("}],
+          "compositions": [{"id":"main","tracks":[
+            {"id":"v0","kind":"video","clips":[
+              {"type":"video","id":"c_v0","assetId":"a1",
+               "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+               "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+            ]},
+            {"id":"v1","kind":"video","clips":[
+              {"type":"video","id":"c_v1","assetId":"a1",
+               "transform":)" + translate_json + R"(,
+               "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+               "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+            ]}
+          ]}],
+          "output": {"compositionId":"main"}
+        })";
+        TimelineHandle tl;
+        REQUIRE(me_timeline_load_json(eng.p, j.data(), j.size(), &tl.p) == ME_OK);
+
+        fs::remove(out);
+        me_output_spec_t spec{};
+        spec.path        = out.c_str();
+        spec.container   = "mp4";
+        spec.video_codec = "h264";
+        spec.audio_codec = "aac";
+        JobHandle job;
+        if (me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, &job.p) != ME_OK) {
+            return ME_E_INTERNAL;
+        }
+        return me_render_wait(job.p);
+    };
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-compose-sink-e2e";
+    fs::create_directories(tmp_dir);
+    const fs::path out_id   = tmp_dir / "translate-identity.mp4";
+    const fs::path out_xlat = tmp_dir / "translate-shifted.mp4";
+
+    /* Identity: empty transform → skip spatial affine, fast path. */
+    const me_status_t s_id = render(R"({})", out_id);
+    if (s_id == ME_E_UNSUPPORTED || s_id == ME_E_ENCODE) { return; }
+    REQUIRE(s_id == ME_OK);
+
+    /* Shifted: translateX=100, translateY=50 → affine pre-composite. */
+    const me_status_t s_xlat = render(
+        R"({"translateX":{"static":100},"translateY":{"static":50}})",
+        out_xlat);
+    REQUIRE(s_xlat == ME_OK);
+
+    /* Both files exist and non-trivial. */
+    CHECK(fs::file_size(out_id)   > 4096);
+    CHECK(fs::file_size(out_xlat) > 4096);
+
+    /* Non-identity translate should change encoded output. Can't
+     * assert byte-inequality on videotoolbox (non-deterministic
+     * across runs anyway), but file sizes should differ by at least
+     * a few hundred bytes given the different pixel content. */
+    const auto sz_id   = fs::file_size(out_id);
+    const auto sz_xlat = fs::file_size(out_xlat);
+    const auto diff    = sz_id > sz_xlat ? sz_id - sz_xlat : sz_xlat - sz_id;
+    /* h264 compression of shifted content + mostly-transparent edges
+     * produces noticeably different file size. 1% of min is a generous
+     * floor — real diff on dev hardware is typically several percent. */
+    const auto min_sz  = sz_id < sz_xlat ? sz_id : sz_xlat;
+    CHECK(diff >= min_sz / 100);
+}
+
 TEST_CASE("ComposeSink e2e: two 2-track renders produce similarly-sized output") {
     /* Videotoolbox is non-deterministic (HW encoder state persists
      * across renders in subtle ways), so we can't assert byte-equal.

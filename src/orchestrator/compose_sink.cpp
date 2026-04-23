@@ -24,6 +24,7 @@
 #include "orchestrator/compose_sink.hpp"
 
 #include "compose/active_clips.hpp"
+#include "compose/affine_blit.hpp"
 #include "compose/alpha_over.hpp"
 #include "compose/frame_convert.hpp"
 #include "io/av_err.hpp"
@@ -185,6 +186,13 @@ public:
         }
         std::vector<uint8_t> dst_rgba(static_cast<std::size_t>(W) * H * 4, 0);
         std::vector<uint8_t> track_rgba;
+        /* Intermediate canvas-sized RGBA buffer for the affine-
+         * transform path. Allocated once outside the per-frame loop;
+         * affine_blit overwrites every pixel (ensuring no stale data
+         * from prior frames). Only used when a clip has a non-
+         * identity spatial Transform. */
+        std::vector<uint8_t> track_rgba_xform(
+            static_cast<std::size_t>(W) * H * 4, 0);
 
         me::io::AvFramePtr target_yuv(av_frame_alloc());
         if (!target_yuv) {
@@ -269,46 +277,74 @@ public:
                     }
                     av_frame_unref(td.frame_scratch.get());
 
-                    /* Track frame may have different dims than output
-                     * (e.g. 640×480 source into 1920×1080 timeline).
-                     * Phase-1 simplification: both sides are expected
-                     * identical (loader + encoder both use timeline's
-                     * resolution). If they differ, alpha_over would
-                     * walk out-of-bounds on the smaller buffer —
-                     * detect and skip that layer with a warning-style
-                     * error. */
-                    if (src_w != W || src_h != H) {
-                        /* Future: scale to target dims via sws. For now,
-                         * err out so misconfigurations are loud. */
-                        if (err) {
-                            *err = "ComposeSink: track frame size (" +
-                                   std::to_string(src_w) + "x" +
-                                   std::to_string(src_h) +
-                                   ") doesn't match output (" +
-                                   std::to_string(W) + "x" +
-                                   std::to_string(H) +
-                                   "); phase-1 requires identical dims "
-                                   "(future: per-track sws scale)";
-                        }
-                        return ME_E_UNSUPPORTED;
-                    }
-
-                    /* Opacity from Clip::transform (if set) — this is
-                     * the first of four Transform axes wired into
-                     * compose. translate / scale / rotate require an
-                     * affine pre-composite pass (a separate
-                     * `compose-transform-affine-wire` follow-up). */
                     const me::Clip& clip = tl_.clips[ta.clip_idx];
                     const float opacity =
                         clip.transform.has_value()
                             ? static_cast<float>(clip.transform->opacity)
                             : 1.0f;
 
-                    me::compose::alpha_over(
-                        dst_rgba.data(), track_rgba.data(),
-                        W, H, static_cast<std::size_t>(W) * 4,
-                        opacity,
-                        me::compose::BlendMode::Normal);
+                    /* Spatial identity = translate 0 + scale 1 + rotate 0.
+                     * Anchor doesn't matter when the three differentials
+                     * are identity; no pre-composite pass needed and the
+                     * fast path requires src dims == output dims. */
+                    const bool spatial_identity =
+                        !clip.transform.has_value() ||
+                        (clip.transform->translate_x  == 0.0 &&
+                         clip.transform->translate_y  == 0.0 &&
+                         clip.transform->scale_x      == 1.0 &&
+                         clip.transform->scale_y      == 1.0 &&
+                         clip.transform->rotation_deg == 0.0);
+
+                    if (spatial_identity) {
+                        /* Fast path: src dims must match output dims
+                         * (identity mapping at pixel granularity). */
+                        if (src_w != W || src_h != H) {
+                            if (err) {
+                                *err = "ComposeSink: track frame size (" +
+                                       std::to_string(src_w) + "x" +
+                                       std::to_string(src_h) +
+                                       ") doesn't match output (" +
+                                       std::to_string(W) + "x" +
+                                       std::to_string(H) +
+                                       "); either match the timeline "
+                                       "resolution or set a non-identity "
+                                       "Transform (scale != 1 or translate "
+                                       "!= 0) to opt into the affine "
+                                       "pre-composite path";
+                            }
+                            return ME_E_UNSUPPORTED;
+                        }
+                        me::compose::alpha_over(
+                            dst_rgba.data(), track_rgba.data(),
+                            W, H, static_cast<std::size_t>(W) * 4,
+                            opacity,
+                            me::compose::BlendMode::Normal);
+                    } else {
+                        /* Slow path: affine pre-composite. Build
+                         * inverse matrix from the Transform, blit
+                         * src → canvas-sized intermediate, then
+                         * alpha_over the intermediate. Handles
+                         * differing src/output dims implicitly. */
+                        const me::Transform& tr = *clip.transform;
+                        const me::compose::AffineMatrix inv =
+                            me::compose::compose_inverse_affine(
+                                tr.translate_x, tr.translate_y,
+                                tr.scale_x,     tr.scale_y,
+                                tr.rotation_deg,
+                                tr.anchor_x,    tr.anchor_y,
+                                src_w, src_h);
+                        me::compose::affine_blit(
+                            track_rgba_xform.data(), W, H,
+                            static_cast<std::size_t>(W) * 4,
+                            track_rgba.data(), src_w, src_h,
+                            static_cast<std::size_t>(src_w) * 4,
+                            inv);
+                        me::compose::alpha_over(
+                            dst_rgba.data(), track_rgba_xform.data(),
+                            W, H, static_cast<std::size_t>(W) * 4,
+                            opacity,
+                            me::compose::BlendMode::Normal);
+                    }
                 }
             }
 
