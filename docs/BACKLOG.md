@@ -12,8 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **test-scaffold-doctest** — 无单元测试框架；靠人工跑 example 验证。**方向：** 加 `ME_BUILD_TESTS=ON` 时链 doctest（FetchContent，MIT），在 `tests/` 建第一批 C API 最小用例（create/destroy、status_str 全覆盖、schema rejection）。Milestone §M1，Rubric §5.2。
-
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
 - **thumbnail-impl** — `me_thumbnail_png` stub。**方向：** seek 到目标时刻 → 解码 1 帧 → 按 max_w/h 保比缩放 → PNG 编码。走 libavcodec 软解即可，不走 HW。Milestone §M1，Rubric §5.1。

@@ -29,3 +29,11 @@ Passthrough 和 reencode 都走 `build_passthrough_graph()` → await `DemuxCont
 ### 2026-04-22 · reencode-h264-videotoolbox — `me_output_spec_t` 用 `const char*` 做 codec 选择
 
 `video_codec = "h264"`、`audio_codec = "aac"` 是字符串——好处是 ABI 稳、C 友好；坏处是 `is_passthrough_spec` / `is_h264_aac_spec` 这种分支要靠 `strcmp` + 每加一种就要维护一个新的 helper。更痛的是 `spec.video_bitrate_bps` 不区分是给 h264 用、还是给 ProRes 用，所有 codec-specific 选项都只能共用这一层 flat struct。**方向：** 未来某个 milestone 需要每 codec 一个 typed option struct（`me_h264_opts_t`、`me_aac_opts_t`），spec 里带个 union / tagged 指针。但现在跨 ABI 边界整 union 成本高，等 M3-M4 再动。
+
+### 2026-04-23 · test-scaffold-doctest — FetchContent 依赖的 CMake 地板版本碎片化
+
+doctest v2.4.11 的 `CMakeLists.txt` 声明 `cmake_minimum_required(VERSION 2.8)`，CMake 4.x 直接报错 "Compatibility with CMake < 3.5 has been removed"。解法是先 `set(CMAKE_POLICY_VERSION_MINIMUM 3.5)` 再 `FetchContent_MakeAvailable`——这是 workaround 不是修复，上游一旦 bump 就要回头删。nlohmann/json、taskflow 未来任一依赖踩同样的地板，本项目就会反复在每次 FetchContent 处粘一坨 policy 设置。**方向：** 建一个 `cmake/fetchcontent_policy.cmake` 集中把所有第三方 policy workaround 收口，`tests/` 和 `src/` 都 `include()`；或等 doctest 升级后整体删掉这行。
+
+### 2026-04-23 · test-scaffold-doctest — 测试 schema rejection 靠手撸 string::replace
+
+`test_timeline_schema.cpp` 里要测"schemaVersion=2 被拒"、"多 clip 被拒"、"有 effects 被拒"——每个 case 都把常量 JSON 字符串拷一份、在里面 `find + replace`。维护成本主要在"JSON 里某个字段写法一改，几条测试的 `find` 就同时挂"。**方向：** 可以建一个极简的 timeline builder helper（`TimelineBuilder::minimal_valid().with_schema_version(2).build()`），返回 string。但现在只有 5 条 mutation test，引入 builder 收益有限；到 schema v2 migration / multi-clip 一落地，mutation 矩阵起码 15 条，到那时抽。现在记下"手撸 find+replace 不可扩展"这个触发点。
