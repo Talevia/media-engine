@@ -42,6 +42,7 @@ set(_test_suites
   test_render_job_lifecycle
   test_output_spec
   test_compose_alpha_over
+  test_compose_active_clips
 )
 
 foreach(_suite ${_test_suites})
@@ -70,6 +71,12 @@ target_include_directories(test_timeline_segment PRIVATE ${CMAKE_SOURCE_DIR}/src
 # per-blend-mode math. Same src/-as-include pattern as the other
 # internal-surface suites.
 target_include_directories(test_compose_alpha_over PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_active_clips hand-builds me::Timeline IR to drive
+# me::compose::active_clips_at — needs `src/` on the include path
+# for `timeline/timeline_impl.hpp` (same pattern as
+# test_timeline_segment / test_timeline_schema).
+target_include_directories(test_compose_active_clips PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from

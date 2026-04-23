@@ -120,6 +120,7 @@ add_library(media_engine STATIC
   timeline/timeline_loader.cpp
   timeline/segmentation.cpp
   color/pipeline.cpp
+  compose/active_clips.cpp
   compose/alpha_over.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
