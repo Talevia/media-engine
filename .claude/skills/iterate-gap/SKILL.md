@@ -24,7 +24,7 @@ description: 从 docs/BACKLOG.md 挑当前 milestone 最高优先级任务，pla
 - **分支目标**：`main`。不开 feature branch，不开 PR。（并行模式内部用临时 worktree 分支，但本次调用内部必须通过 merge+push 落回 `main`。）
 - **提问**：零次。遇到决策点按 VISION + MILESTONES + 业界共识自行决定，理由写成 `docs/decisions/<yyyy-mm-dd>-<slug>.md` 新文件。真卡在只有用户能回答的问题（付费授权、私钥、产品偏好）→ **换一个 gap**（从 backlog 下一条取），不干等，也不问。
 - **Backlog 是唯一任务源**：不凭空脑补"临时 gap"绕过 backlog。空 backlog → 先 rubric-repopulate（见 §R），再继续。
-- **Milestone 硬闸**：当前 milestone（`docs/MILESTONES.md` 顶部 "Current: " 指针）的 exit criteria 未全打勾时，不处理下一个 milestone 的 gap——除非所有当前 milestone 的 backlog 项都被跳过（踩红线 / 缺用户输入）。milestone 推进由用户手工改 MILESTONES.md 触发，**不由本 skill 自动推进**。
+- **Milestone 硬闸**：当前 milestone（`docs/MILESTONES.md` 顶部 "Current: " 指针）的 exit criteria 未全打勾时，不处理下一个 milestone 的 gap——除非所有当前 milestone 的 backlog 项都被跳过（踩红线 / 缺用户输入）。**milestone 推进由本 skill 在每个 cycle 的 step 7 后自动处理**（见 §M "Milestone sync"）：evidence-complete 的 exit criterion 自动打勾（独立 `docs(milestone):` commit），全部打勾后自动推进 "Current:" 指针到下一 milestone 并 seed bootstrap backlog。evidence 不足的 criterion 不动，下 cycle 再审。
 - **先 plan 再实现**：每个 gap 必须有独立 plan 步骤之后再动代码。
 - **决策强制归档**：每轮**一个** `feat(...)` commit（或 `fix` / `refactor`）同时包含：代码改动 + 新建的 `docs/decisions/<yyyy-mm-dd>-<slug>.md` + `docs/BACKLOG.md` 对应 bullet 的删除。决策文件**只新建不编辑已有**，**不记 commit 号**（`git log` 按文件名查即可，归档里写 hash 会过时）。
 
@@ -289,16 +289,62 @@ Decision 文件格式见 `docs/decisions/README.md` 的模板。
 
 Backlog repopulate 是例外：独立一条 `docs(backlog): …` commit（见 §R），只改 `docs/BACKLOG.md`，不涉及 decision / 代码。
 
+### M. Milestone sync（step 7 之后、step 8 之前必跑）
+
+目的：让 "Current: Mx" 指针永远反映**实际**仓库状态，而不是过去某次人工 snapshot。两步：
+
+#### M.1 Evidence 审核 + 打勾
+
+读 `docs/MILESTONES.md` current milestone 的所有 `- [ ]` 未打勾行。对每条 criterion：
+
+1. 用 grep 找出关键 API symbol / concept 名（e.g. `me_probe`、`me_thumbnail_png`、`OCIO`、`cross-dissolve`）。
+2. Evidence 三元组（必须**全部**满足才算"done"）：
+   - `src/` 里该 symbol 非 stub 实装存在（grep: 相关函数体不 `return ME_E_UNSUPPORTED;` 不挂 `// STUB:` 标记）。
+   - CI 覆盖存在（`tests/test_<symbol>*.cpp` 有对应 TEST_CASE，或 `examples/0*/` 端到端覆盖）。
+   - 最近 ~30 commits 里有承诺实装该 symbol 的 `feat(...):` commit（`git log --oneline -30 | grep -i '<symbol>'`）。
+3. 三条 evidence 都命中 → 可打勾。任一条缺 → 保留未打勾，不写日志，下 cycle 再审。
+
+**本 cycle 可打勾的 criterion 集合到一起**：
+
+- 集合 = 0 条 → MILESTONES.md 不动，跳到 M.2（可能已全绿，准备推进）。
+- 集合 ≥ 1 条 → 把对应 `- [ ]` 改成 `- [x]`，独立 `docs(milestone): tick exit criteria <逗号分隔 slug>` commit（只动 `docs/MILESTONES.md`），push。
+
+#### M.2 全绿 → 推进 milestone
+
+M.1 之后若 current milestone 所有 exit criteria 都已打勾：
+
+1. 挑下一个 milestone：MILESTONES.md 文件内下一个 `## M<N> — ...` 章节。
+2. 改文件顶部 "Current: " 指针指向新 milestone 标题原文。
+3. Seed bootstrap backlog bullets（写回 `docs/BACKLOG.md`）：
+   - 已存在于 P2 档且 `Milestone §M<new>` 标签的项 → 整条**移动**到 P1 档末尾（保留 slug / Gap / 方向文字，只改档位）。
+   - 若新 milestone 的 exit criteria 里有**任何一条**目前没有任何 BACKLOG bullet 对应 → 写 ≥ 1、≤ 5 条新 P1 bullet 覆盖这些缺口。每条按 BACKLOG 标准格式 `- **<slug>** — <Gap>。**方向：** ...`，**Gap 部分必须引用 grep 到的 path:line 证据**（SKILL §R 硬规矩）。
+4. 写 `docs/decisions/<YYYY-MM-DD>-milestone-advance-<new-milestone-slug>.md`（如 `milestone-advance-m2.md`），内容：
+   - 上 milestone 所有 exit criterion 的 landing commit hash + 测试覆盖清单
+   - 下 milestone bootstrap bullet 选择理由
+   - 若仓库有 `docs/M<prev>_AUDIT.md`（一次性 evidence snapshot）→ 同 commit 删除，`git log --follow` 已保留历史
+5. 单一 `docs(milestone): advance Current to <new-milestone-slug> — all <prev> exit criteria landed` commit，包含 MILESTONES.md + BACKLOG.md + decision 新建 + audit 文件删除（若有）。push。
+
+推进后，**本 cycle 就此结束**（不再挑新 backlog 任务，milestone-advance 本身就是本 cycle 的产出）。报告里明标 "milestone advanced to <new>"。下次 `/iterate-gap` 正常 pick top P1 就自动是新 milestone 的工作。
+
+#### M.3 推进导致 backlog 当前 milestone 项不够
+
+M.2 之后若 new milestone 的 P0 + P1 bullet 数 < 3 → **不**在本 cycle 里立刻 repopulate（避免同 cycle 三连 commit 过长）。下次 /iterate-gap 第 2 步会检测到"current milestone 下有效任务 < 3"→ 走完整 §R repopulate。
+
+#### M.4 何时可以跳过整个 §M
+
+- 本 cycle 就是 `docs(backlog):` repopulate（§R）→ 跳过 §M（repopulate 不改 code，不推进实装）。
+- 本 cycle 是 milestone-advance 本身（上一 cycle 的 M.2 产出）→ 已经在 §M.2 里做完，不重复跑。
+
 ### 8. 继续或收尾
 
 还有剩余 iteration → 回第 1 步。否则输出报告：
 
 - 本次处理的 gap（每个一行：milestone + rubric 轴 + slug + 摘要）。
-- 推送的 commit（shorthash；如果本轮触发了 repopulate，也列 `docs(backlog)` 那条）。
+- 推送的 commit（shorthash；如果本轮触发了 repopulate，也列 `docs(backlog)` 那条；**如果 §M 触发了 tick / advance，也列对应 `docs(milestone)` commit**）。
 - 跑了哪些验证 + 结果。
 - 实现过程中意料之外的事。
 - 本轮是否触发了 backlog repopulate；当前 backlog 剩余各档条数（P0 / P1 / P2）。
-- 当前 milestone 的 exit criteria 还剩几条未打勾。
+- **Milestone sync 结果**：本 cycle ticked 了哪些 exit criteria（slug 列表）；是否推进到下一 milestone；当前 milestone 剩余未打勾数。
 - 下次可挑的候选（backlog 新的 top-1），供用户决定是否再次触发。
 
 ---
@@ -377,7 +423,7 @@ Backlog repopulate 是例外：独立一条 `docs(backlog): …` commit（见 §
 6. 绝不绕过 CLAUDE.md 架构规则或反需求清单。bullet 必须绕才能做 → **跳过它取下一条**（bullet 原样保留给用户裁决）。
 7. **设计约束 §3a 10 条是硬性否决**。任意一条命中"是 / 可能"→ 换 backlog 下一条。不允许"这次就例外一下"。
 8. **Backlog 是权威任务源**。不凭空发明临时任务，不跳过 P0 直接做 P2。空 backlog → repopulate，不绕过。
-9. **Milestone 推进不由本 skill 触发**——exit criteria 是否打勾由用户手工改 MILESTONES.md。本 skill 只在当前 milestone 的 exit criteria 未满足时优先挑本 milestone 的任务。
+9. **Milestone 推进由本 skill 自动处理**——每个 cycle 的 step 7 之后必跑 §M "Milestone sync"：evidence-complete 的 exit criterion 自动打勾（独立 `docs(milestone):` commit）；全绿后自动推进 "Current:" 指针并 seed 下一 milestone bootstrap backlog。Evidence 不足 → 不打勾，保留原状下次 cycle 再审。本 skill 仍然在偏置任务时优先挑当前 milestone 的 backlog 项。
 10. **Repopulate 必须 ≥ 30% debt 任务**（详见 §R.5）。跳过 debt 扫描 / debt 占比不足的 repopulate commit 不合法，下一 cycle 发现立刻回滚该 repopulate 并重做。
 11. 并行模式并发度 ≤ 3。超了静默 clamp。只选**互不重叠**的 bullet。
 12. **C 公共头不含非白名单依赖**。任何往 `include/media_engine/*.h` 加 `#include` 的改动必须在 decision 里显式论证。
