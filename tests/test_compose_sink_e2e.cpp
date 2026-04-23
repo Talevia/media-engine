@@ -140,6 +140,78 @@ TEST_CASE("ComposeSink e2e: 2-track h264/aac render produces non-empty output") 
     CHECK(fs::file_size(out_path) > 4096);   /* minimum plausible size */
 }
 
+TEST_CASE("ComposeSink e2e: 2-track with per-clip transform opacity renders") {
+    /* Pin that Clip::transform.opacity actually reaches the compose
+     * loop's alpha_over call. With opacity=0.5 on the top track, the
+     * rendered output should be a 50/50 mix of the two decoded
+     * streams — but we can't pixel-compare (videotoolbox is non-
+     * deterministic and the output is h264-compressed). What we CAN
+     * pin is that the render still succeeds (opacity plumbing doesn't
+     * crash or error) and produces a non-empty file. The correctness
+     * of the alpha_over math itself is pinned by
+     * test_compose_alpha_over's "50% src alpha produces 50/50 mix"
+     * case. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    const std::string fixture_uri = "file://" + fixture_path;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":25,"den":1},
+      "resolution": {"width":640,"height":480},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":")" + fixture_uri + R"("}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c_v0","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ]},
+        {"id":"v1","kind":"video","clips":[
+          {"type":"video","id":"c_v1","assetId":"a1",
+           "transform":{"opacity":{"static":0.5}},
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+
+    TimelineHandle tl;
+    REQUIRE(me_timeline_load_json(eng.p, j.data(), j.size(), &tl.p) == ME_OK);
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-compose-sink-e2e";
+    fs::create_directories(tmp_dir);
+    const fs::path out_path = tmp_dir / "2track-opacity.mp4";
+    fs::remove(out_path);
+
+    me_output_spec_t spec{};
+    spec.path        = out_path.c_str();
+    spec.container   = "mp4";
+    spec.video_codec = "h264";
+    spec.audio_codec = "aac";
+
+    JobHandle job;
+    REQUIRE(me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, &job.p) == ME_OK);
+    const me_status_t wait_s = me_render_wait(job.p);
+
+    if (wait_s == ME_E_UNSUPPORTED || wait_s == ME_E_ENCODE) {
+        /* videotoolbox unavailable — can't exercise the real compose
+         * path on this host. */
+        return;
+    }
+
+    const char* err = me_engine_last_error(eng.p);
+    const std::string err_str = err ? std::string{err} : std::string{};
+    MESSAGE("wait status=" << static_cast<int>(wait_s) << " err='" << err_str << "'");
+    CHECK(wait_s == ME_OK);
+    CHECK(fs::exists(out_path));
+    CHECK(fs::file_size(out_path) > 4096);
+}
+
 TEST_CASE("ComposeSink e2e: two 2-track renders produce similarly-sized output") {
     /* Videotoolbox is non-deterministic (HW encoder state persists
      * across renders in subtle ways), so we can't assert byte-equal.

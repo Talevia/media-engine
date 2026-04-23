@@ -293,10 +293,21 @@ public:
                         return ME_E_UNSUPPORTED;
                     }
 
+                    /* Opacity from Clip::transform (if set) — this is
+                     * the first of four Transform axes wired into
+                     * compose. translate / scale / rotate require an
+                     * affine pre-composite pass (a separate
+                     * `compose-transform-affine-wire` follow-up). */
+                    const me::Clip& clip = tl_.clips[ta.clip_idx];
+                    const float opacity =
+                        clip.transform.has_value()
+                            ? static_cast<float>(clip.transform->opacity)
+                            : 1.0f;
+
                     me::compose::alpha_over(
                         dst_rgba.data(), track_rgba.data(),
                         W, H, static_cast<std::size_t>(W) * 4,
-                        /*opacity=*/1.0f,
+                        opacity,
                         me::compose::BlendMode::Normal);
                 }
             }
