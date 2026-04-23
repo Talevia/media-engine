@@ -2,25 +2,18 @@
 
 #include "io/av_err.hpp"
 #include "io/demux_context.hpp"
-#include "io/ffmpeg_raii.hpp"
 #include "io/mux_context.hpp"
 #include "orchestrator/reencode_audio.hpp"
+#include "orchestrator/reencode_segment.hpp"
 #include "orchestrator/reencode_video.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libavutil/channel_layout.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/mathematics.h>
-#include <libavutil/opt.h>
-#include <libavutil/samplefmt.h>
-#include <libswresample/swresample.h>
-#include <libswscale/swscale.h>
 #include <libavutil/audio_fifo.h>
+#include <libavutil/mathematics.h>
 }
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,337 +24,20 @@ namespace {
 
 using me::io::av_err_str;
 
-/* Short file-local aliases over the shared me::io deleters — keeps the
- * dense decode/encode code below readable without repeating the full
- * namespace-qualified name every few lines. */
 using CodecCtxPtr = me::resource::CodecPool::Ptr;
-using FramePtr    = me::io::AvFramePtr;
-using PacketPtr   = me::io::AvPacketPtr;
-using SwsPtr      = me::io::SwsContextPtr;
-using SwrPtr      = me::io::SwrContextPtr;
 
-using detail::open_video_encoder;
+using detail::drain_audio_fifo;
+using detail::encode_audio_frame;
 using detail::encode_video_frame;
 using detail::open_audio_encoder;
-using detail::encode_audio_frame;
-using detail::drain_audio_fifo;
-using detail::feed_audio_frame;
+using detail::open_decoder;
+using detail::open_video_encoder;
+using detail::process_segment;
+using detail::SharedEncState;
+using detail::total_output_us;
 
 int best_stream(AVFormatContext* fmt, AVMediaType type) {
     return av_find_best_stream(fmt, type, -1, -1, nullptr, 0);
-}
-
-me_status_t open_decoder(me::resource::CodecPool& pool,
-                          AVStream* in_stream,
-                          CodecCtxPtr& out,
-                          std::string* err) {
-    const AVCodec* dec = avcodec_find_decoder(in_stream->codecpar->codec_id);
-    if (!dec) {
-        if (err) *err = std::string("no decoder for ") + avcodec_get_name(in_stream->codecpar->codec_id);
-        return ME_E_UNSUPPORTED;
-    }
-    auto ctx = pool.allocate(dec);
-    if (!ctx) return ME_E_OUT_OF_MEMORY;
-
-    int rc = avcodec_parameters_to_context(ctx.get(), in_stream->codecpar);
-    if (rc < 0) {
-        if (err) *err = "parameters_to_context: " + av_err_str(rc);
-        return ME_E_INTERNAL;
-    }
-    ctx->pkt_timebase = in_stream->time_base;
-    rc = avcodec_open2(ctx.get(), dec, nullptr);
-    if (rc < 0) {
-        if (err) *err = std::string("open decoder ") + dec->name + ": " + av_err_str(rc);
-        return ME_E_DECODE;
-    }
-    out = std::move(ctx);
-    return ME_OK;
-}
-
-/* Shared encoder / muxer state threaded through per-segment processing.
- * Bundled so process_segment's signature doesn't balloon. */
-struct SharedEncState {
-    AVFormatContext* ofmt          = nullptr;
-    AVCodecContext*  venc          = nullptr;
-    AVCodecContext*  aenc          = nullptr;
-    int              out_vidx      = -1;
-    int              out_aidx      = -1;
-    AVPixelFormat    venc_pix      = AV_PIX_FMT_NONE;
-    AVAudioFifo*     afifo         = nullptr;
-
-    /* Fixed output video frame duration in venc->time_base — derived once
-     * from segment[0]'s frame rate. Restamping each decoded frame with a
-     * running counter incremented by this delta produces CFR output even
-     * from VFR inputs, which is standard re-encode behavior. */
-    int64_t          video_pts_delta  = 0;
-    int64_t          next_video_pts   = 0;
-    /* Running output-tb PTS for audio. The FIFO drain reads exactly
-     * aenc->frame_size samples per encoded frame and stamps them with
-     * this monotonically-incrementing counter, so segment boundaries are
-     * transparent to the audio encoder — they're just more samples
-     * flowing through the FIFO. */
-    int64_t          next_audio_pts   = 0;
-
-    /* Expected source params for codec_compat check across segments.
-     * Populated from segment[0]'s decoders. */
-    int              v_width   = 0;
-    int              v_height  = 0;
-    AVPixelFormat    v_pix     = AV_PIX_FMT_NONE;
-    int              a_sr      = 0;
-    AVSampleFormat   a_fmt     = AV_SAMPLE_FMT_NONE;
-    int              a_chans   = 0;
-
-    const std::atomic<bool>*        cancel  = nullptr;
-    std::function<void(float)>      on_ratio;
-    int64_t                         total_us  = 0;
-};
-
-bool video_params_compatible(const SharedEncState& s, const AVCodecContext* vdec) {
-    return vdec->width == s.v_width && vdec->height == s.v_height &&
-           vdec->pix_fmt == s.v_pix;
-}
-
-bool audio_params_compatible(const SharedEncState& s, const AVCodecContext* adec) {
-    return adec->sample_rate == s.a_sr &&
-           adec->sample_fmt  == s.a_fmt &&
-           adec->ch_layout.nb_channels == s.a_chans;
-}
-
-/* Estimate total output duration (microseconds) summed across segments,
- * for progress ratio reporting. source_duration == 0 → fallback to demux
- * duration minus source_start. */
-int64_t total_output_us(const std::vector<ReencodeSegment>& segs) {
-    int64_t total = 0;
-    for (const auto& seg : segs) {
-        if (seg.source_duration.den > 0 && seg.source_duration.num > 0) {
-            total += av_rescale_q(seg.source_duration.num,
-                                   AVRational{1, static_cast<int>(seg.source_duration.den)},
-                                   AV_TIME_BASE_Q);
-        } else if (seg.demux && seg.demux->fmt && seg.demux->fmt->duration > 0) {
-            int64_t src_start_us = 0;
-            if (seg.source_start.den > 0 && seg.source_start.num > 0) {
-                src_start_us = av_rescale_q(seg.source_start.num,
-                                             AVRational{1, static_cast<int>(seg.source_start.den)},
-                                             AV_TIME_BASE_Q);
-            }
-            total += std::max<int64_t>(0, seg.demux->fmt->duration - src_start_us);
-        }
-    }
-    return total;
-}
-
-/* Process one segment: open its decoders, seek, loop read→decode→encode
- * (feeding the SHARED encoder), flush the decoders. The encoder is NOT
- * flushed here — that happens once at the end of the full segment list. */
-me_status_t process_segment(const ReencodeSegment&   seg,
-                             me::resource::CodecPool& pool,
-                             SharedEncState&          shared,
-                             size_t                   seg_idx,
-                             std::string*             err) {
-    auto fail = [&](me_status_t s, std::string msg) {
-        if (err) *err = "segment[" + std::to_string(seg_idx) + "] " + std::move(msg);
-        return s;
-    };
-
-    AVFormatContext* ifmt = seg.demux ? seg.demux->fmt : nullptr;
-    if (!ifmt) return fail(ME_E_INVALID_ARG, "no demux context");
-
-    const int vsi = best_stream(ifmt, AVMEDIA_TYPE_VIDEO);
-    const int asi = best_stream(ifmt, AVMEDIA_TYPE_AUDIO);
-
-    /* --- Per-segment decoders --- */
-    CodecCtxPtr vdec, adec;
-    if (vsi >= 0 && shared.venc) {
-        me_status_t s = open_decoder(pool, ifmt->streams[vsi], vdec, err);
-        if (s != ME_OK) return fail(s, "decoder(video)");
-        if (!video_params_compatible(shared, vdec.get())) {
-            return fail(ME_E_UNSUPPORTED,
-                        "video params (w×h/pix_fmt) differ from segment[0]; "
-                        "phase-1: re-encode concat requires identical video params across segments");
-        }
-    }
-    if (asi >= 0 && shared.aenc) {
-        me_status_t s = open_decoder(pool, ifmt->streams[asi], adec, err);
-        if (s != ME_OK) return fail(s, "decoder(audio)");
-        if (!audio_params_compatible(shared, adec.get())) {
-            return fail(ME_E_UNSUPPORTED,
-                        "audio params (sr/sample_fmt/channels) differ from segment[0]; "
-                        "phase-1: re-encode concat requires identical audio params across segments");
-        }
-    }
-
-    /* --- Per-segment sws/swr (source pix_fmt is stable per enforcement
-     *     above, so sws target is always shared.venc_pix; swr target is
-     *     always the shared encoder's sample_fmt/sample_rate). --- */
-    SwsPtr sws;
-    FramePtr v_scratch;
-    if (vdec && vdec->pix_fmt != shared.venc_pix) {
-        sws.reset(sws_getContext(vdec->width, vdec->height, (AVPixelFormat)vdec->pix_fmt,
-                                 shared.venc->width, shared.venc->height, shared.venc_pix,
-                                 SWS_BILINEAR, nullptr, nullptr, nullptr));
-        if (!sws) return fail(ME_E_INTERNAL, "sws_getContext");
-        v_scratch.reset(av_frame_alloc());
-        v_scratch->format = shared.venc_pix;
-        v_scratch->width  = shared.venc->width;
-        v_scratch->height = shared.venc->height;
-        int rc = av_frame_get_buffer(v_scratch.get(), 32);
-        if (rc < 0) return fail(ME_E_OUT_OF_MEMORY, "frame_get_buffer(video): " + av_err_str(rc));
-    }
-
-    SwrPtr swr;
-    if (adec) {
-        SwrContext* raw_swr = nullptr;
-        int rc = swr_alloc_set_opts2(&raw_swr,
-                                     &shared.aenc->ch_layout, shared.aenc->sample_fmt, shared.aenc->sample_rate,
-                                     &adec->ch_layout, adec->sample_fmt, adec->sample_rate,
-                                     0, nullptr);
-        if (rc < 0 || !raw_swr) return fail(ME_E_INTERNAL, "swr_alloc: " + av_err_str(rc));
-        swr.reset(raw_swr);
-        rc = swr_init(swr.get());
-        if (rc < 0) return fail(ME_E_INTERNAL, "swr_init: " + av_err_str(rc));
-    }
-
-    /* --- Seek --- */
-    int rc = 0;
-    const int64_t src_start_us = (seg.source_start.den > 0 && seg.source_start.num > 0)
-        ? av_rescale_q(seg.source_start.num,
-                        AVRational{1, static_cast<int>(seg.source_start.den)},
-                        AV_TIME_BASE_Q)
-        : 0;
-    if (src_start_us > 0) {
-        rc = avformat_seek_file(ifmt, -1, INT64_MIN, src_start_us, src_start_us,
-                                 AVSEEK_FLAG_BACKWARD);
-        if (rc < 0) return fail(ME_E_IO, "seek: " + av_err_str(rc));
-    }
-    int64_t src_end_us = INT64_MAX;
-    if (seg.source_duration.den > 0 && seg.source_duration.num > 0) {
-        const int64_t dur_us = av_rescale_q(seg.source_duration.num,
-                                             AVRational{1, static_cast<int>(seg.source_duration.den)},
-                                             AV_TIME_BASE_Q);
-        src_end_us = src_start_us + dur_us;
-    }
-
-    /* --- Read/decode/encode loop --- */
-    PacketPtr pkt(av_packet_alloc());
-    FramePtr  dec_frame(av_frame_alloc());
-    me_status_t terminal = ME_OK;
-
-    /* Feed decoded video frames to the encoder with shared.next_video_pts
-     * stamped directly in venc->time_base units. encode_video_frame rescales
-     * via its `in_stream_tb` arg; handing it venc->time_base makes that rescale
-     * an identity. */
-    auto push_video_frame = [&](AVFrame* f) -> me_status_t {
-        if (f) {
-            f->pts     = shared.next_video_pts;
-            f->pkt_dts = shared.next_video_pts;
-            shared.next_video_pts += shared.video_pts_delta;
-        }
-        return encode_video_frame(f, shared.venc, sws.get(), v_scratch.get(),
-                                   shared.ofmt, shared.out_vidx,
-                                   shared.venc->time_base, err);
-    };
-
-    auto push_audio_frame = [&](AVFrame* f) -> me_status_t {
-        return feed_audio_frame(f, swr.get(), adec ? adec->sample_rate : 0,
-                                 shared.afifo, shared.aenc, shared.ofmt,
-                                 shared.out_aidx, &shared.next_audio_pts, err);
-    };
-
-    while (terminal == ME_OK) {
-        if (shared.cancel && shared.cancel->load(std::memory_order_acquire)) {
-            terminal = ME_E_CANCELLED;
-            break;
-        }
-        rc = av_read_frame(ifmt, pkt.get());
-        if (rc == AVERROR_EOF) break;
-        if (rc < 0) { terminal = fail(ME_E_DECODE, "read_frame: " + av_err_str(rc)); break; }
-
-        const int si = pkt->stream_index;
-        AVCodecContext* dec_ctx = nullptr;
-        AVRational in_tb{0, 1};
-        bool is_video = false;
-
-        if (si == vsi && vdec) { dec_ctx = vdec.get(); in_tb = ifmt->streams[vsi]->time_base; is_video = true; }
-        else if (si == asi && adec) { dec_ctx = adec.get(); in_tb = ifmt->streams[asi]->time_base; }
-        else { av_packet_unref(pkt.get()); continue; }
-
-        /* Stop this segment once past source_duration (compare in source tb). */
-        if (pkt->pts != AV_NOPTS_VALUE) {
-            const int64_t pts_us = av_rescale_q(pkt->pts, in_tb, AV_TIME_BASE_Q);
-            if (pts_us >= src_end_us) {
-                av_packet_unref(pkt.get());
-                break;
-            }
-        }
-
-        rc = avcodec_send_packet(dec_ctx, pkt.get());
-        av_packet_unref(pkt.get());
-        if (rc < 0) { terminal = fail(ME_E_DECODE, "send_packet: " + av_err_str(rc)); break; }
-
-        while (true) {
-            rc = avcodec_receive_frame(dec_ctx, dec_frame.get());
-            if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) break;
-            if (rc < 0) { terminal = fail(ME_E_DECODE, "receive_frame: " + av_err_str(rc)); break; }
-
-            me_status_t s = is_video ? push_video_frame(dec_frame.get())
-                                      : push_audio_frame(dec_frame.get());
-            av_frame_unref(dec_frame.get());
-            if (s != ME_OK) { terminal = s; break; }
-
-            /* Progress — next_video_pts is monotonic across all segments
-             * (single shared encoder), so rescaling it to AV_TIME_BASE_Q
-             * gives the cumulative output duration directly without a
-             * separate per-segment accumulator. */
-            if (is_video && shared.on_ratio && shared.total_us > 0) {
-                const int64_t cum_us = av_rescale_q(shared.next_video_pts,
-                                                     shared.venc->time_base,
-                                                     AV_TIME_BASE_Q);
-                float ratio = static_cast<float>(cum_us) / static_cast<float>(shared.total_us);
-                if (ratio < 0.f) ratio = 0.f;
-                if (ratio > 1.f) ratio = 1.f;
-                shared.on_ratio(ratio);
-            }
-        }
-        if (terminal != ME_OK) break;
-    }
-
-    /* --- End-of-segment: flush per-segment decoders into the shared encoder.
-     *     Do NOT flush the shared encoder here — encoder flush only happens
-     *     once, after all segments. --- */
-    if (terminal == ME_OK && vdec) {
-        rc = avcodec_send_packet(vdec.get(), nullptr);
-        if (rc >= 0) {
-            while (terminal == ME_OK) {
-                rc = avcodec_receive_frame(vdec.get(), dec_frame.get());
-                if (rc == AVERROR_EOF || rc == AVERROR(EAGAIN)) break;
-                if (rc < 0) { terminal = fail(ME_E_DECODE, "flush decode(video): " + av_err_str(rc)); break; }
-                me_status_t s = push_video_frame(dec_frame.get());
-                av_frame_unref(dec_frame.get());
-                if (s != ME_OK) { terminal = s; break; }
-            }
-        }
-    }
-    if (terminal == ME_OK && adec) {
-        rc = avcodec_send_packet(adec.get(), nullptr);
-        if (rc >= 0) {
-            while (terminal == ME_OK) {
-                rc = avcodec_receive_frame(adec.get(), dec_frame.get());
-                if (rc == AVERROR_EOF || rc == AVERROR(EAGAIN)) break;
-                if (rc < 0) { terminal = fail(ME_E_DECODE, "flush decode(audio): " + av_err_str(rc)); break; }
-                me_status_t s = push_audio_frame(dec_frame.get());
-                av_frame_unref(dec_frame.get());
-                if (s != ME_OK) { terminal = s; break; }
-            }
-        }
-        /* Flush residual swr state (no more input samples) and push
-         * converted leftovers into the FIFO. */
-        if (terminal == ME_OK) {
-            me_status_t s = push_audio_frame(nullptr);
-            if (s != ME_OK) terminal = s;
-        }
-    }
-
-    return terminal;
 }
 
 }  // namespace
@@ -391,11 +67,11 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
     const int asi0 = best_stream(ifmt0, AVMEDIA_TYPE_AUDIO);
     if (vsi0 < 0 && asi0 < 0) return fail(ME_E_INVALID_ARG, "segment[0] has neither video nor audio");
 
-    /* --- Open segment[0] decoders just for encoder parameter init; they
-     *     get closed at the end of this scope and reopened inside
-     *     process_segment(0). This is cheaper than trying to thread the
-     *     already-opened decoders into process_segment — decoder open is
-     *     O(ms) and happens once per segment anyway. --- */
+    /* --- Open segment[0] decoders just for encoder parameter init;
+     *     they get closed at the end of this scope and reopened inside
+     *     process_segment(0). Decoder open is O(ms) and happens once
+     *     per segment anyway, so the double-open cost is negligible
+     *     compared to threading the already-opened decoders through. --- */
     CodecCtxPtr v0dec, a0dec;
     if (vsi0 >= 0) {
         me_status_t s = open_decoder(*opts.pool, ifmt0->streams[vsi0], v0dec, err);
@@ -478,8 +154,8 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
     v0dec.reset();
     a0dec.reset();
 
-    /* FIFO must be freed explicitly; wrap cleanup so any early-return path
-     * still releases it. */
+    /* FIFO must be freed explicitly; wrap cleanup so any early-return
+     * path still releases it. */
     struct FifoGuard {
         AVAudioFifo* f;
         ~FifoGuard() { if (f) av_audio_fifo_free(f); }
@@ -491,7 +167,7 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
     if (opts.on_ratio) opts.on_ratio(0.0f);
     me_status_t terminal = ME_OK;
 
-    for (size_t i = 0; i < opts.segments.size() && terminal == ME_OK; ++i) {
+    for (std::size_t i = 0; i < opts.segments.size() && terminal == ME_OK; ++i) {
         terminal = process_segment(opts.segments[i], *opts.pool, shared, i, err);
     }
 
