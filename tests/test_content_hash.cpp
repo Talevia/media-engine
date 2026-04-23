@@ -107,3 +107,51 @@ TEST_CASE("AssetHashCache::seed ignores empty hashes") {
     cache.seed("file:///anything.mp4", "");
     CHECK(cache.size() == 0);
 }
+
+TEST_CASE("AssetHashCache::seed for the same URI with a different hash is last-wins") {
+    /* Policy: explicit `seed(uri, hash)` overwrites any prior hash for
+     * the same URI (asset_hash_cache.cpp: `map_[uri] = hash` —
+     * operator[] assigns unconditionally). This is deliberately
+     * asymmetric with `get_or_compute`'s `try_emplace` (first-wins) —
+     * the explicit seed path is authoritative because callers driving
+     * it have fresher information than the hash-on-first-read path.
+     *
+     * Pinned here so a future refactor switching to `try_emplace` for
+     * seed doesn't silently change the contract; a caller updating
+     * asset.contentHash via a fresh me_timeline_load_json would
+     * otherwise silently see the stale hash. */
+    AssetHashCache cache;
+    const std::string uri = "file:///nonexistent/asset.mp4";
+    const std::string hash_a = std::string(64, 'a');
+    const std::string hash_b = std::string(64, 'b');
+
+    cache.seed(uri, hash_a);
+    REQUIRE(cache.peek(uri) == hash_a);
+
+    cache.seed(uri, hash_b);
+    CHECK(cache.peek(uri) == hash_b);   /* last-wins */
+    CHECK(cache.size() == 1);           /* still one entry, not two */
+
+    /* Empty subsequent seed is a documented no-op — prior hash survives. */
+    cache.seed(uri, "");
+    CHECK(cache.peek(uri) == hash_b);
+}
+
+TEST_CASE("AssetHashCache::seed on different URIs accumulates independently") {
+    /* Corollary: two distinct URIs pointing to the same hash value is
+     * still two independent entries. Protects against a hypothetical
+     * "dedupe by hash" optimisation that would break the URI-keyed
+     * eviction contract (invalidate_by_hash removes entries matching
+     * a hash, but the forward map is URI-keyed). */
+    AssetHashCache cache;
+    const std::string uri_a = "file:///a.mp4";
+    const std::string uri_b = "file:///b.mp4";
+    const std::string shared_hash = std::string(64, 'c');
+
+    cache.seed(uri_a, shared_hash);
+    cache.seed(uri_b, shared_hash);
+
+    CHECK(cache.peek(uri_a) == shared_hash);
+    CHECK(cache.peek(uri_b) == shared_hash);
+    CHECK(cache.size() == 2);
+}
