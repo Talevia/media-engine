@@ -36,10 +36,46 @@ else
 fi
 echo
 
-# 2. C API stubs returning ME_E_UNSUPPORTED
-printf '## 2. C API stubs (ME_E_UNSUPPORTED)\n\n'
-stub_count=$(grep -rn 'return ME_E_UNSUPPORTED' src include 2>/dev/null | wc -l | tr -d ' ')
-printf 'Total: %s\n\n' "$stub_count"
+# 2. C API stubs — authoritative count via `STUB:` markers
+#
+# History: this section used to report `grep -c 'return ME_E_UNSUPPORTED'`
+# as if it were a stub count. But most ME_E_UNSUPPORTED returns are
+# runtime-reject paths ("no video stream", "unknown codec spec",
+# "encoder h264_videotoolbox not available") — legitimate error handling,
+# not unimplemented code. tools/check_stubs.sh already formalised the
+# distinction: a stub carries an explicit `/* STUB: <slug> — ... */`
+# comment; everything else is a reject. The authoritative count lives on
+# the marker.
+#
+# Output shape: the marked count is the number to track across cycles
+# (goal: monotonically decreases per milestone). Raw ME_E_UNSUPPORTED is
+# still printed but labelled explicitly so future readers don't mistake
+# it for the stub metric.
+printf '## 2. C API stubs (via `STUB:` markers)\n\n'
+marked_count=$(grep -rEn 'STUB:[[:space:]]+[A-Za-z0-9_-]+' src 2>/dev/null | wc -l | tr -d ' ')
+printf 'Marked stubs (authoritative): %s\n\n' "$marked_count"
+grep -rEn 'STUB:[[:space:]]+[A-Za-z0-9_-]+' src 2>/dev/null \
+  | awk -F: '{
+      path = $1; line = $2;
+      body = "";
+      for (i = 3; i <= NF; ++i) body = body (i > 3 ? ":" : "") $i;
+      if (match(body, /STUB:[[:space:]]+/)) body = substr(body, RSTART + RLENGTH);
+      slug = body;
+      if (match(slug, /[[:space:]]/)) slug = substr(slug, 1, RSTART - 1);
+      printf "- %s:%s (STUB: %s)\n", path, line, slug;
+    }' \
+  | sort
+
+raw_count=$(grep -rn 'return ME_E_UNSUPPORTED' src include 2>/dev/null | wc -l | tr -d ' ')
+runtime_reject_count=$((raw_count - marked_count))
+printf '\nRaw `return ME_E_UNSUPPORTED` returns: %s\n' "$raw_count"
+printf 'Runtime-reject returns (raw − marked stubs; informational): %s\n\n' "$runtime_reject_count"
+
+if [ "$runtime_reject_count" -lt 0 ]; then
+  printf '_inconsistency: STUB markers outnumber raw rejects — investigate_\n\n'
+fi
+
+printf 'Raw ME_E_UNSUPPORTED by file:\n'
 grep -rn 'return ME_E_UNSUPPORTED' src include 2>/dev/null \
   | awk -F: '{ print $1 }' | sort | uniq -c | sort -rn \
   | awk '{ printf "- %s: %d\n", $2, $1 }'
