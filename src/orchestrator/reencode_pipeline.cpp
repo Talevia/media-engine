@@ -2,6 +2,7 @@
 
 #include "io/demux_context.hpp"
 #include "io/ffmpeg_raii.hpp"
+#include "io/mux_context.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -291,64 +292,55 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
         if (s != ME_OK) return s;
     }
 
-    /* --- Output container + streams -------------------------------------- */
-    AVFormatContext* ofmt = nullptr;
-    const char* format_name = opts.container.empty() ? nullptr : opts.container.c_str();
-    int rc = avformat_alloc_output_context2(&ofmt, nullptr, format_name, opts.out_path.c_str());
-    if (rc < 0 || !ofmt) return fail(ME_E_INTERNAL, "alloc output: " + av_err_str(rc));
-
-    auto cleanup = [&]() {
-        if (ofmt) {
-            if (!(ofmt->oformat->flags & AVFMT_NOFILE) && ofmt->pb) avio_closep(&ofmt->pb);
-            avformat_free_context(ofmt);
-            ofmt = nullptr;
-        }
-    };
+    /* --- Output container + streams --------------------------------------
+     * MuxContext owns the AVFormatContext lifecycle; destructor handles
+     * avio_closep + free_context on any error exit below. */
+    std::string open_err;
+    auto mux = me::io::MuxContext::open(opts.out_path, opts.container, &open_err);
+    if (!mux) return fail(ME_E_INTERNAL, std::move(open_err));
+    AVFormatContext* ofmt = mux->fmt();
 
     int out_vidx = -1, out_aidx = -1;
     CodecCtxPtr venc, aenc;
     AVPixelFormat venc_target_pix = AV_PIX_FMT_NONE;
+    int rc = 0;
 
     if (vdec) {
         /* Output video stream: use same time_base as input stream so PTS maps 1:1. */
         AVStream* out_s = avformat_new_stream(ofmt, nullptr);
-        if (!out_s) { cleanup(); return fail(ME_E_OUT_OF_MEMORY, "new_stream(video)"); }
+        if (!out_s) return fail(ME_E_OUT_OF_MEMORY, "new_stream(video)");
         out_s->time_base = ifmt->streams[vsi]->time_base;
 
         const bool global_header = (ofmt->oformat->flags & AVFMT_GLOBALHEADER) != 0;
         me_status_t s = open_video_encoder(vdec.get(), ifmt->streams[vsi]->time_base,
                                            opts.video_bitrate_bps, global_header,
                                            venc, venc_target_pix, err);
-        if (s != ME_OK) { cleanup(); return s; }
+        if (s != ME_OK) return s;
 
         rc = avcodec_parameters_from_context(out_s->codecpar, venc.get());
-        if (rc < 0) { cleanup(); return fail(ME_E_INTERNAL, "params_from_context(video): " + av_err_str(rc)); }
+        if (rc < 0) return fail(ME_E_INTERNAL, "params_from_context(video): " + av_err_str(rc));
         out_s->avg_frame_rate = vdec->framerate;
         out_s->r_frame_rate   = vdec->framerate;
         out_vidx = out_s->index;
     }
     if (adec) {
         AVStream* out_s = avformat_new_stream(ofmt, nullptr);
-        if (!out_s) { cleanup(); return fail(ME_E_OUT_OF_MEMORY, "new_stream(audio)"); }
+        if (!out_s) return fail(ME_E_OUT_OF_MEMORY, "new_stream(audio)");
 
         const bool global_header = (ofmt->oformat->flags & AVFMT_GLOBALHEADER) != 0;
         me_status_t s = open_audio_encoder(adec.get(), opts.audio_bitrate_bps,
                                            global_header, aenc, err);
-        if (s != ME_OK) { cleanup(); return s; }
+        if (s != ME_OK) return s;
         out_s->time_base = aenc->time_base;
 
         rc = avcodec_parameters_from_context(out_s->codecpar, aenc.get());
-        if (rc < 0) { cleanup(); return fail(ME_E_INTERNAL, "params_from_context(audio): " + av_err_str(rc)); }
+        if (rc < 0) return fail(ME_E_INTERNAL, "params_from_context(audio): " + av_err_str(rc));
         out_aidx = out_s->index;
     }
 
     /* --- Open output file, write header ---------------------------------- */
-    if (!(ofmt->oformat->flags & AVFMT_NOFILE)) {
-        rc = avio_open(&ofmt->pb, opts.out_path.c_str(), AVIO_FLAG_WRITE);
-        if (rc < 0) { cleanup(); return fail(ME_E_IO, "avio_open: " + av_err_str(rc)); }
-    }
-    rc = avformat_write_header(ofmt, nullptr);
-    if (rc < 0) { cleanup(); return fail(ME_E_ENCODE, "write_header: " + av_err_str(rc)); }
+    if (auto s = mux->open_avio(err);    s != ME_OK) return s;
+    if (auto s = mux->write_header(err); s != ME_OK) return s;
 
     /* --- Scratch: sws / swr / frames -------------------------------------- */
     SwsPtr sws;
@@ -359,13 +351,13 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
             sws.reset(sws_getContext(vdec->width, vdec->height, src_pix,
                                      venc->width, venc->height, venc_target_pix,
                                      SWS_BILINEAR, nullptr, nullptr, nullptr));
-            if (!sws) { cleanup(); return fail(ME_E_INTERNAL, "sws_getContext"); }
+            if (!sws) return fail(ME_E_INTERNAL, "sws_getContext");
             v_scratch.reset(av_frame_alloc());
             v_scratch->format = venc_target_pix;
             v_scratch->width  = venc->width;
             v_scratch->height = venc->height;
             rc = av_frame_get_buffer(v_scratch.get(), 32);
-            if (rc < 0) { cleanup(); return fail(ME_E_OUT_OF_MEMORY, "frame_get_buffer(video): " + av_err_str(rc)); }
+            if (rc < 0) return fail(ME_E_OUT_OF_MEMORY, "frame_get_buffer(video): " + av_err_str(rc));
         }
     }
 
@@ -377,15 +369,15 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
                                  &aenc->ch_layout, aenc->sample_fmt, aenc->sample_rate,
                                  &adec->ch_layout, adec->sample_fmt, adec->sample_rate,
                                  0, nullptr);
-        if (rc < 0 || !raw_swr) { cleanup(); return fail(ME_E_INTERNAL, "swr_alloc: " + av_err_str(rc)); }
+        if (rc < 0 || !raw_swr) return fail(ME_E_INTERNAL, "swr_alloc: " + av_err_str(rc));
         swr.reset(raw_swr);
         rc = swr_init(swr.get());
-        if (rc < 0) { cleanup(); return fail(ME_E_INTERNAL, "swr_init: " + av_err_str(rc)); }
+        if (rc < 0) return fail(ME_E_INTERNAL, "swr_init: " + av_err_str(rc));
 
         /* AAC encoder wants a fixed frame_size per call. We buffer resampled
          * samples in an FIFO and flush frame_size chunks to the encoder. */
         afifo = av_audio_fifo_alloc(aenc->sample_fmt, aenc->ch_layout.nb_channels, 1);
-        if (!afifo) { cleanup(); return fail(ME_E_OUT_OF_MEMORY, "audio_fifo_alloc"); }
+        if (!afifo) return fail(ME_E_OUT_OF_MEMORY, "audio_fifo_alloc");
     }
 
     /* FIFO must be freed explicitly; wrap cleanup to capture it too. */
@@ -600,11 +592,10 @@ me_status_t reencode_mux(io::DemuxContext&            demux,
 
     /* --- Trailer + cleanup ----------------------------------------------- */
     if (terminal == ME_OK) {
-        rc = av_write_trailer(ofmt);
-        if (rc < 0) { terminal = ME_E_ENCODE; if (err) *err = "write_trailer: " + av_err_str(rc); }
+        if (auto s = mux->write_trailer(err); s != ME_OK) terminal = s;
     }
-
-    cleanup();
+    /* MuxContext destructor handles avio_closep + free_context whether
+     * or not write_trailer ran. */
 
     if (terminal == ME_OK && opts.on_ratio) opts.on_ratio(1.0f);
     return terminal;

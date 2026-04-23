@@ -33,6 +33,7 @@ add_library(media_engine
   timeline/segmentation.cpp
   io/demux_context.cpp
   io/demux_kernel.cpp
+  io/mux_context.cpp
   graph/graph.cpp
   task/registry.cpp
   resource/frame_pool.cpp

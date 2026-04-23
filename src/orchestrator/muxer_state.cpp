@@ -1,6 +1,7 @@
 #include "orchestrator/muxer_state.hpp"
 
 #include "io/demux_context.hpp"
+#include "io/mux_context.hpp"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -95,25 +96,20 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
 
     AVFormatContext* ifmt0 = opts.segments.front().demux->fmt;
 
-    /* --- Open output context templated on first segment's stream layout. */
-    AVFormatContext* ofmt = nullptr;
-    const char* format_name = opts.container.empty() ? nullptr : opts.container.c_str();
-    int rc = avformat_alloc_output_context2(&ofmt, nullptr, format_name, opts.out_path.c_str());
-    if (rc < 0 || !ofmt) return fail(ME_E_INTERNAL, "alloc output: " + av_err_str(rc));
-
-    auto cleanup = [&]() {
-        if (ofmt) {
-            if (!(ofmt->oformat->flags & AVFMT_NOFILE) && ofmt->pb) avio_closep(&ofmt->pb);
-            avformat_free_context(ofmt);
-            ofmt = nullptr;
-        }
-    };
+    /* --- Open output context templated on first segment's stream layout.
+     * MuxContext owns the AVFormatContext lifecycle; its destructor handles
+     * avio_closep + free_context regardless of which branch returns. */
+    std::string open_err;
+    auto mux = me::io::MuxContext::open(opts.out_path, opts.container, &open_err);
+    if (!mux) return fail(ME_E_INTERNAL, std::move(open_err));
+    AVFormatContext* ofmt = mux->fmt();
 
     /* stream_map[seg_idx][in_stream_idx] = out_stream_idx (-1 = dropped). */
     std::vector<std::vector<int>> stream_map(opts.segments.size());
     stream_map[0].assign(ifmt0->nb_streams, -1);
 
     /* Create output streams from segment 0, carry codecpar / tag to later. */
+    int rc = 0;
     for (unsigned i = 0; i < ifmt0->nb_streams; ++i) {
         AVStream* in_s = ifmt0->streams[i];
         const AVCodecParameters* par = in_s->codecpar;
@@ -121,9 +117,9 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
             continue;
         }
         AVStream* out_s = avformat_new_stream(ofmt, nullptr);
-        if (!out_s) { cleanup(); return fail(ME_E_OUT_OF_MEMORY, "new_stream"); }
+        if (!out_s) return fail(ME_E_OUT_OF_MEMORY, "new_stream");
         rc = avcodec_parameters_copy(out_s->codecpar, par);
-        if (rc < 0) { cleanup(); return fail(ME_E_INTERNAL, "codecpar_copy: " + av_err_str(rc)); }
+        if (rc < 0) return fail(ME_E_INTERNAL, "codecpar_copy: " + av_err_str(rc));
         out_s->codecpar->codec_tag = 0;
         out_s->time_base = in_s->time_base;   /* propagate tb for clean PTS rescale */
         stream_map[0][i] = out_s->index;
@@ -137,14 +133,12 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
     for (size_t si = 1; si < opts.segments.size(); ++si) {
         const auto& seg = opts.segments[si];
         if (!seg.demux || !seg.demux->fmt) {
-            cleanup();
             return fail(ME_E_INVALID_ARG,
                         "segment[" + std::to_string(si) + "] has no demux context");
         }
         AVFormatContext* ifmt = seg.demux->fmt;
         stream_map[si].assign(ifmt->nb_streams, -1);
         if (ifmt->nb_streams != ifmt0->nb_streams) {
-            cleanup();
             return fail(ME_E_UNSUPPORTED,
                         "segment[" + std::to_string(si) + "] stream count " +
                         std::to_string(ifmt->nb_streams) + " != segment[0] " +
@@ -154,7 +148,6 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
         for (unsigned i = 0; i < ifmt->nb_streams; ++i) {
             if (stream_map[0][i] < 0) continue;
             if (!codecpar_compatible(ifmt->streams[i]->codecpar, ifmt0->streams[i]->codecpar)) {
-                cleanup();
                 return fail(ME_E_UNSUPPORTED,
                             "segment[" + std::to_string(si) + "] stream[" + std::to_string(i) +
                             "] codecpar mismatch with segment[0] (passthrough requires identical "
@@ -165,12 +158,8 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
     }
 
     /* --- Open output file, write header. */
-    if (!(ofmt->oformat->flags & AVFMT_NOFILE)) {
-        rc = avio_open(&ofmt->pb, opts.out_path.c_str(), AVIO_FLAG_WRITE);
-        if (rc < 0) { cleanup(); return fail(ME_E_IO, "avio_open: " + av_err_str(rc)); }
-    }
-    rc = avformat_write_header(ofmt, nullptr);
-    if (rc < 0) { cleanup(); return fail(ME_E_ENCODE, "write_header: " + av_err_str(rc)); }
+    if (auto s = mux->open_avio(err);    s != ME_OK) return s;
+    if (auto s = mux->write_header(err); s != ME_OK) return s;
 
     /* --- Per-segment packet copy loop ----------------------------------- */
     /* Per-output-stream DTS continuity state: last_end_tb[i] = last written
@@ -283,22 +272,14 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
             const int64_t pts_for_progress = pkt->pts;
             const AVRational out_tb = out_s->time_base;
 
-            /* av_interleaved_write_frame takes ownership and zeroes pkt —
-             * snapshot pts+duration before the call so we can advance the
-             * per-stream monotonic end marker. */
-            const int64_t pkt_end_snapshot =
-                (pkt->pts != AV_NOPTS_VALUE)
-                    ? pkt->pts + std::max<int64_t>(pkt->duration, 0)
-                    : last_end_out_tb[mapped];
-
-            rc = av_interleaved_write_frame(ofmt, pkt);
-            if (rc == 0) {
-                last_end_out_tb[mapped] = std::max(last_end_out_tb[mapped], pkt_end_snapshot);
-            }
-            av_packet_unref(pkt);
-            if (rc < 0) {
-                terminal = ME_E_ENCODE;
-                if (err) *err = "segment[" + std::to_string(si) + "] write_frame: " + av_err_str(rc);
+            /* MuxContext::write_and_track does the snapshot-before-write
+             * dance + unrefs the packet, so we don't repeat the PAIN_POINTS
+             * "av_interleaved_write_frame zeroes pkt" footgun here. */
+            std::string write_err;
+            const me_status_t w = mux->write_and_track(pkt, last_end_out_tb, &write_err);
+            if (w != ME_OK) {
+                terminal = w;
+                if (err) *err = "segment[" + std::to_string(si) + "] " + write_err;
                 break;
             }
 
@@ -324,14 +305,12 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
     (void)elapsed_us;  /* silence unused if future progress paths drop it */
 
     if (terminal == ME_OK) {
-        rc = av_write_trailer(ofmt);
-        if (rc < 0) {
-            terminal = ME_E_ENCODE;
-            if (err) *err = "write_trailer: " + av_err_str(rc);
+        if (auto s = mux->write_trailer(err); s != ME_OK) {
+            terminal = s;
         }
     }
-
-    cleanup();
+    /* mux destructor handles avio_closep + free_context whether we
+     * reached write_trailer or bailed early. */
 
     if (terminal == ME_OK && opts.on_ratio) opts.on_ratio(1.0f);
     return terminal;
