@@ -63,7 +63,7 @@ target_include_directories(media_engine
 target_link_libraries(media_engine
   PRIVATE
     nlohmann_json::nlohmann_json
-    Taskflow::Taskflow
+    Taskflow
     FFMPEG::avformat
     FFMPEG::avcodec
     FFMPEG::avutil
