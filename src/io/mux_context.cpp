@@ -1,24 +1,14 @@
 #include "io/mux_context.hpp"
+#include "io/av_err.hpp"
 
 extern "C" {
 #include <libavformat/avformat.h>
-#include <libavutil/error.h>
 }
 
 #include <algorithm>
 #include <string>
 
 namespace me::io {
-
-namespace {
-
-std::string av_err_str(int rc) {
-    char buf[AV_ERROR_MAX_STRING_SIZE]{};
-    av_strerror(rc, buf, sizeof(buf));
-    return std::string(buf);
-}
-
-}  // namespace
 
 std::unique_ptr<MuxContext> MuxContext::open(std::string_view out_path,
                                               std::string_view container,

@@ -1,5 +1,6 @@
 #include "orchestrator/reencode_pipeline.hpp"
 
+#include "io/av_err.hpp"
 #include "io/demux_context.hpp"
 #include "io/ffmpeg_raii.hpp"
 #include "io/mux_context.hpp"
@@ -10,7 +11,6 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/channel_layout.h>
-#include <libavutil/error.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
@@ -27,11 +27,7 @@ namespace me::orchestrator {
 
 namespace {
 
-std::string av_err_str(int rc) {
-    char buf[AV_ERROR_MAX_STRING_SIZE]{};
-    av_strerror(rc, buf, sizeof(buf));
-    return std::string(buf);
-}
+using me::io::av_err_str;
 
 /* Short file-local aliases over the shared me::io deleters — keeps the
  * dense decode/encode code below readable without repeating the full

@@ -1,8 +1,9 @@
 #include "orchestrator/reencode_audio.hpp"
 
+#include "io/av_err.hpp"
+
 extern "C" {
 #include <libavutil/channel_layout.h>
-#include <libavutil/error.h>
 #include <libavutil/samplefmt.h>
 }
 
@@ -12,13 +13,8 @@ namespace me::orchestrator::detail {
 
 namespace {
 
-std::string av_err_str(int rc) {
-    char buf[AV_ERROR_MAX_STRING_SIZE]{};
-    av_strerror(rc, buf, sizeof(buf));
-    return std::string(buf);
-}
-
-using PacketPtr   = me::io::AvPacketPtr;
+using me::io::av_err_str;
+using PacketPtr = me::io::AvPacketPtr;
 
 }  // namespace
 

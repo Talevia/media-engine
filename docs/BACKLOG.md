@@ -12,7 +12,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-av-err-str-shared** — `av_err_str(int rc)` / `av_err_to_string(int rc)` 目前在 7 个 TU 里各自定义（`src/api/probe.cpp`、`src/api/thumbnail.cpp`、`src/io/mux_context.cpp`、`src/orchestrator/muxer_state.cpp`、`reencode_pipeline.cpp`、`reencode_video.cpp`、`reencode_audio.cpp`），内容完全一致（4 行 `av_strerror` 包装）。M2 每加一个新 libav 调用点都会继续复制。**方向：** 新增 `src/io/av_err.hpp`（inline 函数）+ `src/io/av_err.cpp`，统一 `me::io::av_err_str(int)` 返回 `std::string`；7 处 file-local 定义删掉，引用 shared header。probe.cpp 顺便把名字归一到 `av_err_str`。Milestone §M1-debt，Rubric §5.2。
 - **composition-thumbnail-impl** — `src/orchestrator/thumbnailer.{hpp,cpp}` 目前是 `ME_E_UNSUPPORTED` stub（`STUB:` 标记 composition-thumbnail-impl）；C API `me_thumbnail_png` 已经绕开这个类自己做 asset 级缩略图（PAIN_POINTS 2026-04-23）。现状是"一个类两副面孔"。**方向：** 重命名 `Thumbnailer` → `CompositionThumbnailer`，明确它是"timeline 合成后取帧"的路径；asset 级缩略图不需要它。phase-1 继续保持 stub 返回 `ME_E_UNSUPPORTED`（Composition-thumbnail 等 M6 frame server 才有 consumer），但名字和注释对齐，`check_stubs.sh` 的 slug 也同步。Milestone §M1-debt / §M6-prep，Rubric §5.2。
 - **me-version-real-git-sha** — `me_version().git_sha` 当前硬编码空串；host 写 bug 报告时想知道引擎确切构建版本，拿不到。**方向：** CMake `execute_process(git rev-parse --short HEAD)` 在配置阶段拿 sha，`configure_file()` 生成 `src/core/version.inl` 让 `me_version()` 返回。无 git 仓库 fallback 到 `"unknown"`。Milestone §M1-close，Rubric §5.2。
 

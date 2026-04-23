@@ -1,5 +1,6 @@
 #include "media_engine/probe.h"
 #include "core/engine_impl.hpp"
+#include "io/av_err.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -51,11 +52,7 @@ me_rational_t to_me_rational(AVRational r) {
                          r.den > 0 ? static_cast<int64_t>(r.den) : 1};
 }
 
-std::string av_err_to_string(int rc) {
-    char buf[AV_ERROR_MAX_STRING_SIZE] = {0};
-    av_strerror(rc, buf, sizeof(buf));
-    return std::string{buf};
-}
+using me::io::av_err_str;
 
 }  // namespace
 
@@ -70,13 +67,13 @@ extern "C" me_status_t me_probe(me_engine_t* engine, const char* uri, me_media_i
     AVFormatContext* fmt = nullptr;
     int rc = avformat_open_input(&fmt, path.c_str(), nullptr, nullptr);
     if (rc < 0) {
-        me::detail::set_error(engine, "avformat_open_input: " + av_err_to_string(rc));
+        me::detail::set_error(engine, "avformat_open_input: " + av_err_str(rc));
         return ME_E_IO;
     }
 
     rc = avformat_find_stream_info(fmt, nullptr);
     if (rc < 0) {
-        me::detail::set_error(engine, "avformat_find_stream_info: " + av_err_to_string(rc));
+        me::detail::set_error(engine, "avformat_find_stream_info: " + av_err_str(rc));
         avformat_close_input(&fmt);
         return ME_E_DECODE;
     }

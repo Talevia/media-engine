@@ -1,12 +1,12 @@
 #include "orchestrator/muxer_state.hpp"
 
+#include "io/av_err.hpp"
 #include "io/demux_context.hpp"
 #include "io/mux_context.hpp"
 
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libavutil/error.h>
 #include <libavutil/mathematics.h>
 }
 
@@ -18,11 +18,7 @@ namespace me::orchestrator {
 
 namespace {
 
-std::string av_err_str(int rc) {
-    char buf[AV_ERROR_MAX_STRING_SIZE]{};
-    av_strerror(rc, buf, sizeof(buf));
-    return std::string(buf);
-}
+using me::io::av_err_str;
 
 /* Convert a me_rational_t (seconds) to a PTS in the given time_base, rounding
  * toward nearest. den<=0 → 0. */

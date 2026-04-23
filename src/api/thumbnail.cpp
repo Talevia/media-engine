@@ -1,12 +1,12 @@
 #include "media_engine/thumbnail.h"
 #include "core/engine_impl.hpp"
+#include "io/av_err.hpp"
 #include "io/ffmpeg_raii.hpp"
 #include "resource/codec_pool.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libavutil/error.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/mathematics.h>
 #include <libswscale/swscale.h>
@@ -27,6 +27,8 @@ using FramePtr    = me::io::AvFramePtr;
 using PacketPtr   = me::io::AvPacketPtr;
 using SwsPtr      = me::io::SwsContextPtr;
 
+using me::io::av_err_str;
+
 std::string strip_file_scheme(std::string_view uri) {
     constexpr std::string_view p{"file://"};
     if (uri.size() >= p.size() &&
@@ -34,12 +36,6 @@ std::string strip_file_scheme(std::string_view uri) {
         uri.remove_prefix(p.size());
     }
     return std::string{uri};
-}
-
-std::string av_err_str(int rc) {
-    char buf[AV_ERROR_MAX_STRING_SIZE]{};
-    av_strerror(rc, buf, sizeof(buf));
-    return std::string(buf);
 }
 
 /* Given native W×H and user's max bounding box, derive output dims that
