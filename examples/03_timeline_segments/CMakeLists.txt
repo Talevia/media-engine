@@ -1,0 +1,3 @@
+add_executable(03_timeline_segments main.cpp)
+target_link_libraries(03_timeline_segments PRIVATE media_engine)
+target_include_directories(03_timeline_segments PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -30,6 +30,7 @@ find_package(FFMPEG REQUIRED)
 add_library(media_engine
   core/version.cpp
   timeline/timeline_loader.cpp
+  timeline/segmentation.cpp
   io/ffmpeg_remux.cpp
   graph/graph.cpp
   task/registry.cpp

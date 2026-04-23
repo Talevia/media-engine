@@ -1,2 +1,3 @@
 add_subdirectory(01_passthrough)
 add_subdirectory(02_graph_smoke)
+add_subdirectory(03_timeline_segments)
