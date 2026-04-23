@@ -1,6 +1,7 @@
 #include "orchestrator/reencode_pipeline.hpp"
 
 #include "io/demux_context.hpp"
+#include "io/ffmpeg_raii.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -29,19 +30,16 @@ std::string av_err_str(int rc) {
     return std::string(buf);
 }
 
-/* RAII wrappers for libav resources. The AVFormatContext output is managed
- * manually because its lifetime is entangled with avio_open/close. */
-struct CodecCtxDel { void operator()(AVCodecContext* p) const { if (p) avcodec_free_context(&p); } };
-struct FrameDel    { void operator()(AVFrame* p)        const { if (p) av_frame_free(&p); } };
-struct PacketDel   { void operator()(AVPacket* p)       const { if (p) av_packet_free(&p); } };
-struct SwsDel      { void operator()(SwsContext* p)     const { if (p) sws_freeContext(p); } };
-struct SwrDel      { void operator()(SwrContext* p)     const { if (p) swr_free(&p); } };
-
-using CodecCtxPtr = std::unique_ptr<AVCodecContext, CodecCtxDel>;
-using FramePtr    = std::unique_ptr<AVFrame,        FrameDel>;
-using PacketPtr   = std::unique_ptr<AVPacket,       PacketDel>;
-using SwsPtr      = std::unique_ptr<SwsContext,     SwsDel>;
-using SwrPtr      = std::unique_ptr<SwrContext,     SwrDel>;
+/* Short file-local aliases over the shared me::io deleters — keeps the
+ * dense decode/encode code below readable without repeating the full
+ * namespace-qualified name every few lines. AVFormatContext output stays
+ * manually managed because its lifetime is entangled with avio_open/close
+ * (see io-mux-context-raii backlog item). */
+using CodecCtxPtr = me::io::AvCodecContextPtr;
+using FramePtr    = me::io::AvFramePtr;
+using PacketPtr   = me::io::AvPacketPtr;
+using SwsPtr      = me::io::SwsContextPtr;
+using SwrPtr      = me::io::SwrContextPtr;
 
 /* Pick the best video/audio stream index per libavformat conventions. */
 int best_stream(AVFormatContext* fmt, AVMediaType type) {

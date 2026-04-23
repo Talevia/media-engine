@@ -1,5 +1,6 @@
 #include "media_engine/thumbnail.h"
 #include "core/engine_impl.hpp"
+#include "io/ffmpeg_raii.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -20,15 +21,10 @@ extern "C" {
 
 namespace {
 
-struct CodecCtxDel { void operator()(AVCodecContext* p) const { if (p) avcodec_free_context(&p); } };
-struct FrameDel    { void operator()(AVFrame* p)        const { if (p) av_frame_free(&p); } };
-struct PacketDel   { void operator()(AVPacket* p)       const { if (p) av_packet_free(&p); } };
-struct SwsDel      { void operator()(SwsContext* p)     const { if (p) sws_freeContext(p); } };
-
-using CodecCtxPtr = std::unique_ptr<AVCodecContext, CodecCtxDel>;
-using FramePtr    = std::unique_ptr<AVFrame,        FrameDel>;
-using PacketPtr   = std::unique_ptr<AVPacket,       PacketDel>;
-using SwsPtr      = std::unique_ptr<SwsContext,     SwsDel>;
+using CodecCtxPtr = me::io::AvCodecContextPtr;
+using FramePtr    = me::io::AvFramePtr;
+using PacketPtr   = me::io::AvPacketPtr;
+using SwsPtr      = me::io::SwsContextPtr;
 
 std::string strip_file_scheme(std::string_view uri) {
     constexpr std::string_view p{"file://"};
