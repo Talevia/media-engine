@@ -129,11 +129,23 @@ TEST_CASE("make_output_sink rejects mixed h264 + passthrough spec") {
     CHECK(err.find("supported specs") != std::string::npos);
 }
 
-TEST_CASE("make_output_sink rejects h264/aac + multi-clip spec") {
+TEST_CASE("make_output_sink accepts h264/aac + multi-clip spec") {
+    /* reencode-multi-clip lifted the N==1 factory rejection; the runtime
+     * path now concatenates N segments through a shared encoder. */
     me::resource::CodecPool pool;
     std::string err;
     auto sink = make_output_sink(h264_aac_spec(), blank_common(), two_clips(),
                                   &pool, &err);
+    CHECK(sink != nullptr);
+    CHECK(err.empty());
+}
+
+TEST_CASE("make_output_sink rejects h264/aac spec when codec_pool is null") {
+    /* Pool is mandatory for reencode paths — factory must catch that at
+     * construction time, before process() runs. */
+    std::string err;
+    auto sink = make_output_sink(h264_aac_spec(), blank_common(), one_clip(),
+                                  nullptr, &err);
     CHECK(sink == nullptr);
-    CHECK(err.find("single clip") != std::string::npos);
+    CHECK(err.find("codec pool") != std::string::npos);
 }

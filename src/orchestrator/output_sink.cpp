@@ -64,14 +64,17 @@ private:
 
 /* ==========================================================================
  * H264AacSink — h264_videotoolbox (video) + libavcodec aac (audio).
- * Phase-1 single-clip only; the factory rejects multi-clip specs so
- * process() doesn't need to guard.
+ * Supports N-segment concat; decoders are per-clip, the encoder is shared
+ * across all segments so the output carries one consistent H.264
+ * bitstream and AAC sample stream regardless of segment count.
  * ========================================================================== */
 class H264AacSink final : public OutputSink {
 public:
     H264AacSink(SinkCommon common, const me_output_spec_t& spec,
-                 me::resource::CodecPool* pool)
+                 std::vector<ClipTimeRange> ranges,
+                 me::resource::CodecPool*   pool)
         : common_(std::move(common)),
+          ranges_(std::move(ranges)),
           pool_(pool),
           video_bitrate_(spec.video_bitrate_bps),
           audio_bitrate_(spec.audio_bitrate_bps) {}
@@ -79,12 +82,12 @@ public:
     me_status_t process(
         std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes,
         std::string*                                       err) override {
-        if (demuxes.size() != 1) {
-            if (err) *err = "h264/aac sink: expected exactly one demux (phase-1)";
+        if (demuxes.size() != ranges_.size()) {
+            if (err) *err = "h264/aac sink: demuxes / ranges size mismatch";
             return ME_E_INTERNAL;
         }
-        if (!demuxes.front()) {
-            if (err) *err = "h264/aac sink: null demux context";
+        if (demuxes.empty()) {
+            if (err) *err = "h264/aac sink: empty segment list";
             return ME_E_INVALID_ARG;
         }
         ReencodeOptions opts;
@@ -97,14 +100,28 @@ public:
         opts.cancel            = common_.cancel;
         opts.on_ratio          = common_.on_ratio;
         opts.pool              = pool_;
-        return reencode_mux(*demuxes.front(), opts, err);
+        opts.segments.reserve(demuxes.size());
+        for (size_t i = 0; i < demuxes.size(); ++i) {
+            if (!demuxes[i]) {
+                if (err) *err = "h264/aac sink: null demux context at segment " +
+                                 std::to_string(i);
+                return ME_E_INVALID_ARG;
+            }
+            opts.segments.push_back(ReencodeSegment{
+                std::move(demuxes[i]),
+                ranges_[i].source_start,
+                ranges_[i].source_duration,
+            });
+        }
+        return reencode_mux(opts, err);
     }
 
 private:
-    SinkCommon                common_;
-    me::resource::CodecPool*  pool_          = nullptr;
-    int64_t                   video_bitrate_ = 0;
-    int64_t                   audio_bitrate_ = 0;
+    SinkCommon                 common_;
+    std::vector<ClipTimeRange> ranges_;
+    me::resource::CodecPool*   pool_          = nullptr;
+    int64_t                    video_bitrate_ = 0;
+    int64_t                    audio_bitrate_ = 0;
 };
 
 }  // namespace
@@ -130,16 +147,12 @@ std::unique_ptr<OutputSink> make_output_sink(
         return std::make_unique<PassthroughSink>(std::move(common), std::move(clip_ranges));
     }
     if (is_h264_aac_spec(spec)) {
-        if (clip_ranges.size() != 1) {
-            if (err) *err = "phase-1: re-encode path supports a single clip only "
-                             "(see backlog: reencode-multi-clip)";
-            return nullptr;
-        }
         if (!codec_pool) {
             if (err) *err = "re-encode requires a codec pool (engine->codecs)";
             return nullptr;
         }
-        return std::make_unique<H264AacSink>(std::move(common), spec, codec_pool);
+        return std::make_unique<H264AacSink>(std::move(common), spec,
+                                              std::move(clip_ranges), codec_pool);
     }
 
     if (err) *err = "phase-1: supported specs are "

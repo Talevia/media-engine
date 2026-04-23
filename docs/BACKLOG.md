@@ -15,7 +15,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **reencode-multi-clip** — reencode path 只支持 single clip（factory 直接拒 N ≥ 2），passthrough 已支持 concat。**方向：** 循环 demux 每个 clip，边界处 encoder GOP flush + 下一 clip IDR；AAC priming samples 在 segment 边界 accumulate；同 codec 复用 encoder ctx 先不做（等 `codec-pool-real-pooling`），不同 clip 重开 encoder。`H264AacSink::process()` 的 `demuxes.size() != 1` 分支放行。Milestone §M1-addendum，Rubric §5.1。
 - **debt-render-bitexact-flags** — 现有 determinism 回归只覆盖 passthrough；reencode 路径的 `MuxContext` 没 set `AVFMT_FLAG_BITEXACT`、encoder 没 set `AV_CODEC_FLAG_BITEXACT`，产物 mvhd/tkhd 带 wallclock creation_time，两次跑不是 byte-identical（`gen_fixture` 已经走过这条路并证明 bitexact 可行）。**方向：** `reencode_pipeline` + `mux_context` 默认 OR 上 bitexact flags；再加 determinism test 第 3 个 case 覆盖 h264/aac reencode。Milestone §M1-debt，Rubric §5.3。
 - **test-probe-coverage** — `me_probe` + 新 6 个 `me_media_info_video_*` accessor 没有 doctest 覆盖，只靠 `04_probe` 端到端 print 手测。**方向：** `tests/test_probe.cpp`：用 determinism fixture 断言 container=mov / codec=mpeg4 / width=320 / height=240 / frame_rate={10,1} / bit_depth=8 / rotation=0 / color_range/primaries/transfer/space 的 "unknown" 返回路径；再生成一个 ffmpeg-tagged 的小 h264 fixture 断言 color_range="tv" / color_space="bt709"。Milestone §M1-debt，Rubric §5.2。
 - **test-thumbnail-coverage** — `me_thumbnail_png` 已 impl 但 `tests/` 无覆盖；未来 color-space 正确性改动没有 tripwire。**方向：** `tests/test_thumbnail.cpp`：用 determinism fixture，`me_thumbnail_png(engine, asset_id, {0,10}, 320, 240, &buf, &size)` → 断言 PNG magic `89 50 4E 47` + IHDR width/height = 320/240。Milestone §M1-debt，Rubric §5.2。
