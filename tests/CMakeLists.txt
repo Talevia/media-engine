@@ -39,6 +39,7 @@ set(_test_suites
   test_color_pipeline
   test_render_cancel
   test_render_progress
+  test_render_job_lifecycle
 )
 
 foreach(_suite ${_test_suites})
@@ -151,4 +152,12 @@ target_compile_definitions(test_render_cancel PRIVATE
 # reencode for the cancel path (same reasoning as test_render_cancel).
 add_dependencies(test_render_progress determinism_fixture)
 target_compile_definitions(test_render_progress PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_render_job_lifecycle pins me_render_job_destroy corners —
+# destroy(NULL) idempotency, destroy-without-wait, start → cancel →
+# destroy-without-wait, standard cycle followed by NULL destroy. Shares
+# the same fixture as the other render-path suites.
+add_dependencies(test_render_job_lifecycle determinism_fixture)
+target_compile_definitions(test_render_job_lifecycle PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
