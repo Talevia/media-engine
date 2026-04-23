@@ -1,4 +1,5 @@
 include(FetchContent)
+
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -8,12 +9,29 @@ FetchContent_Declare(
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(nlohmann_json)
 
+# Taskflow — header-only CPU work-stealing DAG (docs/ARCHITECTURE_GRAPH.md §scheduler).
+FetchContent_Declare(
+  taskflow
+  GIT_REPOSITORY https://github.com/taskflow/taskflow.git
+  GIT_TAG        v3.7.0
+  GIT_SHALLOW    TRUE
+)
+set(TF_BUILD_TESTS      OFF CACHE INTERNAL "")
+set(TF_BUILD_EXAMPLES   OFF CACHE INTERNAL "")
+set(TF_BUILD_BENCHMARKS OFF CACHE INTERNAL "")
+set(TF_BUILD_CUDA       OFF CACHE INTERNAL "")
+set(TF_BUILD_SYCL       OFF CACHE INTERNAL "")
+set(TF_BUILD_HIP        OFF CACHE INTERNAL "")
+set(TF_BUILD_PROFILER   OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(taskflow)
+
 find_package(FFMPEG REQUIRED)
 
 add_library(media_engine
   core/version.cpp
   timeline/timeline_loader.cpp
   io/ffmpeg_remux.cpp
+  scheduler/taskflow_probe.cpp
   api/engine.cpp
   api/timeline.cpp
   api/render.cpp
@@ -34,6 +52,7 @@ target_include_directories(media_engine
 target_link_libraries(media_engine
   PRIVATE
     nlohmann_json::nlohmann_json
+    Taskflow::Taskflow
     FFMPEG::avformat
     FFMPEG::avcodec
     FFMPEG::avutil
