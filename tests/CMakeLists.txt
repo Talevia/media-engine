@@ -44,6 +44,7 @@ set(_test_suites
   test_compose_alpha_over
   test_compose_active_clips
   test_compose_frame_convert
+  test_audio_mix
 )
 
 foreach(_suite ${_test_suites})
@@ -86,6 +87,11 @@ target_include_directories(test_compose_active_clips PRIVATE ${CMAKE_SOURCE_DIR}
 target_include_directories(test_compose_frame_convert PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_compose_frame_convert PRIVATE
   FFMPEG::avutil FFMPEG::avcodec FFMPEG::swscale)
+
+# test_audio_mix exercises me::audio::mix_samples / peak_limiter /
+# db_to_linear from src/audio/mix.hpp — pure math, needs src/ on
+# the include path.
+target_include_directories(test_audio_mix PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from

@@ -120,6 +120,7 @@ add_library(media_engine STATIC
   timeline/timeline_loader.cpp
   timeline/segmentation.cpp
   color/pipeline.cpp
+  audio/mix.cpp
   compose/active_clips.cpp
   compose/alpha_over.cpp
   compose/frame_convert.cpp
