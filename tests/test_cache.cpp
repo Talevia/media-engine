@@ -2,6 +2,8 @@
 
 #include <media_engine.h>
 
+#include "timeline_builder.hpp"
+
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -10,6 +12,8 @@
 namespace fs = std::filesystem;
 
 namespace {
+
+namespace tb = me::tests::tb;
 
 /* Write a known-bytes file so the subsequent sha256 has a predictable
  * value. Content "abc" hashes to the NIST SHA-256 vector. */
@@ -20,28 +24,17 @@ fs::path write_abc_file() {
 }
 
 /* Minimal timeline that just references the fixture URI — enough to push
- * entries through the engine's AssetHashCache via me_timeline_load_json. */
+ * entries through the engine's AssetHashCache via me_timeline_load_json.
+ * The hex_hash (64-char lowercase, no "sha256:" prefix) is wrapped into
+ * the schema-level `contentHash` field by the builder's AssetSpec. */
 std::string timeline_json(const std::string& uri, const std::string& hex_hash) {
-    std::string hash_field;
-    if (!hex_hash.empty()) {
-        hash_field = ",\"contentHash\":\"sha256:" + hex_hash + "\"";
-    }
-    return std::string(R"({
-      "schemaVersion": 1,
-      "frameRate":  {"num": 30, "den": 1},
-      "resolution": {"width": 1280, "height": 720},
-      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
-      "assets":[{"id":"a1","kind":"video","uri":"file://)") +
-      uri + R"("
-          )" + hash_field + R"(
-      }],
-      "compositions":[{"id":"main","tracks":[{"id":"v0","kind":"video","clips":[
-        {"type":"video","id":"c1","assetId":"a1",
-         "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
-         "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
-      ]}]}],
-      "output":{"compositionId":"main"}
-    })";
+    std::string content_hash;
+    if (!hex_hash.empty()) content_hash = "sha256:" + hex_hash;
+    return tb::TimelineBuilder()
+        .resolution(1280, 720)
+        .add_asset(tb::AssetSpec{.uri = "file://" + uri, .content_hash = content_hash})
+        .add_clip(tb::ClipSpec{})
+        .build();
 }
 
 }  // namespace

@@ -2,6 +2,8 @@
 
 #include <media_engine.h>
 
+#include "timeline_builder.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -73,27 +75,15 @@ TEST_CASE("passthrough is byte-deterministic across two independent renders") {
 
     /* Timeline with a single passthrough clip referencing the fixture.
      * Fixture is 10 frames at 10 fps = 1 second; timeRange matches. */
-    std::ostringstream json;
-    json << R"({
-      "schemaVersion": 1,
-      "frameRate":  {"num": 10, "den": 1},
-      "resolution": {"width": 320, "height": 240},
-      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
-      "assets": [
-        {"id":"a1","kind":"video","uri":"file://)" << fixture_path << R"("}
-      ],
-      "compositions": [
-        {"id":"main","tracks":[
-          {"id":"v0","kind":"video","clips":[
-            {"type":"video","id":"c1","assetId":"a1",
-             "timeRange":{"start":{"num":0,"den":10},"duration":{"num":10,"den":10}},
-             "sourceRange":{"start":{"num":0,"den":10},"duration":{"num":10,"den":10}}}
-          ]}
-        ]}
-      ],
-      "output":{"compositionId":"main"}
-    })";
-    const std::string timeline_json = json.str();
+    namespace tb = me::tests::tb;
+    const std::string timeline_json = tb::TimelineBuilder()
+        .frame_rate(10, 1).resolution(320, 240)
+        .add_asset(tb::AssetSpec{.uri = "file://" + fixture_path})
+        .add_clip(tb::ClipSpec{
+            .time_start_den = 10, .time_dur_num = 10, .time_dur_den = 10,
+            .source_start_den = 10, .source_dur_num = 10, .source_dur_den = 10,
+        })
+        .build();
 
     const fs::path tmp_dir = fs::temp_directory_path() / "me-determinism-test";
     fs::create_directories(tmp_dir);
@@ -137,25 +127,15 @@ TEST_CASE("passthrough determinism holds across engine restarts") {
     /* Same assertion as above, but with a delay between renders to catch
      * any wall-clock dependency that the first case might miss if the runs
      * happen inside the same jiffy. */
-    std::ostringstream json;
-    json << R"({
-      "schemaVersion": 1,
-      "frameRate":  {"num": 10, "den": 1},
-      "resolution": {"width": 320, "height": 240},
-      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
-      "assets":[{"id":"a1","kind":"video","uri":"file://)" << fixture_path << R"("}],
-      "compositions":[
-        {"id":"main","tracks":[
-          {"id":"v0","kind":"video","clips":[
-            {"type":"video","id":"c1","assetId":"a1",
-             "timeRange":{"start":{"num":0,"den":10},"duration":{"num":10,"den":10}},
-             "sourceRange":{"start":{"num":0,"den":10},"duration":{"num":10,"den":10}}}
-          ]}
-        ]}
-      ],
-      "output":{"compositionId":"main"}
-    })";
-    const std::string timeline_json = json.str();
+    namespace tb = me::tests::tb;
+    const std::string timeline_json = tb::TimelineBuilder()
+        .frame_rate(10, 1).resolution(320, 240)
+        .add_asset(tb::AssetSpec{.uri = "file://" + fixture_path})
+        .add_clip(tb::ClipSpec{
+            .time_start_den = 10, .time_dur_num = 10, .time_dur_den = 10,
+            .source_start_den = 10, .source_dur_num = 10, .source_dur_den = 10,
+        })
+        .build();
 
     const fs::path tmp_dir = fs::temp_directory_path() / "me-determinism-test-2";
     fs::create_directories(tmp_dir);

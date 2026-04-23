@@ -2,6 +2,8 @@
 
 #include <media_engine.h>
 
+#include "timeline_builder.hpp"
+
 #include <atomic>
 #include <cstring>
 #include <string>
@@ -117,21 +119,10 @@ TEST_CASE("clear_error on success path doesn't leak prior errors on this thread"
 
     /* Step 2: a subsequent successful call on the same engine clears the
      * slot via me::detail::clear_error on entry (see each entry point). */
-    const char* ok_json = R"({
-      "schemaVersion": 1,
-      "frameRate":  {"num": 30, "den": 1},
-      "resolution": {"width": 1920, "height": 1080},
-      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
-      "assets":[{"id":"a1","kind":"video","uri":"file:///tmp/x.mp4"}],
-      "compositions":[{"id":"main","tracks":[{"id":"v0","kind":"video","clips":[
-        {"type":"video","id":"c1","assetId":"a1",
-         "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
-         "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
-      ]}]}],
-      "output":{"compositionId":"main"}
-    })";
+    namespace tb = me::tests::tb;
+    const std::string ok_json = tb::minimal_video_clip("file:///tmp/x.mp4").build();
     me_timeline_t* ok_tl = nullptr;
-    REQUIRE(me_timeline_load_json(eng, ok_json, std::strlen(ok_json), &ok_tl) == ME_OK);
+    REQUIRE(me_timeline_load_json(eng, ok_json.data(), ok_json.size(), &ok_tl) == ME_OK);
     CHECK(std::strcmp(me_engine_last_error(eng), "") == 0);
 
     me_timeline_destroy(ok_tl);

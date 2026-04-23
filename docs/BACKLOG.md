@@ -15,7 +15,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **debt-test-timeline-builder-helper** — `test_timeline_schema.cpp` + `test_determinism.cpp` 都在代码里手写 "最小合法 timeline JSON"（PAIN_POINTS 2026-04-23 两次点过）；schema 字段任何改名都要在 N 个 test 同时改。**方向：** 新增 `tests/timeline_builder.hpp` 提供 `TimelineBuilder::minimal_video_clip(uri, dur_num, dur_den)` 之类 builder，返回 `std::string`。每个 test 改用 builder，消除"N 处 find+replace"的维护负担。Milestone §M1-debt，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 
