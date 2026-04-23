@@ -297,8 +297,15 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
              * cumulative must match each clip's timeRange.start
              * exactly (same no-gap no-overlap rule as single-track
              * phase-1). Gap / overlap across *different* tracks is
-             * fine — that's the point of multi-track compose. */
+             * fine — that's the point of multi-track compose.
+             *
+             * Also capture clip ids + per-clip duration for the
+             * transitions pass below (adjacency check + duration
+             * bound vs min(from.dur, to.dur)). */
             me_rational_t running{0, 1};
+            std::vector<std::string> track_clip_ids;
+            std::unordered_map<std::string, me_rational_t> clip_dur_by_id;
+            track_clip_ids.reserve(clips.size());
             for (size_t i = 0; i < clips.size(); ++i) {
                 const auto& clip = clips[i];
                 const std::string where = track_where + ".clip[" + std::to_string(i) + "]";
@@ -353,11 +360,97 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 }
                 tl.clips.push_back(std::move(c));
 
+                const std::string clip_id = clip.at("id").get<std::string>();
+                require(!clip_id.empty(), ME_E_PARSE, where + ".id must be non-empty");
+                require(clip_dur_by_id.emplace(clip_id, t_dur).second, ME_E_PARSE,
+                        where + ".id: duplicate clip id '" + clip_id +
+                        "' within this track");
+                track_clip_ids.push_back(clip_id);
+
                 /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d). */
                 running = me_rational_t{
                     running.num * t_dur.den + t_dur.num * running.den,
                     running.den * t_dur.den
                 };
+            }
+
+            /* Transitions (optional). Each transition joins two adjacent
+             * clips on this track. Schema validated:
+             *   - kind ∈ {"crossDissolve"} (others → ME_E_UNSUPPORTED)
+             *   - fromClipId / toClipId both exist in this track's clips
+             *   - toClipId immediately follows fromClipId in JSON order
+             *   - duration > 0 and ≤ min(from.duration, to.duration)
+             * Transition stored in Timeline::transitions with track_id
+             * stamped; consumed by cross-dissolve-kernel (M2 follow-up). */
+            if (track.contains("transitions")) {
+                const auto& trs = track["transitions"];
+                require(trs.is_array(), ME_E_PARSE,
+                        track_where + ".transitions: expected array");
+                for (size_t i = 0; i < trs.size(); ++i) {
+                    const auto& tr_j = trs[i];
+                    const std::string trw =
+                        track_where + ".transitions[" + std::to_string(i) + "]";
+                    require(tr_j.is_object(), ME_E_PARSE, trw + ": expected object");
+
+                    const std::string kind_str =
+                        tr_j.at("kind").get<std::string>();
+                    require(kind_str == "crossDissolve", ME_E_UNSUPPORTED,
+                            trw + ".kind: only 'crossDissolve' supported in phase-1 "
+                            "(got '" + kind_str + "')");
+
+                    const std::string from_id =
+                        tr_j.at("fromClipId").get<std::string>();
+                    const std::string to_id =
+                        tr_j.at("toClipId").get<std::string>();
+                    require(!from_id.empty() && !to_id.empty(), ME_E_PARSE,
+                            trw + ": fromClipId / toClipId must be non-empty");
+
+                    const auto from_it = clip_dur_by_id.find(from_id);
+                    const auto to_it   = clip_dur_by_id.find(to_id);
+                    require(from_it != clip_dur_by_id.end(), ME_E_PARSE,
+                            trw + ".fromClipId refers to unknown clip '" + from_id +
+                            "' in this track");
+                    require(to_it != clip_dur_by_id.end(), ME_E_PARSE,
+                            trw + ".toClipId refers to unknown clip '" + to_id +
+                            "' in this track");
+
+                    /* Adjacency: find from's index in the ordered list and
+                     * check to follows immediately. */
+                    size_t from_idx = 0;
+                    for (; from_idx < track_clip_ids.size(); ++from_idx) {
+                        if (track_clip_ids[from_idx] == from_id) break;
+                    }
+                    require(from_idx + 1 < track_clip_ids.size() &&
+                                track_clip_ids[from_idx + 1] == to_id,
+                            ME_E_PARSE,
+                            trw + ": toClipId must immediately follow fromClipId "
+                            "in this track's clips array");
+
+                    const me_rational_t dur =
+                        as_rational(tr_j.at("duration"), trw + ".duration");
+                    require(dur.num > 0, ME_E_PARSE,
+                            trw + ".duration must be positive");
+
+                    /* dur ≤ min(from.dur, to.dur) check: compare dur * X.den
+                     * vs X.num * dur.den for each side (avoid shared-denom
+                     * reduction). */
+                    auto le_clip_dur = [&](me_rational_t cd) {
+                        /* dur ≤ cd  <=>  dur.num * cd.den ≤ cd.num * dur.den */
+                        return dur.num * cd.den <= cd.num * dur.den;
+                    };
+                    require(le_clip_dur(from_it->second) && le_clip_dur(to_it->second),
+                            ME_E_PARSE,
+                            trw + ".duration must not exceed either adjacent "
+                            "clip's duration");
+
+                    tl.transitions.push_back(me::Transition{
+                        me::TransitionKind::CrossDissolve,
+                        track_id,
+                        from_id,
+                        to_id,
+                        dur,
+                    });
+                }
             }
 
             tl.tracks.push_back(me::Track{track_id, track_kind, track_enabled});

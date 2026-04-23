@@ -143,6 +143,41 @@ enum class TrackKind : uint8_t {
     Audio = 1,
 };
 
+/* Kind of a transition between two adjacent clips on the same track.
+ * Phase-1 schema accepts only CrossDissolve; other kinds (wipe, dip-
+ * to-black, slide, …) are future schema extensions and get
+ * ME_E_UNSUPPORTED at load time. Enum values are stable ABI once
+ * shipped; append new kinds, never reorder. */
+enum class TransitionKind : uint8_t {
+    CrossDissolve = 0,
+};
+
+/* Transition between two adjacent clips on the same track. Semantics:
+ * the transition overlaps the boundary between `from_clip_id` (ends at
+ * boundary) and `to_clip_id` (starts at boundary), cross-mixing over
+ * `duration` of timeline time. Phase-1 enforces adjacency (to-clip
+ * immediately follows from-clip in the track's JSON-declared clip
+ * order) and positive duration bounded by both clips' own durations.
+ *
+ * `track_id` is stamped by the loader — redundant with either
+ * clip's track_id but lets consumers group by track without a clip
+ * lookup. `from_clip_id` / `to_clip_id` are the JSON clip ids
+ * (Clip itself has no id field today; transition consumers resolve
+ * them by walking Timeline::clips filtered by track_id in JSON order,
+ * and matching the first occurrence of each id).
+ *
+ * The compose / mix kernel reads this at render time; phase-1
+ * Exporter rejects any non-empty Timeline::transitions because neither
+ * the multi-track-compose-kernel nor audio-mix-kernel are implemented
+ * yet (tracked by cross-dissolve-kernel backlog item). */
+struct Transition {
+    TransitionKind kind{TransitionKind::CrossDissolve};
+    std::string    track_id;
+    std::string    from_clip_id;
+    std::string    to_clip_id;
+    me_rational_t  duration{0, 1};
+};
+
 /* Compositing track metadata. Clips live in the flat Timeline::clips
  * list stamped with track_id back-references; this struct carries just
  * the track-level attributes that aren't per-clip (id, enabled flag,
@@ -182,6 +217,14 @@ struct Timeline {
      * so multi-track consumers can group. For phase-1 this is just
      * tracks[0]'s clips in time order. */
     std::vector<Clip> clips;
+
+    /* Flat transition list across all tracks. Each Transition carries
+     * its track_id so the compose kernel can group. Transitions within
+     * a single track are stored in the JSON declaration order of that
+     * track's `transitions[]` array. Phase-1 Exporter rejects any
+     * non-empty transitions list (see src/orchestrator/exporter.cpp
+     * gate + cross-dissolve-kernel backlog item). */
+    std::vector<Transition> transitions;
 };
 
 }  // namespace me

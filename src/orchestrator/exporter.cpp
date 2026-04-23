@@ -85,6 +85,16 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
                         "see multi-track-compose-kernel backlog item";
         return ME_E_UNSUPPORTED;
     }
+    /* Transitions (cross-dissolve, etc.) require per-boundary alpha
+     * compositing across two clips' overlapping region. The phase-1
+     * concat path just stitches clips end-to-end, so a timeline
+     * that declares transitions would silently produce unblended
+     * hard cuts. Reject until cross-dissolve-kernel lands. */
+    if (!tl_->transitions.empty()) {
+        if (err) *err = "cross-dissolve / transitions not yet implemented — "
+                        "see cross-dissolve-kernel backlog item";
+        return ME_E_UNSUPPORTED;
+    }
 
     /* Compile a demux graph + carry a ClipTimeRange per clip. */
     std::vector<ClipPlan> plans;
