@@ -1,7 +1,5 @@
 ## 2026-04-22 — timeline-segmentation（Milestone §M1 · Rubric §5.1）
 
-Commit: `<this>`
-
 **Context.** ARCHITECTURE_GRAPH.md §批编码决定 Orchestrator 持 Timeline 而非 Graph——同一 Timeline 在不同时间段对应不同 Graph（转场过渡期活跃 clip 集变化）。orchestrator-bootstrap 需要一个函数能把 Timeline 切成 Segments，每段内活跃集恒定，对应一次 graph::compile_segment 的输入。这次把该算法实装到位。
 
 **Decision.** `src/timeline/segmentation.{hpp,cpp}`：

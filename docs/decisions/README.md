@@ -17,8 +17,6 @@ docs/decisions/<YYYY-MM-DD>-<slug>.md
 ```markdown
 ## YYYY-MM-DD — 短标题（Milestone §Mx · Rubric §5.y）
 
-Commit: `<shorthash>`
-
 **Context.** 这个 gap 为何是本轮挑出来的——对应的 rubric 轴 / milestone 状态 / 当前代码里观察到了什么。
 
 **Decision.** 落地了什么。关键类型名、函数名、文件路径。
@@ -32,6 +30,8 @@ Commit: `<shorthash>`
 **License impact.** 是否引入新依赖？新依赖的 license 是否在 ARCHITECTURE.md 白名单里？
 （纯代码改动写「无新依赖」。）
 ```
+
+不记 commit 号——`git log` 本身就能按文件名 / 日期查到对应 commit，归档文件里再重复反而会过时。
 
 ## 什么不该进这里
 

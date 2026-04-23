@@ -1,7 +1,5 @@
 ## 2026-04-22 — orchestrator-bootstrap（Milestone §M1 · Rubric §5.1）
 
-Commit: `<this>`
-
 **Context.** 前几个 commit 把 graph / task / scheduler / resource 四模块的底座建起来，`me_render_start` 仍直接调 `io::remux_passthrough`。需要把 C API 的三个 entry（render_start / render_frame / thumbnail_png）收口到 orchestrator 层，让后续 `refactor-passthrough-into-graph-exporter` 可以只动 orchestrator 内部、不再动 `src/api/`。
 
 **Decision.** 新增 `src/orchestrator/`：

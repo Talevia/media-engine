@@ -1,6 +1,6 @@
 ## 2026-04-22 — 五模块执行架构（graph / task / scheduler / resource / orchestrator）
 
-Commit: `<pending>` — 本次 commit 只落文档 + 目录骨架，代码由后续 backlog 陆续实装。
+本 commit 只落文档 + 目录骨架，代码由后续 backlog 陆续实装。
 
 **Context.** 当前 M1 骨架里 `me_render_start` 直连 `remux_passthrough` 单线程跑 passthrough——撑不到 M2+（多轨合成、GPU effect、frame server、增量缓存、同一 Timeline 按时间分段对应不同 Graph）。用户希望把架构一次性钉死，后续 milestone 只在框架里填肉。设计过程在对话里经历多轮收敛（起初是 Graph as Node / Composite → 发现硬伤 → 最终落地"Node/Graph 纯数据 + Kernel 独立注册 + Task 运行时短命"三分离），完整记录见 plan 文件 `~/.claude/plans/propose-velvety-token.md`。
 

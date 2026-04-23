@@ -14,7 +14,7 @@ Operational rules for working in this repo. For *why*, read `docs/VISION.md`. Th
 8. This file
 9. Code
 
-For autonomous "find gap → fill gap" loops, use `.claude/skills/iterate-gap/SKILL.md` — reads BACKLOG, works one gap, commits decision + code pair, pushes.
+For autonomous "find gap → fill gap" loops, use `.claude/skills/iterate-gap/SKILL.md` — reads BACKLOG, works one gap, commits code + decision + bullet-removal in a single commit, pushes.
 
 ## Build & run
 
@@ -85,15 +85,17 @@ Touching any of these → expect to wire it up rather than work around it.
 
 Follow `git log --oneline` to match style. Current prefixes:
 
-- `feat(phase-1):` / `feat(render):` — user-visible capability
-- `docs:` / `docs(decisions):` — documentation
+- `feat(<area>):` — user-visible capability (iterate-gap uses this for every backlog task, including the embedded decision file + bullet removal)
+- `docs:` — standalone documentation (VISION, ARCHITECTURE, etc.)
+- `docs(backlog):` — standalone backlog repopulate (iterate-gap §R)
 - `fix:` / `refactor:` / `chore:` — as usual
 
-iterate-gap produces a pair:
-1. `feat(<area>): <description>`
-2. `docs(decisions): record choices for <slug> (<feat-shorthash>)`
+iterate-gap produces **one** commit per cycle: `feat(<area>): <description>` containing all of:
+  1. The code / test changes
+  2. A new file at `docs/decisions/<yyyy-mm-dd>-<slug>.md` (never append to or edit existing decision files; do NOT reference the commit hash inside the doc — `git log` suffices)
+  3. The corresponding bullet removed from `docs/BACKLOG.md`
 
-`docs(decisions)` commit creates `docs/decisions/<yyyy-mm-dd>-<slug>.md` **new file** AND removes the corresponding bullet from `docs/BACKLOG.md` in the same commit.
+Backlog repopulate is the exception: a standalone `docs(backlog): …` commit that only touches `docs/BACKLOG.md`.
 
 ## License compliance reminder
 

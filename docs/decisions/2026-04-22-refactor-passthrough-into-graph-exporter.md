@@ -1,7 +1,5 @@
 ## 2026-04-22 — refactor-passthrough-into-graph-exporter（Milestone §M1 · Rubric §5.1 + §5.3）
 
-Commit: `<this>`
-
 **Context.** orchestrator-bootstrap 把 C API 接到了 Exporter，但 Exporter::export_to 里仍是"启动 worker → 调 io::remux_passthrough 一把梭"——并没有真走新的 graph/task/scheduler 框架。这次把 passthrough 路径彻底搬到框架里：demux 逻辑注册为 `io::demux` kernel，mux 逻辑归 Exporter 自持的 passthrough_mux helper。产出是"第一个真实通过 scheduler.evaluate_port 跑的 kernel"+"Graph 框架的端到端验证"。
 
 **Decision.**

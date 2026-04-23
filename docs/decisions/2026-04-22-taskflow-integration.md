@@ -1,7 +1,5 @@
 ## 2026-04-22 — taskflow-integration（Milestone §M1 · Rubric §5.5 + §5.6）
 
-Commit: `<this>`
-
 **Context.** `docs/ARCHITECTURE_GRAPH.md` 里 scheduler 的 CPU pool 定为用 Taskflow 的 work-stealing executor。架构 commit 落地时已把 Taskflow 加进 `ARCHITECTURE.md` 的依赖白名单，但 CMake 里没实际 FetchContent；第一个真正用 Taskflow 的 `graph-task-bootstrap` 之前，需要先把 CMake 管道 + link 图打通，避免届时 CMake 问题和代码问题混在一起 debug。
 
 **Decision.** `src/CMakeLists.txt` 加 `FetchContent_Declare(taskflow GIT_TAG v3.7.0 SHALLOW)`，禁用其 `TF_BUILD_TESTS / EXAMPLES / BENCHMARKS / CUDA / SYCL / HIP / PROFILER`（只要 header，不要它构建自己的示例工程）。`target_link_libraries(media_engine PRIVATE Taskflow::Taskflow)`。新增 `src/scheduler/taskflow_probe.cpp` 作为 placeholder——跑一个 3-节点 diamond DAG 验证 `tf::Executor` 可运行，加载期触发一次，任何 ABI/version 不匹配会在 `me_engine_create` 之前暴露。该文件将被 `graph-task-bootstrap` 产出的 `scheduler.cpp` 替换。

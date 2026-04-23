@@ -1,7 +1,5 @@
 ## 2026-04-22 — graph-task-bootstrap（Milestone §M1 · Rubric §5.1 + §5.2）
 
-Commit: `<this>`
-
 **Context.** 上一个 commit（`taskflow-integration`）把 Taskflow 的 FetchContent 和链接管道打通；`src/graph/` / `src/task/` / `src/scheduler/` / `src/resource/` 还只有 README，五模块约定的基础类型都没落地。这次把它们实装到"单 Node 的 Graph 能被 scheduler.evaluate_port 求值跑出 kernel 并产出 output"，让后续所有 backlog 可以在类型层对齐到 `docs/ARCHITECTURE_GRAPH.md`。
 
 **Decision.** 按 ARCHITECTURE_GRAPH.md 落地核心类型 + 最小执行环路：

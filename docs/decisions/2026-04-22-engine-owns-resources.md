@@ -1,7 +1,5 @@
 ## 2026-04-22 — engine-owns-resources（Milestone §M1 · Rubric §5.2）
 
-Commit: `<this>`
-
 **Context.** graph-task-bootstrap 留了 `resource::FramePool` / `resource::CodecPool` / `sched::Scheduler` 三个长生命周期对象没人管——02_graph_smoke 里用 stack 局部对象 workaround。接下来的 orchestrator-bootstrap 要在 engine 外部随用随取，所以先让 `me_engine` 持有它们，消除"谁创建谁销毁"的模糊地带。
 
 **Decision.** `src/core/engine_impl.hpp` 加三个 `unique_ptr` 字段（frames / codecs / scheduler），声明顺序 = 构造顺序；`me_engine_create` 按顺序 `make_unique` 它们，`me_engine_destroy` 让 unique_ptr 反序析构，scheduler 先走确保 tf::Executor 等所有任务结束再释放 pool。配置来源——`cpu_threads = config.num_worker_threads`、`FramePool` 预算 = `config.memory_cache_bytes`。任一初始化抛异常则 catch-all set_error + delete e + 返 `ME_E_INTERNAL`。
