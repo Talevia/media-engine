@@ -43,6 +43,7 @@ set(_test_suites
   test_output_spec
   test_compose_alpha_over
   test_compose_active_clips
+  test_compose_frame_convert
 )
 
 foreach(_suite ${_test_suites})
@@ -77,6 +78,14 @@ target_include_directories(test_compose_alpha_over PRIVATE ${CMAKE_SOURCE_DIR}/s
 # for `timeline/timeline_impl.hpp` (same pattern as
 # test_timeline_segment / test_timeline_schema).
 target_include_directories(test_compose_active_clips PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_frame_convert needs libav headers (AVFrame construction
+# for synthetic YUV test data). FFMPEG imports already available via
+# media_engine PRIVATE deps, but the test sees only the public
+# media_engine symbols; re-link avutil + avcodec here explicitly.
+target_include_directories(test_compose_frame_convert PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_compose_frame_convert PRIVATE
+  FFMPEG::avutil FFMPEG::avcodec FFMPEG::swscale)
 
 # test_color_pipeline instantiates me::color::make_pipeline() from the
 # internal `src/color/pipeline.hpp`; uses `me::ColorSpace` from
