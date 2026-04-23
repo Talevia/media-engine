@@ -94,6 +94,46 @@ TEST_CASE("phase-1 rejects non-contiguous clips (gap/overlap)") {
     CHECK(tl == nullptr);
 }
 
+TEST_CASE("phase-1 rejects multi-track timeline as ME_E_UNSUPPORTED") {
+    /* Loader's single-track enforcement is the tripwire that keeps the
+     * Exporter / OutputSink path from silently dropping every track
+     * after the first. TimelineBuilder is single-track by design, so
+     * this negative case builds the JSON inline — cheaper than
+     * extending the builder for a gap that gets lifted once
+     * `multi-track-video-compose` lands. */
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [
+        {"id":"a1","kind":"video","uri":"file:///tmp/input.mp4"}
+      ],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]},
+        {"id":"v1","kind":"video","clips":[
+          {"type":"video","id":"c2","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_UNSUPPORTED);
+    CHECK(tl == nullptr);
+
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("exactly one track") != std::string::npos);
+}
+
 TEST_CASE("phase-1 rejects clip.effects") {
     EngineFixture f;
     const std::string j = tb::minimal_video_clip()
