@@ -15,7 +15,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **debt-timeline-loader-engine-seed-pattern** — `me_timeline_load_json`（`src/api/timeline.cpp`）在 loader 返回后循环灌 `engine->asset_hashes`。loader 自己 engine-agnostic（`me::timeline::load_json` 只吃 JSON），结果 extern "C" 入口同时扮演"薄胶水"和"业务副作用触发点"两份角色；pattern 不扩展。**方向：** 等 M2 第二种 seed 资源（color pipeline / effect LUT 预热）出现再定两条路：(a) `me::timeline::load_json` 吃 `Engine*`，牺牲 engine-agnostic；(b) Timeline 暴露 `apply_to_engine(Engine&)` hook，保持 loader 纯净。Milestone §M2-debt，Rubric §5.2。
 - **debt-test-cache-invalidate-coverage** — `tests/test_cache.cpp` 断言 `me_cache_stats` 随 asset 插入递增，但没断言 `me_cache_invalidate_asset` 的反向语义（invalidate → stats 回退）。invalidate 现在是 impl 完了的（`a4a1c1c`），应该覆盖。**方向：** test_cache.cpp 加一个 case：load timeline → stats.entry_count ≥ 1 → `me_cache_invalidate_asset(eng, asset_id)` → stats.entry_count 减少 1。Milestone §M1-debt，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）

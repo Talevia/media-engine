@@ -1,5 +1,6 @@
 #include "media_engine/timeline.h"
 #include "core/engine_impl.hpp"
+#include "core/engine_seed.hpp"
 #include "timeline/timeline_impl.hpp"
 #include "timeline/timeline_loader.hpp"
 
@@ -17,17 +18,12 @@ extern "C" me_status_t me_timeline_load_json(
         me::detail::set_error(engine, std::move(err));
         return s;
     }
-    /* Seed the engine's asset-hash cache from the Timeline's Asset table.
-     * Iterating Timeline::assets (unordered_map) is safe here — seed() is
-     * idempotent per URI, so iteration order can't affect observable state.
-     * Assets that omit contentHash leave the cache cold for that URI;
-     * AssetHashCache::get_or_compute will stream-hash on first demand. */
-    if (*out && engine->asset_hashes) {
-        for (const auto& [id, asset] : (*out)->tl.assets) {
-            if (!asset.content_hash.empty()) {
-                engine->asset_hashes->seed(asset.uri, asset.content_hash);
-            }
-        }
+    /* Every per-engine side effect of a successful Timeline load lives
+     * behind this single call (asset-hash seed today; M2 color pipeline
+     * / M3 effect-LUT preheat tomorrow). Keeping the extern C entry a
+     * glue one-liner is the point — see `src/core/engine_seed.hpp`. */
+    if (*out) {
+        me::detail::seed_engine_from_timeline(*engine, (*out)->tl);
     }
     return ME_OK;
 }

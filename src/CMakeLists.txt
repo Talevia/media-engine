@@ -106,6 +106,7 @@ configure_file(
 
 add_library(media_engine
   core/version.cpp
+  core/engine_seed.cpp
   timeline/timeline_loader.cpp
   timeline/segmentation.cpp
   io/demux_context.cpp
