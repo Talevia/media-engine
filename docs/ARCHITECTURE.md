@@ -15,20 +15,26 @@ include/media_engine/           Public C API — ABI-stable surface
   thumbnail.h                   Single-frame PNG
   cache.h                       Cache observability + invalidation
 
-src/                            Internal C++17/20 implementation (private)
-  core/                         Shared types, engine impl struct, version
+src/                            Internal C++20 implementation (private)
+  core/                         engine_impl struct + version/status_str
   api/                          Thin C→C++ adapters (one .cpp per public header)
-  timeline/                     JSON loader + internal IR + segmentation (see docs/ARCHITECTURE_GRAPH.md)
-  io/                           FFmpeg wrappers (current: remux; refactoring into io::demux kernel)
-  graph/                        (scaffolded) Node / Graph / Builder / compiler — 见 ARCHITECTURE_GRAPH.md
-  task/                         (scaffolded) Kernel registry + TaskContext + schema
-  scheduler/                    (scaffolded) Task runtime + heterogeneous pools + evaluate_port
-  resource/                     (scaffolded) FramePool / CodecPool / GpuCtx / Budget
-  orchestrator/                 (scaffolded) Previewer / Exporter / Thumbnailer — 持 Timeline，按段驱动
+  timeline/                     JSON loader + internal IR (Timeline, Clip) + segmentation
+  io/                           FFmpeg wrappers — io::demux kernel + DemuxContext
+  graph/                        Node / Graph / Builder — immutable, content-hashed pure data
+  task/                         Kernel registry + TaskContext + TaskKindId + param schema
+  scheduler/                    Task runtime — EvalInstance + Scheduler + heterogeneous pools
+  resource/                     FramePool / CodecPool (bootstrap) + AssetHashCache + content_hash
+  orchestrator/                 Previewer (M6 stub) / Exporter (passthrough+h264 re-encode) /
+                                Thumbnailer (composition path; C API asset path lives in api/)
 
-docs/                           Design docs — VISION, this file, API.md, etc.
-cmake/                          Build helpers
-examples/                       End-to-end samples (added in Phase 1 demo commit)
+docs/                           Design docs — VISION, this file, API.md, TIMELINE_SCHEMA.md,
+                                ARCHITECTURE_GRAPH.md, decisions/, PAIN_POINTS.md
+cmake/                          Build helpers — FindFFMPEG.cmake
+examples/                       End-to-end smoke samples (01_passthrough, 04_probe,
+                                05_reencode, 06_thumbnail, 02_graph_smoke, 03_timeline_segments)
+tests/                          doctest suites — status, engine, timeline schema, content hash,
+                                determinism
+tools/                          Repo health scripts — scan-debt.sh, check_stubs.sh
 ```
 
 Rule: **nothing in `src/` is exported**. Only `include/` is part of the ABI. Internal headers (`.hpp`) live in `src/` and are never installed.
@@ -96,27 +102,56 @@ New dependencies must be added to this table in the same PR that introduces them
 
 ## Current implementation state
 
-Organized by the five execution modules defined in `docs/ARCHITECTURE_GRAPH.md`. "Scaffolded" = directory + README exist, no code; backlog bullet tracks impl.
+Organized by the five execution modules defined in `docs/ARCHITECTURE_GRAPH.md`, plus the C
+API surface and the feature paths that cut across modules. "Shipped" = wired end-to-end and
+under regression; "Partial" = works for phase-1 scope with a narrower input set; "Stub" =
+explicit `STUB:` marker in source (see `tools/check_stubs.sh`).
 
-| Module | Status | Notes |
+### Modules
+
+| Module | Status | What's in it |
 |---|---|---|
-| Public C API headers | **Shipped** | 7 sub-headers, ABI stable; no changes planned for this architecture phase |
-| Engine create/destroy, `me_version`, `me_status_str` | **Shipped** | |
-| `timeline/` | **Partial** | JSON loader shipped (single-clip subset); `segmentation` pending (backlog `timeline-segmentation`) |
-| `graph/` | **Scaffolded** | See `src/graph/README.md`; impl by backlog `graph-task-bootstrap` |
-| `task/` | **Scaffolded** | Kernel registry + TaskContext + schema; impl by `graph-task-bootstrap` |
-| `scheduler/` | **Scaffolded** | Evaluate_port entry + EvalInstance + heterogeneous pools; impl by `graph-task-bootstrap` + `taskflow-integration` |
-| `resource/` | **Scaffolded** | FramePool / CodecPool / GpuCtx / Budget; impl by `engine-owns-resources` |
-| `orchestrator/` | **Scaffolded** | Previewer / Exporter / Thumbnailer; impl by `orchestrator-bootstrap` |
-| `me_probe` / `me_thumbnail_png` | Stub → `ME_E_UNSUPPORTED` | Backlog: `probe-impl`, `thumbnail-impl` |
-| `me_render_start` (passthrough) | **Shipped** | Current single-thread direct FFmpeg remux; migrating to `io::demux` kernel + Exporter specialization via `refactor-passthrough-into-graph-exporter` |
-| `me_render_start` (re-encode) | Not yet | Backlog: `reencode-h264-videotoolbox` (first LGPL-clean encode path) |
-| `me_render_frame` (frame server) | Stub → `ME_E_UNSUPPORTED` | Arrives with M6; needs Previewer + cache layer |
-| Cache | Partially shipped | Stats returns zeroed-but-valid struct; real cache arrives with M6 |
+| `src/core/` | **Shipped** | `struct me_engine` (FramePool / CodecPool / AssetHashCache / Scheduler owners), `me_version`, `me_status_str`, thread-local last-error plumbing. |
+| `src/api/` | **Shipped** | extern "C" adapters for every public header; exception / STL boundary discipline enforced. |
+| `src/timeline/` | **Shipped (phase-1 scope)** | JSON loader accepts single-track with N contiguous clips; non-zero sourceRange allowed; `contentHash` propagated. Segmentation scaffolding in place for future multi-segment graph compilation. |
+| `src/io/` | **Shipped** | `io::demux` kernel + `io::DemuxContext` RAII wrapper. All exporter paths read through this. |
+| `src/graph/` | **Shipped** | `Node` / `Graph` / `Graph::Builder` — immutable pure-data model with recursive `content_hash`. Consumed by orchestrator per-clip. |
+| `src/task/` | **Shipped** | `TaskKindId` registry, `TaskContext` (resource injection at dispatch), `KindInfo` with typed input/output/param schema. `IoDemux` is the first registered kernel. |
+| `src/scheduler/` | **Shipped** | Taskflow-backed CPU scheduler, `evaluate_port<T>` entry, `EvalInstance`, heterogeneous pool routing by `Affinity`. |
+| `src/resource/` | **Shipped (bootstrap)** | `FramePool` memory budget, `CodecPool` (stub body; actual codec caching lands with M4), `AssetHashCache` (URI → sha256 via libavutil), `content_hash` helper. |
+| `src/orchestrator/` | **Shipped (phase-1 scope)** | `Exporter` with passthrough concat (multi-clip) + h264/AAC re-encode (single-clip). `Previewer::frame_at` is a tracked stub (`frame-server-impl`). `Thumbnailer::png_at` is a tracked stub (`composition-thumbnail-impl`); the asset-level `me_thumbnail_png` in `src/api/` is fully implemented and bypasses it by design. |
 
-## Testing philosophy (aspirational; no tests yet)
+### Feature paths (cross-cutting)
 
-- **C API smoke tests** for every public function — runs under a C-only compiler (not just C++) to catch `extern "C"` regressions.
-- **Determinism tests**: render the same timeline twice, diff bytes. Any non-determinism is a bug to isolate and document.
+| Path | Status | Notes |
+|---|---|---|
+| Public C API headers (7) | **Shipped** | ABI stable; no ABI-breaking change landed since M1 started. |
+| `me_probe` | **Shipped** | libavformat-backed; fills container / duration / stream metadata. |
+| `me_thumbnail_png` (asset-level) | **Shipped** | seek → decode → sws_scale RGB24 → libavcodec PNG. |
+| `me_render_start` passthrough | **Shipped** | Multi-clip single-track concat with DTS-continuity stitching; graph-driven demux per clip. |
+| `me_render_start` re-encode | **Shipped (single-clip, Mac)** | video=h264 via `h264_videotoolbox`, audio=aac (libavcodec built-in). Multi-clip path is a tracked backlog item (`reencode-multi-clip`). |
+| `me_render_frame` (frame server) | Stub → `frame-server-impl` | Arrives with M6; needs Previewer + frame cache. |
+| `me_cache_stats` / `me_cache_clear` / `me_cache_invalidate_asset` | Stubs → `cache-stats-impl` / `cache-clear-impl` / `cache-invalidate-impl` | Stats stub returns a valid zeroed struct; invalidation is a no-op. Real cache + observability land with M6 frame server. |
+| Determinism regression (passthrough) | **Shipped** | `test_determinism` renders the same timeline twice and byte-compares. |
+
+Run `bash tools/check_stubs.sh` for the machine-readable current stub inventory.
+
+## Testing
+
+doctest suites live under `tests/` and are gated by `-DME_BUILD_TESTS=ON`. Five suites today
+(all binding-compatible with CTest), one binary per suite so a crash doesn't take the rest
+down with it:
+
+| Suite | What it covers |
+|---|---|
+| `test_status` | Every `ME_*` enum value → `me_status_str` returns a distinct, non-empty string; `me_version` well-formed. |
+| `test_engine` | `me_engine_create`/`destroy` null-safety, config propagation, thread-local per-engine `last_error` isolation across threads. |
+| `test_timeline_schema` | Valid single-clip + multi-clip contiguous timelines load; negative paths (schemaVersion mismatch, malformed JSON, non-contiguous clips, effects) return the right status + populate last_error. |
+| `test_content_hash` | NIST SHA-256 vectors for in-memory + streaming-from-file; `file://` URI handling; `AssetHashCache::get_or_compute` memoization and `seed` bypass. |
+| `test_determinism` | Renders the same JSON timeline twice through `me_render_start` passthrough and asserts byte-identical output. Fixture generated at build time via `ffmpeg` CLI. |
+
+Principles still pending ("aspirational") beyond the current suites:
+
 - **ABI golden files**: dump exported symbols, diff against a committed `.abi` file. Intentional ABI changes require updating the golden + a CHANGELOG entry.
-- **Per-platform CI**: macOS (primary), Linux, Windows. iOS / Android cross-compile jobs added when their build recipes exist.
+- **C-only compile of public headers**: today validated ad-hoc via `clang -xc -std=c11 -fsyntax-only -Iinclude`; not in CI yet.
+- **Per-platform CI**: macOS (primary dev), Linux, Windows. iOS / Android cross-compile jobs added when their build recipes exist.

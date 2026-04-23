@@ -14,7 +14,6 @@
 
 ## P1（强烈建议，M1 收尾或 M2 起步）
 
-- **debt-update-architecture-md** — `docs/ARCHITECTURE.md` 已加了五模块条目但信息密度偏低。**方向：** 把 "Current implementation state" 表按 graph / task / scheduler / resource / orchestrator 五模块归位重排（目前是"按 C API 函数"组织）；把 Module layout 的五个新目录的 "scaffolded" 状态更到 impl landing 进度。Milestone §M1，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 
