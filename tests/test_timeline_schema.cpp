@@ -265,10 +265,11 @@ TEST_CASE("multi-track timeline loads into IR with track_id stamped on each clip
     me_timeline_destroy(tl);
 }
 
-TEST_CASE("multi-track timeline is rejected at the render layer by Exporter") {
-    /* Loader accepts multi-track (see above test); me_render_start is
-     * where the "compose kernel not yet implemented" gate lives until
-     * multi-track-compose-kernel lands. */
+TEST_CASE("multi-track + passthrough codec is rejected synchronously by compose factory") {
+    /* Compose path requires re-encode (can't stream-copy composite two
+     * video streams into one). The make_compose_sink factory rejects
+     * passthrough codec combinations synchronously, surfacing through
+     * me_render_start. */
     EngineFixture f;
     const std::string j = R"({
       "schemaVersion": 1,
@@ -307,7 +308,60 @@ TEST_CASE("multi-track timeline is rejected at the render layer by Exporter") {
     CHECK(job == nullptr);
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("multi-track compose not yet implemented") != std::string::npos);
+    CHECK(std::string{err}.find("multi-track compose currently requires") != std::string::npos);
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("multi-track + h264/aac codec is rejected asynchronously by ComposeSink stub") {
+    /* With h264/aac the compose factory constructs a ComposeSink whose
+     * per-frame loop is still a stub (multi-track-compose-frame-loop
+     * backlog item). me_render_start returns ME_OK; the UNSUPPORTED
+     * surfaces through me_render_wait from the worker thread. This
+     * pins the async behavior once per-frame compose lands, so a
+     * regression that keeps returning UNSUPPORTED after the frame loop
+     * is implemented trips this assertion. */
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [
+        {"id":"a1","kind":"video","uri":"file:///tmp/input.mp4"}
+      ],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]},
+        {"id":"v1","kind":"video","clips":[
+          {"type":"video","id":"c2","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}},
+           "sourceRange":{"start":{"num":0,"den":30},"duration":{"num":60,"den":30}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+
+    me_output_spec_t spec{};
+    spec.path        = "/tmp/me-multi-track-h264-reject.mp4";
+    spec.container   = "mp4";
+    spec.video_codec = "h264";
+    spec.audio_codec = "aac";
+
+    me_render_job_t* job = nullptr;
+    REQUIRE(me_render_start(f.eng, tl, &spec, nullptr, nullptr, &job) == ME_OK);
+    REQUIRE(job != nullptr);
+    const me_status_t wait_s = me_render_wait(job);
+    CHECK(wait_s == ME_E_UNSUPPORTED);
+    const char* err = me_engine_last_error(f.eng);
+    REQUIRE(err != nullptr);
+    CHECK(std::string{err}.find("per-frame compose loop not yet implemented") != std::string::npos);
+    me_render_job_destroy(job);
     me_timeline_destroy(tl);
 }
 

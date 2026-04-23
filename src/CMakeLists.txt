@@ -143,6 +143,7 @@ add_library(media_engine STATIC
   orchestrator/reencode_segment.cpp
   orchestrator/reencode_pipeline.cpp
   orchestrator/output_sink.cpp
+  orchestrator/compose_sink.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
   orchestrator/composition_thumbnailer.cpp

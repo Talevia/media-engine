@@ -6,6 +6,7 @@
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
 #include "io/demux_context.hpp"
+#include "orchestrator/compose_sink.hpp"
 #include "orchestrator/output_sink.hpp"
 #include "scheduler/scheduler.hpp"
 #include "task/task_kind.hpp"
@@ -72,19 +73,15 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
             return ME_E_UNSUPPORTED;
         }
     }
-    /* Phase-1 sequential (passthrough / reencode) render path only
-     * handles a single track — multi-track composition is the job of
-     * the compose kernel (tracked by the multi-track-compose-kernel
-     * backlog item). Until it lands, reject multi-track timelines
-     * here rather than silently concatenating clips from different
-     * tracks (which would produce wrong output). The loader itself
-     * accepts multi-track JSON so IR consumers (segmentation, future
-     * compose) can exercise the full structure. */
-    if (tl_->tracks.size() > 1) {
-        if (err) *err = "multi-track compose not yet implemented — "
-                        "see multi-track-compose-kernel backlog item";
-        return ME_E_UNSUPPORTED;
-    }
+    /* Multi-track timelines route through ComposeSink (see
+     * `make_compose_sink` in `compose_sink.hpp`). The sink's process()
+     * currently stubs UNSUPPORTED pending the per-frame compose loop
+     * (multi-track-compose-frame-loop backlog item); that stub lands
+     * on the worker thread, i.e. me_render_wait surfaces it
+     * asynchronously rather than me_render_start. This shifts the
+     * rejection to its eventual home — once the frame loop replaces
+     * the stub, the exact same call site renders successfully. */
+    const bool is_multi_track = tl_->tracks.size() > 1;
     /* Transitions (cross-dissolve, etc.) require per-boundary alpha
      * compositing across two clips' overlapping region. The phase-1
      * concat path just stitches clips end-to-end, so a timeline
@@ -153,9 +150,13 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     ranges.reserve(plans.size());
     for (const auto& p : plans) ranges.push_back(p.range);
 
-    std::unique_ptr<OutputSink> sink = make_output_sink(
-        spec, std::move(common), std::move(ranges),
-        engine_ ? engine_->codecs.get() : nullptr, err);
+    me::resource::CodecPool* const codec_pool =
+        engine_ ? engine_->codecs.get() : nullptr;
+    std::unique_ptr<OutputSink> sink = is_multi_track
+        ? make_compose_sink(*tl_, spec, std::move(common), std::move(ranges),
+                             codec_pool, err)
+        : make_output_sink(spec, std::move(common), std::move(ranges),
+                            codec_pool, err);
     if (!sink) return ME_E_UNSUPPORTED;
 
     me_engine* eng = engine_;
