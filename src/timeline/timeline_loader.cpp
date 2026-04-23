@@ -73,6 +73,73 @@ me::ColorSpace::Range to_range(const std::string& s) {
     throw LoadError{ME_E_PARSE, "colorSpace.range: unknown '" + s + "'"};
 }
 
+/* Parse a `{"static": <number>}` animated-property wrapper into a plain
+ * double. Phase-1 deliberately rejects the `{"keyframes": [...]}` form
+ * with ME_E_UNSUPPORTED so that the IR Transform struct can stay as
+ * plain doubles until M3 brings animated parameters. Empty object or
+ * absent key handled by caller (this helper only runs when the caller
+ * already knows the field is present). */
+double parse_animated_static_number(const json& prop, const std::string& where) {
+    require(prop.is_object(), ME_E_PARSE,
+            where + ": expected object with {\"static\": <number>}");
+    if (prop.contains("keyframes")) {
+        throw LoadError{ME_E_UNSUPPORTED,
+            where + ": phase-1: animated (keyframes) form not supported yet "
+                    "(see transform-animated-support backlog item)"};
+    }
+    require(prop.contains("static"), ME_E_PARSE,
+            where + ": missing \"static\" key (only static form supported in phase-1)");
+    const auto& sv = prop["static"];
+    require(sv.is_number(), ME_E_PARSE,
+            where + ".static: expected number");
+    return sv.get<double>();
+}
+
+me::Transform parse_transform(const json& j, const std::string& where) {
+    require(j.is_object(), ME_E_PARSE, where + ": expected object");
+
+    /* Keys accepted by the schema (TIMELINE_SCHEMA.md §Transform). Any
+     * other key is a parse error — strict rejection keeps schema
+     * additions explicit and future-compatible rather than silently
+     * dropping unknown fields. */
+    static constexpr std::string_view known[] = {
+        "translateX", "translateY",
+        "scaleX", "scaleY",
+        "rotationDeg", "opacity",
+        "anchorX", "anchorY",
+    };
+    for (auto it = j.begin(); it != j.end(); ++it) {
+        bool ok = false;
+        for (auto k : known) { if (it.key() == k) { ok = true; break; } }
+        require(ok, ME_E_PARSE,
+                where + ": unknown transform key '" + it.key() + "'");
+    }
+
+    me::Transform t;  /* identity defaults per struct definition */
+    auto read = [&](const char* key, double& target) {
+        if (j.contains(key)) {
+            target = parse_animated_static_number(j[key], where + "." + key);
+        }
+    };
+    read("translateX",  t.translate_x);
+    read("translateY",  t.translate_y);
+    read("scaleX",      t.scale_x);
+    read("scaleY",      t.scale_y);
+    read("rotationDeg", t.rotation_deg);
+    read("opacity",     t.opacity);
+    read("anchorX",     t.anchor_x);
+    read("anchorY",     t.anchor_y);
+
+    /* Opacity is the only field with an intrinsic range constraint —
+     * out-of-range values would produce undefined alpha blending. Other
+     * fields (scale/rotation/translate) accept any finite double including
+     * negatives (mirror, counter-rotate). */
+    require(t.opacity >= 0.0 && t.opacity <= 1.0, ME_E_PARSE,
+            where + ".opacity: must be in [0, 1]");
+
+    return t;
+}
+
 me::ColorSpace parse_color_space(const json& j, const std::string& where) {
     require(j.is_object(), ME_E_PARSE, where + ".colorSpace: expected object");
     me::ColorSpace cs;
@@ -190,8 +257,6 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                     ME_E_UNSUPPORTED, where + ": phase-1 only video clips");
             require(!clip.contains("effects") || clip["effects"].empty(),
                     ME_E_UNSUPPORTED, where + ": phase-1: clip.effects not supported");
-            require(!clip.contains("transform"),
-                    ME_E_UNSUPPORTED, where + ": phase-1: clip.transform not supported");
 
             const std::string asset_id = clip.at("assetId").get<std::string>();
             require(tl.assets.find(asset_id) != tl.assets.end(), ME_E_PARSE,
@@ -218,6 +283,9 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
             c.time_start     = t_start;
             c.time_duration  = t_dur;
             c.source_start   = s_start;
+            if (clip.contains("transform")) {
+                c.transform = parse_transform(clip["transform"], where + ".transform");
+            }
             tl.clips.push_back(std::move(c));
 
             /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d).

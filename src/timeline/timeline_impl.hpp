@@ -64,6 +64,31 @@ struct Asset {
     std::optional<ColorSpace> color_space;
 };
 
+/* 2D transform applied when the clip composites onto the output canvas.
+ * Phase-1 is static only: every field is a plain double, populated from
+ * the `{"static": <number>}` form in JSON. The animated
+ * (`{"keyframes": [...]}`) form is deliberately rejected by the loader
+ * with ME_E_UNSUPPORTED so that this struct stays a stable shape while
+ * animated-parameter support lands with M3. Defaults are identity so
+ * `Transform{}` is a valid "no-op" state for code paths that read the
+ * transform unconditionally.
+ *
+ * Stored as std::optional<Transform> on Clip: nullopt = "the JSON clip
+ * has no `transform` key at all" (different from Transform{} which means
+ * "transform key present but all fields defaulted to identity"). This
+ * distinction lets downstream code optionally fast-path clips that truly
+ * omit transforms. */
+struct Transform {
+    double translate_x  = 0.0;
+    double translate_y  = 0.0;
+    double scale_x      = 1.0;
+    double scale_y      = 1.0;
+    double rotation_deg = 0.0;
+    double opacity      = 1.0;
+    double anchor_x     = 0.5;
+    double anchor_y     = 0.5;
+};
+
 struct Clip {
     /* Reference into Timeline::assets. Guaranteed non-empty after load;
      * loader rejects clips with unknown asset_id. */
@@ -72,6 +97,12 @@ struct Clip {
     me_rational_t time_start   { 0, 1 };
     me_rational_t time_duration{ 0, 1 };
     me_rational_t source_start { 0, 1 };
+
+    /* Optional 2D transform. Populated iff JSON clip carries a
+     * `transform` object (empty object = Transform{} with identity
+     * defaults; absent = nullopt). Phase-1 is static-only; the loader
+     * rejects the `keyframes` animated form. */
+    std::optional<Transform> transform;
 };
 
 struct Timeline {
