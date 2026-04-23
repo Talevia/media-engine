@@ -18,10 +18,13 @@ include/media_engine/           Public C API — ABI-stable surface
 src/                            Internal C++17/20 implementation (private)
   core/                         Shared types, engine impl struct, version
   api/                          Thin C→C++ adapters (one .cpp per public header)
-  timeline/                     (future) JSON loader + internal IR
-  io/                           (future) FFmpeg wrappers
-  render/                       (future) Effect graph, GPU backend, EffectChain
-  audio/                        (future) Mixer, resampler, effects
+  timeline/                     JSON loader + internal IR + segmentation (see docs/ARCHITECTURE_GRAPH.md)
+  io/                           FFmpeg wrappers (current: remux; refactoring into io::demux kernel)
+  graph/                        (scaffolded) Node / Graph / Builder / compiler — 见 ARCHITECTURE_GRAPH.md
+  task/                         (scaffolded) Kernel registry + TaskContext + schema
+  scheduler/                    (scaffolded) Task runtime + heterogeneous pools + evaluate_port
+  resource/                     (scaffolded) FramePool / CodecPool / GpuCtx / Budget
+  orchestrator/                 (scaffolded) Previewer / Exporter / Thumbnailer — 持 Timeline，按段驱动
 
 docs/                           Design docs — VISION, this file, API.md, etc.
 cmake/                          Build helpers
@@ -81,6 +84,7 @@ VISION §3.4 locks the supply chain at LGPL-clean. Enforcement happens here:
 | spdlog   | MIT    | any time logging is wired |
 | nlohmann::json | MIT | Phase 1 (JSON) |
 | doctest  | MIT    | when tests are enabled |
+| Taskflow | MIT    | CPU work-stealing task DAG (scheduler 核心) |
 
 **Rejected / never-add list**:
 - Any GPL / AGPL library in the direct link graph
@@ -92,16 +96,23 @@ New dependencies must be added to this table in the same PR that introduces them
 
 ## Current implementation state
 
-| Area | Status | Notes |
+Organized by the five execution modules defined in `docs/ARCHITECTURE_GRAPH.md`. "Scaffolded" = directory + README exist, no code; backlog bullet tracks impl.
+
+| Module | Status | Notes |
 |---|---|---|
-| Public C API headers | **Shipped** | Types, handles, status codes, 7 sub-headers |
-| Engine create/destroy | **Shipped** | Allocates an empty engine struct |
-| `me_version`, `me_status_str` | **Shipped** | |
-| Timeline JSON loader | Stub → `ME_E_UNSUPPORTED` | Arrives with schema v1 commit |
-| Probe / thumbnail | Stub → `ME_E_UNSUPPORTED` | Waits on FFmpeg wrappers |
-| Batch render | Stub → `ME_E_UNSUPPORTED` | Waits on FFmpeg + effect graph |
-| Frame server | Stub → `ME_E_UNSUPPORTED` | Waits on effect graph + GPU backend |
-| Cache | Partially shipped | Stats returns zeroed-but-valid struct; invalidation is a no-op |
+| Public C API headers | **Shipped** | 7 sub-headers, ABI stable; no changes planned for this architecture phase |
+| Engine create/destroy, `me_version`, `me_status_str` | **Shipped** | |
+| `timeline/` | **Partial** | JSON loader shipped (single-clip subset); `segmentation` pending (backlog `timeline-segmentation`) |
+| `graph/` | **Scaffolded** | See `src/graph/README.md`; impl by backlog `graph-task-bootstrap` |
+| `task/` | **Scaffolded** | Kernel registry + TaskContext + schema; impl by `graph-task-bootstrap` |
+| `scheduler/` | **Scaffolded** | Evaluate_port entry + EvalInstance + heterogeneous pools; impl by `graph-task-bootstrap` + `taskflow-integration` |
+| `resource/` | **Scaffolded** | FramePool / CodecPool / GpuCtx / Budget; impl by `engine-owns-resources` |
+| `orchestrator/` | **Scaffolded** | Previewer / Exporter / Thumbnailer; impl by `orchestrator-bootstrap` |
+| `me_probe` / `me_thumbnail_png` | Stub → `ME_E_UNSUPPORTED` | Backlog: `probe-impl`, `thumbnail-impl` |
+| `me_render_start` (passthrough) | **Shipped** | Current single-thread direct FFmpeg remux; migrating to `io::demux` kernel + Exporter specialization via `refactor-passthrough-into-graph-exporter` |
+| `me_render_start` (re-encode) | Not yet | Backlog: `reencode-h264-videotoolbox` (first LGPL-clean encode path) |
+| `me_render_frame` (frame server) | Stub → `ME_E_UNSUPPORTED` | Arrives with M6; needs Previewer + cache layer |
+| Cache | Partially shipped | Stats returns zeroed-but-valid struct; real cache arrives with M6 |
 
 ## Testing philosophy (aspirational; no tests yet)
 

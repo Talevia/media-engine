@@ -7,11 +7,12 @@ Operational rules for working in this repo. For *why*, read `docs/VISION.md`. Th
 1. `docs/VISION.md` — north star, non-negotiable
 2. `docs/MILESTONES.md` — current milestone, exit criteria
 3. `docs/ARCHITECTURE.md` — module layout, dependency policy, ABI principles
-4. `docs/API.md` — C API ownership / threading / error contract
-5. `docs/TIMELINE_SCHEMA.md` — JSON schema v1
-6. `docs/INTEGRATION.md` — host integration (JNI, cinterop, FFmpeg licensing at deploy)
-7. This file
-8. Code
+4. `docs/ARCHITECTURE_GRAPH.md` — runtime execution model (graph / task / scheduler / resource / orchestrator)
+5. `docs/API.md` — C API ownership / threading / error contract
+6. `docs/TIMELINE_SCHEMA.md` — JSON schema v1
+7. `docs/INTEGRATION.md` — host integration (JNI, cinterop, FFmpeg licensing at deploy)
+8. This file
+9. Code
 
 For autonomous "find gap → fill gap" loops, use `.claude/skills/iterate-gap/SKILL.md` — reads BACKLOG, works one gap, commits decision + code pair, pushes.
 
@@ -44,6 +45,12 @@ cmake --build build
 6. **Handles are opaque.** `me_engine_t`, `me_timeline_t`, etc. — never expose struct body to callers. Internal `me_engine` struct lives in `src/core/engine_impl.hpp`.
 7. **GPL stays out of the link graph.** New CMake `find_package` / `FetchContent` adds require a license line in `ARCHITECTURE.md` dependency table. See VISION §3.4.
 8. **Determinism matters.** Same inputs → same bytes (software path). If you add parallelism or SIMD, prove determinism is preserved or label the path explicitly non-deterministic.
+9. **Five-module roles stay unmixed** (see `docs/ARCHITECTURE_GRAPH.md`):
+    - `graph/` = pure data (Node/Graph; multi-input/multi-output ports; no function pointers, no vtable)
+    - `task/` = kernel registry + TaskContext + schema (kernels are free functions registered by TaskKindId, **never** attached to Node instances)
+    - `scheduler/` = Task runtime (Task is a short-lived scheduler-internal object; kernels do NOT capture resources, all injection via TaskContext)
+    - `resource/` = FramePool / CodecPool / GpuCtx / Budget (injected into TaskContext at dispatch)
+    - `orchestrator/` = Previewer / Exporter / Thumbnailer — hold Timeline, compile per-segment Graphs; they do NOT own Nodes, do NOT define kernels, and they are NOT editors (interactive editing is host-side)
 
 ## Anti-requirements — don't do these
 

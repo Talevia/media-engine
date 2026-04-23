@@ -25,6 +25,7 @@
 - [ ] `me_timeline_load_json` 支持单轨 N clip（concat / trim 组合），phase-1 的"必须单 clip"限制解除
 - [ ] 单元测试框架接入（doctest），至少 1 条通过的 passthrough 确定性回归
 - [ ] `me_cache_stats` 返回真实计数（hit/miss/entry_count 不全为 0，配合至少一层 asset 级缓存）
+- [ ] graph / task / scheduler / resource / orchestrator 五模块骨架就位（见 `docs/ARCHITECTURE_GRAPH.md`），timeline 按段切分，passthrough 已迁到 Timeline → Exporter 执行路径
 
 ## M2 — Multi-track CPU compose + color management
 
