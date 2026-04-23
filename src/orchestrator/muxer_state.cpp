@@ -97,7 +97,10 @@ me_status_t passthrough_mux(const PassthroughMuxOptions&  opts,
      * avio_closep + free_context regardless of which branch returns. */
     std::string open_err;
     auto mux = me::io::MuxContext::open(opts.out_path, opts.container, &open_err);
-    if (!mux) return fail(ME_E_INTERNAL, std::move(open_err));
+    /* Format-inference / unknown-container failure is a recoverable host-
+     * input issue, not an internal invariant break. Callers should read
+     * err_msg (routed via me_engine_last_error) for the libav reason. */
+    if (!mux) return fail(ME_E_UNSUPPORTED, std::move(open_err));
     AVFormatContext* ofmt = mux->fmt();
 
     /* stream_map[seg_idx][in_stream_idx] = out_stream_idx (-1 = dropped). */

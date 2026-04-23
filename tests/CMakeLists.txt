@@ -40,6 +40,7 @@ set(_test_suites
   test_render_cancel
   test_render_progress
   test_render_job_lifecycle
+  test_output_spec
 )
 
 foreach(_suite ${_test_suites})
@@ -160,4 +161,11 @@ target_compile_definitions(test_render_progress PRIVATE
 # the same fixture as the other render-path suites.
 add_dependencies(test_render_job_lifecycle determinism_fixture)
 target_compile_definitions(test_render_job_lifecycle PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_output_spec covers me_output_spec_t.container inference corners:
+# null-container happy paths (mp4 / mov extension inference) and the
+# two failure modes (unknown extension, explicit unknown container name).
+add_dependencies(test_output_spec determinism_fixture)
+target_compile_definitions(test_output_spec PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")

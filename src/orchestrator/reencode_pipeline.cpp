@@ -84,7 +84,9 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
 
     std::string open_err;
     auto mux = me::io::MuxContext::open(opts.out_path, opts.container, &open_err);
-    if (!mux) return fail(ME_E_INTERNAL, std::move(open_err));
+    /* Same rationale as passthrough_mux: unknown container / failed
+     * inference is ME_E_UNSUPPORTED (host-facing), not ME_E_INTERNAL. */
+    if (!mux) return fail(ME_E_UNSUPPORTED, std::move(open_err));
     AVFormatContext* ofmt = mux->fmt();
 
     SharedEncState shared;

@@ -20,7 +20,18 @@ std::unique_ptr<MuxContext> MuxContext::open(std::string_view out_path,
 
     const int rc = avformat_alloc_output_context2(&fmt, nullptr, format_name, out.c_str());
     if (rc < 0 || !fmt) {
-        if (err) *err = "alloc output: " + av_err_str(rc);
+        if (err) {
+            if (ctr.empty()) {
+                /* Host gave NULL/empty container string and libav couldn't
+                 * infer a muxer from the output path's extension. Signal
+                 * this specifically so callers can distinguish it from
+                 * a named-but-unknown container. */
+                *err = "container format not recognised: path '" + out +
+                       "' has no registered muxer (av: " + av_err_str(rc) + ")";
+            } else {
+                *err = "container '" + ctr + "' not recognised: " + av_err_str(rc);
+            }
+        }
         return nullptr;
     }
 
