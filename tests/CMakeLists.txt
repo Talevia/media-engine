@@ -50,6 +50,7 @@ set(_test_suites
   test_frame_puller
   test_compose_sink_e2e
   test_compose_affine_blit
+  test_audio_track_feed
 )
 
 foreach(_suite ${_test_suites})
@@ -111,6 +112,14 @@ target_include_directories(test_compose_affine_blit PRIVATE ${CMAKE_SOURCE_DIR}/
 target_include_directories(test_audio_resample PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_audio_resample PRIVATE
   FFMPEG::avutil FFMPEG::avcodec FFMPEG::swresample)
+
+# test_audio_track_feed opens the --with-audio fixture and drains it
+# through me::audio::AudioTrackFeed (decode → resample → gain). Needs
+# src/ include + libav (avformat/avcodec/avutil for the demux+decode
+# half; resample_to links swresample internally).
+target_include_directories(test_audio_track_feed PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_audio_track_feed PRIVATE
+  FFMPEG::avformat FFMPEG::avcodec FFMPEG::avutil)
 
 # test_frame_puller opens the determinism fixture directly via libav
 # (avformat_open_input / avcodec decoder) to exercise the
@@ -229,6 +238,14 @@ target_compile_definitions(test_render_cancel PRIVATE
 # makes that path fall through to the skip branch).
 add_dependencies(test_frame_puller determinism_fixture determinism_fixture_with_audio)
 target_compile_definitions(test_frame_puller PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
+
+# test_audio_track_feed drives the feed off the audio-capable fixture
+# (primary) + needs the video-only fixture to test the "no audio
+# stream" branch. Both deps.
+add_dependencies(test_audio_track_feed determinism_fixture determinism_fixture_with_audio)
+target_compile_definitions(test_audio_track_feed PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 

@@ -122,6 +122,7 @@ add_library(media_engine STATIC
   color/pipeline.cpp
   audio/mix.cpp
   audio/resample.cpp
+  audio/track_feed.cpp
   compose/active_clips.cpp
   compose/affine_blit.cpp
   compose/alpha_over.cpp
