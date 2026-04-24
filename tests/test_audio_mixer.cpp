@@ -23,9 +23,12 @@ extern "C" {
 #include <libavutil/samplefmt.h>
 }
 
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -295,6 +298,163 @@ TEST_CASE("build_audio_mixer_for_timeline: null demux for audio clip → ME_E_IN
     CHECK(me::audio::build_audio_mixer_for_timeline(tl, pool, demuxes, cfg, mixer, &err)
           == ME_E_INVALID_ARG);
     CHECK(err.find("null demux") != std::string::npos);
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+namespace {
+
+/* Construct an AudioTrackFeed suitable for inject_samples_for_test:
+ * target params match the mixer's cfg (so add_track passes
+ * validation), eof=true so pull_next_mixed_frame won't try to pull
+ * from the feed. */
+me::audio::AudioTrackFeed make_test_only_feed(const me::audio::AudioMixerConfig& cfg) {
+    me::audio::AudioTrackFeed feed;
+    feed.target_rate = cfg.target_rate;
+    feed.target_fmt  = cfg.target_fmt;
+    av_channel_layout_copy(&feed.target_ch_layout, &cfg.target_ch_layout);
+    feed.gain_linear = 1.0f;
+    feed.eof = true;
+    return feed;
+}
+
+}  // namespace
+
+TEST_CASE("AudioMixer: 2-track injection below peak threshold — sum is exact passthrough") {
+    /* 2 tracks × mono × 1024 samples of constant 0.25 each.
+     * Expected mixed output: 0.5 per sample (below 0.95 threshold →
+     * peak_limiter is pass-through → no compression). This pins the
+     * mix_samples path through AudioMixer using non-trivial (but
+     * below-limit) values. */
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+    std::string err;
+    me::audio::AudioMixer mixer(cfg, &err);
+    REQUIRE(mixer.ok());
+
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+
+    std::vector<float> plane0(cfg.frame_size, 0.25f);
+    std::vector<float> plane1(cfg.frame_size, 0.25f);
+    const float* planes_t0[1] = {plane0.data()};
+    const float* planes_t1[1] = {plane1.data()};
+    REQUIRE(mixer.inject_samples_for_test(0, planes_t0, cfg.frame_size, &err) == ME_OK);
+    REQUIRE(mixer.inject_samples_for_test(1, planes_t1, cfg.frame_size, &err) == ME_OK);
+
+    AVFrame* out = nullptr;
+    REQUIRE(mixer.pull_next_mixed_frame(&out, &err) == ME_OK);
+    REQUIRE(out != nullptr);
+    auto* mixed = reinterpret_cast<const float*>(out->extended_data[0]);
+    for (int i = 0; i < out->nb_samples; ++i) {
+        CHECK(mixed[i] == doctest::Approx(0.5f).epsilon(1e-6f));
+    }
+    av_frame_free(&out);
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+TEST_CASE("AudioMixer: 2-track injection above peak threshold triggers soft-knee limiter") {
+    /* 2 tracks × mono × 1024 samples of constant 0.8 each.
+     * Raw sum = 1.6 (well above 0.95 threshold). peak_limiter
+     * compresses: out = sign(x) * (0.95 + 0.05 * tanh((|x| - 0.95) /
+     * 0.05)). For x=1.6: tanh((1.6 - 0.95) / 0.05) = tanh(13) ≈ 1.0,
+     * so out ≈ 0.95 + 0.05 * 1.0 = 1.0. Asserts |output| ≤ 1.0 and
+     * strictly less than raw sum 1.6 — pinning that the limiter
+     * actually runs and the mixer passes non-zero sums through it. */
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+    std::string err;
+    me::audio::AudioMixer mixer(cfg, &err);
+    REQUIRE(mixer.ok());
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+
+    std::vector<float> plane0(cfg.frame_size, 0.8f);
+    std::vector<float> plane1(cfg.frame_size, 0.8f);
+    const float* planes_t0[1] = {plane0.data()};
+    const float* planes_t1[1] = {plane1.data()};
+    REQUIRE(mixer.inject_samples_for_test(0, planes_t0, cfg.frame_size, &err) == ME_OK);
+    REQUIRE(mixer.inject_samples_for_test(1, planes_t1, cfg.frame_size, &err) == ME_OK);
+
+    AVFrame* out = nullptr;
+    REQUIRE(mixer.pull_next_mixed_frame(&out, &err) == ME_OK);
+    REQUIRE(out != nullptr);
+    auto* mixed = reinterpret_cast<const float*>(out->extended_data[0]);
+    for (int i = 0; i < out->nb_samples; ++i) {
+        CHECK(std::abs(mixed[i]) <= 1.0f);       /* limiter caps at ±1 */
+        CHECK(mixed[i] < 1.6f);                  /* below raw sum */
+        CHECK(mixed[i] > 0.95f);                 /* past threshold → compressed non-trivially */
+    }
+    av_frame_free(&out);
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+TEST_CASE("AudioMixer: synthetic sine-wave mix is bit-identical across two runs (determinism)") {
+    /* Cross-track sine mix through AudioMixer's full path (FIFO
+     * pull + mix_samples + peak_limiter). Two mixers built with
+     * identical config, fed identical synthetic waveforms. Output
+     * bytes must match exactly — VISION §5.3 determinism on the
+     * software path. */
+    auto run_once = [](std::vector<float>& out_samples) {
+        LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+        me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+        std::string err;
+        me::audio::AudioMixer mixer(cfg, &err);
+        REQUIRE(mixer.ok());
+        REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+        REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+
+        /* 50 Hz sine (track 0) + 100 Hz sine (track 1) at 48kHz,
+         * both at 0.4 amplitude. Raw sum peaks at 0.8 → below
+         * limiter threshold. */
+        std::vector<float> t0(cfg.frame_size), t1(cfg.frame_size);
+        constexpr double PI = 3.14159265358979323846;
+        for (int i = 0; i < cfg.frame_size; ++i) {
+            const double t = static_cast<double>(i) / 48000.0;
+            t0[i] = static_cast<float>(0.4 * std::sin(2.0 * PI * 50.0  * t));
+            t1[i] = static_cast<float>(0.4 * std::sin(2.0 * PI * 100.0 * t));
+        }
+        const float* planes_t0[1] = {t0.data()};
+        const float* planes_t1[1] = {t1.data()};
+        REQUIRE(mixer.inject_samples_for_test(0, planes_t0, cfg.frame_size, &err) == ME_OK);
+        REQUIRE(mixer.inject_samples_for_test(1, planes_t1, cfg.frame_size, &err) == ME_OK);
+
+        AVFrame* out = nullptr;
+        REQUIRE(mixer.pull_next_mixed_frame(&out, &err) == ME_OK);
+        REQUIRE(out != nullptr);
+        auto* mixed = reinterpret_cast<const float*>(out->extended_data[0]);
+        out_samples.assign(mixed, mixed + out->nb_samples);
+        av_frame_free(&out);
+        av_channel_layout_uninit(&cfg.target_ch_layout);
+    };
+
+    std::vector<float> run_a, run_b;
+    run_once(run_a);
+    run_once(run_b);
+    REQUIRE(run_a.size() == run_b.size());
+    REQUIRE(run_a.size() == 1024u);
+    for (std::size_t i = 0; i < run_a.size(); ++i) {
+        CHECK(run_a[i] == run_b[i]);   /* bit-identical */
+    }
+    /* Non-silent sanity: at least one non-zero sample. */
+    bool has_non_zero = false;
+    for (float s : run_a) if (s != 0.0f) { has_non_zero = true; break; }
+    CHECK(has_non_zero);
+}
+
+TEST_CASE("AudioMixer::inject_samples_for_test: invalid args rejected") {
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+    std::string err;
+    me::audio::AudioMixer mixer(cfg, &err);
+    REQUIRE(mixer.ok());
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+
+    std::vector<float> plane(128, 0.0f);
+    const float* planes[1] = {plane.data()};
+    /* Bad track index */
+    CHECK(mixer.inject_samples_for_test(99, planes, 128, &err) == ME_E_INVALID_ARG);
+    /* Null plane_data */
+    CHECK(mixer.inject_samples_for_test(0, nullptr, 128, &err) == ME_E_INVALID_ARG);
     av_channel_layout_uninit(&cfg.target_ch_layout);
 }
 

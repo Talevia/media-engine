@@ -114,6 +114,24 @@ public:
 
     std::size_t track_count() const noexcept { return tracks_.size(); }
 
+    /* TESTING ONLY — inject raw samples directly into track `ti`'s
+     * per-plane FIFO, bypassing the AudioTrackFeed decode/resample/
+     * gain stages. Lets unit tests drive known waveforms (sine /
+     * DC / saturation) through the mix + peak_limit path without
+     * synthesizing real AAC fixtures. Production code must use
+     * `add_track` + let the feed pull from a real demux.
+     *
+     * Layout: `plane_data[ch][i]` = sample `i` on channel `ch`, for
+     * `i in [0, num_samples)` and `ch in [0, num_channels())`. Samples
+     * append to the end of that plane's FIFO.
+     *
+     * Returns ME_E_INVALID_ARG on null args / bad track index /
+     * mismatched num_channels. */
+    me_status_t inject_samples_for_test(std::size_t         ti,
+                                         const float* const* plane_data,
+                                         std::size_t         num_samples,
+                                         std::string*        err);
+
 private:
     struct TrackState {
         AudioTrackFeed feed;

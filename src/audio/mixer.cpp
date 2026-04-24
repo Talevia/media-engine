@@ -214,6 +214,34 @@ me_status_t AudioMixer::pull_next_mixed_frame(AVFrame**    out_frame,
     return ME_OK;
 }
 
+me_status_t AudioMixer::inject_samples_for_test(
+    std::size_t         ti,
+    const float* const* plane_data,
+    std::size_t         num_samples,
+    std::string*        err) {
+    if (!ok_) {
+        if (err) *err = "AudioMixer::inject_samples_for_test: mixer not ok";
+        return ME_E_INTERNAL;
+    }
+    if (ti >= tracks_.size() || !plane_data) {
+        if (err) *err = "AudioMixer::inject_samples_for_test: bad track index or null plane_data";
+        return ME_E_INVALID_ARG;
+    }
+    auto& planes = tracks_[ti].planes;
+    if (static_cast<int>(planes.size()) != num_channels_) {
+        if (err) *err = "AudioMixer::inject_samples_for_test: internal channel count mismatch";
+        return ME_E_INTERNAL;
+    }
+    for (int ch = 0; ch < num_channels_; ++ch) {
+        if (!plane_data[ch]) {
+            if (err) *err = "AudioMixer::inject_samples_for_test: null plane pointer";
+            return ME_E_INVALID_ARG;
+        }
+        planes[ch].insert(planes[ch].end(), plane_data[ch], plane_data[ch] + num_samples);
+    }
+    return ME_OK;
+}
+
 me_status_t build_audio_mixer_for_timeline(
     const me::Timeline&                                         tl,
     me::resource::CodecPool&                                    pool,

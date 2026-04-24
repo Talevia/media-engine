@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M2 主线 / 跨 milestone debt）
 
-- **audio-mix-scheduler-wire** — M2 exit criterion "2+ audio tracks 混音, 带 peak limiter" 的最后一块：**数值正确性 stronger evidence** 测试。Prereq + wiring 全部就位（kernel / resample / per-track feed / AudioMixer class / timeline-driven builder / ComposeSink sink integration + Exporter gate flip，由 `audio-mix-sink-wire` cycle 添加——`src/orchestrator/compose_sink.cpp` 检测 `tl.tracks` 的 audio track 时构造 mixer，drain 其 output 到 AAC encoder；test_compose_sink_e2e 的 "video + audio track (mixer path) renders" case 证明 end-to-end 通, 产物 315KB）。**现有 e2e 只测 silent input**——silent + silent = silent 是平凡对，证不了真实 mix + peak_limit 的数值正确性。剩余工作：合成-tone 测试（mono 50Hz sine + mono 100Hz sine → stereo 48k target，mixer 输出样本 pin 成预期值 + `peak_limiter` 在 overload 时 soft-knee 行为的正确性断言）。可作 `test_audio_mixer` 扩展（无需走 sink）或 `test_audio_mix_e2e` 独立 suite。完成后 M2 exit criterion "2+ audio tracks 混音, 带 peak limiter" 可 tick。Milestone §M2，Rubric §5.1。
 
 ## P2（未来，当前 milestone 不挤占）
 
