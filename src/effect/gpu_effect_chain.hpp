@@ -121,6 +121,24 @@ public:
         return effects_[i]->kind();
     }
 
+    /* Fuse adjacent compatible effects into combined single-pass
+     * shaders. Phase-1 catalog: two adjacent ColorCorrectEffects
+     * collapse into a single FusedColorCorrectEffect (see
+     * `fused_color_correct_effect.hpp`). Non-compatible neighbors
+     * survive unchanged; fuse does not cascade (3 consecutive CCs
+     * collapse to 1 fused + 1 unchanged, left-to-right greedy) —
+     * wider fusion windows are a mechanical extension when visual
+     * workloads warrant.
+     *
+     * Must run on the bgfx API thread: fused effect construction
+     * creates bgfx handles. Typical caller pattern:
+     *   backend->submit_on_render_thread([&] { chain.compile(); });
+     *
+     * Idempotent — calling compile twice on an already-compiled
+     * chain does not double-fuse (the fused effect is a different
+     * type and won't match the CC+CC detector). */
+    void compile();
+
 private:
     std::vector<std::unique_ptr<GpuEffect>> effects_;
 };

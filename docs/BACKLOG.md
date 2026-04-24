@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M3 主线 / 跨 milestone debt）
 
-- **effect-chain-gpu-pass-merge** — `src/effect/effect_chain.hpp:55-57` 的 `EffectChain::apply` 是裸 for 循环调用每个 Effect::apply，无合并。M3 exit criterion "EffectChain 能把连续 ≥ 2 个像素级 effect 合并成单 pass" 明文要求 GPU 路径合并。**方向：** 新 `me::effect::GpuEffectChain::compile()` — 检测同形 effect（color-correct + color-correct、或更一般地：所有 effect 标 `is_per_pixel() == true` 且读写样式兼容）并生成 fused fragment shader：把两个 effect 的 fragment main 串联、uniform buffer 合并、layout 重打包。Fallback: non-fuseable effects 走独立 pass。test: 2 个 color-correct chain 跑 profiler 确认只有 1 次 draw call。Milestone §M3，Rubric §5.1。
 - **gpu-render-1080p60-bench** — `grep -rn 'benchmark\|1080p\|60fps' tests examples` 空。M3 exit criterion "1080p@60 可实时渲染带 3-5 个 GPU effect 的 timeline" 需要 bench harness + 性能闸。**方向：** 新 `bench/bench_gpu_compose.cpp`（build target `bench_gpu_compose` 只在 `ME_BUILD_BENCH=ON` 且 `ME_WITH_GPU=ON` 时开）。跑 N 帧 1080p × (color-correct + blur + lut) chain，`std::chrono::high_resolution_clock` 测端到端时间，断言 avg frame time < 16.67 ms（60 fps budget）。Build-time smoke：跑 10 帧即可（CI 时间预算）；release 跑 600 帧更稳。Milestone §M3，Rubric §5.3。
 
 ## P2（未来，当前 milestone 不挤占）

@@ -165,6 +165,8 @@ add_library(media_engine STATIC
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/color_correct_effect.cpp>
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/blur_effect.cpp>
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/lut_effect.cpp>
+  $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/fused_color_correct_effect.cpp>
+  $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/gpu_effect_chain.cpp>
   effect/lut.cpp
   color/pipeline.cpp
   audio/mix.cpp

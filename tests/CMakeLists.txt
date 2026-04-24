@@ -372,6 +372,21 @@ if(ME_WITH_GPU)
   add_test(NAME test_lut_effect COMMAND test_lut_effect)
 endif()
 
+# test_effect_chain_compile pins GpuEffectChain::compile() fusion
+# of adjacent color-correct effects into a single fused pass.
+# ME_WITH_GPU-only; skips on non-Metal.
+if(ME_WITH_GPU)
+  add_executable(test_effect_chain_compile test_main.cpp test_effect_chain_compile.cpp)
+  target_link_libraries(test_effect_chain_compile PRIVATE
+    media_engine::media_engine
+    doctest::doctest
+    bgfx
+    bx)
+  target_include_directories(test_effect_chain_compile PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(test_effect_chain_compile PRIVATE ME_HAS_GPU=1)
+  add_test(NAME test_effect_chain_compile COMMAND test_effect_chain_compile)
+endif()
+
 # test_animated_number_loader exercises the JSON → me::AnimatedNumber
 # parse helper (layer 2 of transform-animated-support). Pure C++;
 # pulls in nlohmann/json via loader_helpers.hpp.

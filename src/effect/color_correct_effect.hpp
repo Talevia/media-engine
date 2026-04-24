@@ -52,7 +52,8 @@ public:
     ColorCorrectEffect(const ColorCorrectEffect&)            = delete;
     ColorCorrectEffect& operator=(const ColorCorrectEffect&) = delete;
 
-    void set_params(Params p) noexcept { params_ = p; }
+    void   set_params(Params p) noexcept { params_ = p; }
+    Params params() const noexcept       { return params_; }
 
     void submit(bgfx::ViewId            view_id,
                 bgfx::TextureHandle     src,
