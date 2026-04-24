@@ -37,7 +37,7 @@
 - [x] OpenColorIO 集成，源 / 工作 / 输出空间显式转换，支持 bt709/sRGB/linear
 - [x] `Transform`（静态）端到端生效（translate/scale/rotate/opacity）
 - [x] Cross-dissolve transition
-- [ ] 确定性回归测试：同一 timeline 跑两次产物 byte-identical（软件路径）
+- [x] 确定性回归测试：同一 timeline 跑两次产物 byte-identical（软件路径）
 
 ## M3 — Animated params + GPU backend (Metal first)
 
