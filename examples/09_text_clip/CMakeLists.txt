@@ -1,0 +1,1 @@
+me_add_example(09_text_clip)

@@ -84,6 +84,9 @@ set(_me_expected_examples
   04_probe
   05_reencode
   06_thumbnail
+  07_compose_multitrack
+  08_frame_server_scrub
+  09_text_clip
 )
 
 add_subdirectory(01_passthrough)
@@ -92,6 +95,9 @@ add_subdirectory(03_timeline_segments)
 add_subdirectory(04_probe)
 add_subdirectory(05_reencode)
 add_subdirectory(06_thumbnail)
+add_subdirectory(07_compose_multitrack)
+add_subdirectory(08_frame_server_scrub)
+add_subdirectory(09_text_clip)
 
 # --- Post-subdir self-check: every expected example target exists ---------
 foreach(_expected ${_me_expected_examples})

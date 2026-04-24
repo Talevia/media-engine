@@ -1,0 +1,1 @@
+me_add_example(08_frame_server_scrub)

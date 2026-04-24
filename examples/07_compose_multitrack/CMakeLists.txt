@@ -1,0 +1,1 @@
+me_add_example(07_compose_multitrack)
