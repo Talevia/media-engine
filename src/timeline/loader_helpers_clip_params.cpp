@@ -274,11 +274,24 @@ me::SubtitleClipParams parse_subtitle_clip_params(const json& j,
 
     me::SubtitleClipParams out;
 
-    require(j.contains("content"), ME_E_PARSE,
-            where + ": missing required 'content'");
-    require(j["content"].is_string(), ME_E_PARSE,
-            where + ".content: expected string");
-    out.content = j.at("content").get<std::string>();
+    const bool has_content  = j.contains("content");
+    const bool has_file_uri = j.contains("fileUri");
+    require(has_content || has_file_uri, ME_E_PARSE,
+            where + ": missing required 'content' or 'fileUri'");
+    require(!(has_content && has_file_uri), ME_E_PARSE,
+            where + ": exactly one of {'content', 'fileUri'} may be set");
+
+    if (has_content) {
+        require(j["content"].is_string(), ME_E_PARSE,
+                where + ".content: expected string");
+        out.content = j.at("content").get<std::string>();
+    } else {
+        require(j["fileUri"].is_string(), ME_E_PARSE,
+                where + ".fileUri: expected string");
+        out.file_uri = j.at("fileUri").get<std::string>();
+        require(!out.file_uri.empty(), ME_E_PARSE,
+                where + ".fileUri: must be non-empty");
+    }
 
     if (j.contains("codepage")) {
         require(j["codepage"].is_string(), ME_E_PARSE,

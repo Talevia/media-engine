@@ -165,15 +165,19 @@ struct TextClipParams {
 
 /* Synthetic subtitle-clip parameters — used when ClipType::Subtitle.
  * Has no source asset; the SubtitleRenderer parses the inline
- * `content` string (UTF-8 .ass / .ssa / .srt) once at clip entry
- * and rasterizes per-frame glyphs via libass.
+ * `content` string OR the file referenced by `file_uri` once at
+ * clip entry and rasterizes per-frame glyphs via libass.
  *
- * Phase-1 is inline-content only (subtitleParams.content). A future
- * extension can add `file_uri` for large subtitle files once the
- * host asset resolver proves worth the I/O path; today, bundling
- * the track inline keeps the timeline JSON self-contained. */
+ * The loader enforces "exactly one of {content, file_uri}" —
+ * supplying neither or both is ME_E_PARSE. file_uri follows the
+ * same URI conventions as Asset::uri (file://… supported; the
+ * compose-loop strips the prefix and reads via std::ifstream).
+ * Inline content is self-contained and keeps the timeline JSON
+ * portable; file_uri is the path for larger subtitle files that
+ * would bloat the JSON. */
 struct SubtitleClipParams {
-    std::string content;    /* inline .ass / .srt text */
+    std::string content;    /* inline .ass / .srt text (mutex with file_uri) */
+    std::string file_uri;   /* file:// URI to a .ass / .srt file (mutex with content) */
     std::string codepage;   /* optional: passed to libass for non-UTF-8 */
 };
 

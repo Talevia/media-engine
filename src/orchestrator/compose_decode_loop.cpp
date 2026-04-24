@@ -24,7 +24,9 @@ extern "C" {
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -158,8 +160,35 @@ me_status_t run_compose_video_frame_loop(
                     if (!sr) {
                         sr = std::make_unique<me::text::SubtitleRenderer>(W, H);
                         const auto& sp = *cur_clip.subtitle_params;
-                        sr->load_from_memory(sp.content,
-                            sp.codepage.empty() ? nullptr : sp.codepage.c_str());
+                        /* Source the subtitle bytes either from the
+                         * inline `content` string or by reading the
+                         * file referenced by `file_uri`. Loader
+                         * ensures exactly one is populated; a path
+                         * read-failure degrades to an empty track
+                         * (valid() stays false), keeping the render
+                         * alive (same shape as text clips degrade
+                         * under Skia-off). */
+                        std::string bytes;
+                        if (!sp.content.empty()) {
+                            bytes = sp.content;
+                        } else if (!sp.file_uri.empty()) {
+                            std::string path = sp.file_uri;
+                            constexpr std::string_view file_prefix{"file://"};
+                            if (path.size() > file_prefix.size() &&
+                                path.compare(0, file_prefix.size(), file_prefix) == 0) {
+                                path = path.substr(file_prefix.size());
+                            }
+                            std::ifstream in(path, std::ios::binary);
+                            if (in) {
+                                std::ostringstream ss;
+                                ss << in.rdbuf();
+                                bytes = ss.str();
+                            }
+                        }
+                        if (!bytes.empty()) {
+                            sr->load_from_memory(bytes,
+                                sp.codepage.empty() ? nullptr : sp.codepage.c_str());
+                        }
                     }
                     const std::size_t pitch =
                         static_cast<std::size_t>(W) * 4;
