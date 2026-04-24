@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-bindings-jni-test-invoke** — `bindings/jni/CMakeLists.txt:18-19` 只 `add_library(media_engine_jni SHARED ...)`，没有任何 test/runtime 把 libme_jni load 起来。`grep -rn 'media_engine_jni' tests/ bench/` 空。一旦 JNI 函数签名（如 `Java_io_mediaengine_MediaEngine_nativeRenderStart`）漂移，UnsatisfiedLinkError 只会在 talevia 集成时才暴露。**方向：** CMake 用 `find_package(Java QUIET)`，找到则加 `add_test`，编译 `MediaEngine.java` + 跑 `nativeVersion()`/`nativeCreate`/`nativeDestroy` 三连；找不到 silent-skip。Milestone §M7-debt，Rubric §5.5。
 - **debt-bindings-readme** — `find bindings/ -maxdepth 3 -name 'README*'` 空。`bindings/jni/CMakeLists.txt:13-15` 和 `bindings/kotlin-native/example/build.gradle.kts:8-9` 把构建说明塞在文件头注释里，host integrators 进 `bindings/jni/` 第一眼看不到怎么用。**方向：** 加 `bindings/jni/README.md` + `bindings/kotlin-native/README.md`，每篇 ~30 行 — 前置依赖、build 命令、talevia 集成指针、FFmpeg LGPL 注意事项。Milestone §M7-debt，Rubric §5.4。
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
