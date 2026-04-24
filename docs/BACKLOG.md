@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **subtitle-file-uri-error-diagnosis** — `src/orchestrator/compose_decode_loop.cpp:163-185` subtitle file_uri 路径在文件打不开 / 读失败时 `bytes` 静默为空 → SubtitleRenderer.valid() 留 false → render 变 no-op。host 无从知道 fileUri 错了（last_error 空）。**方向：** compose_decode_loop 的 subtitle 分支在 file read 失败时通过 `ctx.shared` 回传 err 消息（类似 decoder path 的 pattern）；me_render_wait 能拿到 "subtitle file 'X' not readable" 诊断。单元测试 fileUri 指向不存在路径 → last_error 非空。Milestone §M7-debt (cross)，Rubric §5.2。
 - **text-clip-multiline-word-wrap** — `src/text/skia_backend.cpp:72-112` `draw_string` 调 SkCanvas::drawString 是单行 API。长 `TextClipParams.content` 溢出 canvas 右边界（无换行、无 wrap）。常见 motion-graphics 需求：caption-style 两三行 subtitle-ish text。**方向：** TextClipParams 加 `max_width` + `line_height_multiplier` 可选字段；SkiaBackend 加 `draw_paragraph(text, x, y, font_size, color, max_width)` 使用 Skia 的 SkParagraph module（或手动 word-break + shapeText）；render() 在 max_width 有值时走新路径。单元测试 emoji + CJK 两行 word-wrap。Milestone §M5-debt (cross)，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）

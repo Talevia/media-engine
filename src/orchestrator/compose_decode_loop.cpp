@@ -163,11 +163,12 @@ me_status_t run_compose_video_frame_loop(
                         /* Source the subtitle bytes either from the
                          * inline `content` string or by reading the
                          * file referenced by `file_uri`. Loader
-                         * ensures exactly one is populated; a path
-                         * read-failure degrades to an empty track
-                         * (valid() stays false), keeping the render
-                         * alive (same shape as text clips degrade
-                         * under Skia-off). */
+                         * ensures exactly one is populated. Inline
+                         * empty content is a valid no-op (empty
+                         * subtitle track); file_uri that fails to
+                         * open is surfaced to err so hosts can
+                         * diagnose the bad path via
+                         * me_engine_last_error. */
                         std::string bytes;
                         if (!sp.content.empty()) {
                             bytes = sp.content;
@@ -179,11 +180,16 @@ me_status_t run_compose_video_frame_loop(
                                 path = path.substr(file_prefix.size());
                             }
                             std::ifstream in(path, std::ios::binary);
-                            if (in) {
-                                std::ostringstream ss;
-                                ss << in.rdbuf();
-                                bytes = ss.str();
+                            if (!in) {
+                                if (err) {
+                                    *err = "subtitle file_uri not readable: '" +
+                                           sp.file_uri + "'";
+                                }
+                                return ME_E_IO;
                             }
+                            std::ostringstream ss;
+                            ss << in.rdbuf();
+                            bytes = ss.str();
                         }
                         if (!bytes.empty()) {
                             sr->load_from_memory(bytes,

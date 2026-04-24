@@ -941,6 +941,84 @@ TEST_CASE("ComposeSink e2e: subtitle clip with fileUri (external .srt)") {
     CHECK(fs::file_size(out_path) > 4096);
 }
 
+TEST_CASE("ComposeSink e2e: subtitle fileUri not readable → me_engine_last_error populated") {
+    /* Pin subtitle-file-uri-error-diagnosis: compose_decode_loop
+     * previously degraded silently when a subtitle fileUri
+     * couldn't be opened (valid() stayed false, render was a
+     * no-op, last_error empty). Hosts had no signal that the
+     * fileUri was wrong. After the fix the subtitle branch
+     * returns ME_E_IO via the shared err channel so
+     * me_render_wait propagates into me_engine_last_error. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping: fixture not available");
+        return;
+    }
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    const std::string fixture_uri = "file://" + fixture_path;
+    /* Pick a path that will not exist. Using the tmp namespace
+     * keeps this portable across macOS / Linux hosts. */
+    const fs::path bogus_path = fs::temp_directory_path() /
+                                 "me-compose-sink-e2e-bogus-missing.srt";
+    fs::remove(bogus_path);
+    REQUIRE_FALSE(fs::exists(bogus_path));
+
+    const std::string j = std::string(R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":25,"den":1},
+      "resolution": {"width":640,"height":480},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":")") + fixture_uri + R"("}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c_v","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ]},
+        {"id":"s0","kind":"subtitle","clips":[
+          {"type":"subtitle","id":"c_s",
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "subtitleParams":{"fileUri":"file://)" + bogus_path.string() + R"("}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    TimelineHandle tl;
+    REQUIRE(me_timeline_load_json(eng.p, j.data(), j.size(), &tl.p) == ME_OK);
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-compose-sink-e2e";
+    fs::create_directories(tmp_dir);
+    const fs::path out_path = tmp_dir / "video_plus_subtitle_missing.mp4";
+    fs::remove(out_path);
+
+    me_output_spec_t spec{};
+    spec.path        = out_path.c_str();
+    spec.container   = "mp4";
+    spec.video_codec = "h264";
+    spec.audio_codec = "aac";
+
+    JobHandle job;
+    REQUIRE(me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, &job.p) == ME_OK);
+    const me_status_t wait_s = me_render_wait(job.p);
+
+    if (wait_s == ME_E_UNSUPPORTED || wait_s == ME_E_ENCODE) {
+        /* videotoolbox / aac unavailable — skip without
+         * asserting the subtitle-specific error (encoder-level
+         * error would overshadow). */
+        return;
+    }
+
+    CHECK(wait_s == ME_E_IO);
+    const char* err_msg = me_engine_last_error(eng.p);
+    REQUIRE(err_msg != nullptr);
+    const std::string err_str{err_msg};
+    CHECK(err_str.find("subtitle") != std::string::npos);
+    CHECK(err_str.find("not readable") != std::string::npos);
+    CHECK(err_str.find(bogus_path.string()) != std::string::npos);
+}
+
 TEST_CASE("Loader: subtitle clip with neither content nor fileUri rejected") {
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
