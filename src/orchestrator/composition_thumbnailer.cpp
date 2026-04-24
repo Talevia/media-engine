@@ -102,7 +102,7 @@ me_status_t CompositionThumbnailer::png_at(me_rational_t time,
     /* --- 3. PNG encode via libavcodec. One-shot ctx; no pool (this
      * path is called at most a few times per thumbnail request). */
     const AVCodec* png_enc = avcodec_find_encoder(AV_CODEC_ID_PNG);
-    if (!png_enc) return ME_E_UNSUPPORTED;
+    if (!png_enc) return ME_E_UNSUPPORTED;  /* LEGIT: PNG encoder missing from FFmpeg build */
     CtxPtr enc(avcodec_alloc_context3(png_enc));
     if (!enc) return ME_E_OUT_OF_MEMORY;
     enc->width     = out_w;

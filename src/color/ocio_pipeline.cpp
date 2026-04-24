@@ -109,6 +109,8 @@ me_status_t OcioPipeline::apply(void*                   buffer,
             *err += " colorspace (phase-1 supports primaries=bt709 "
                     "and transfer in {bt709, srgb, linear})";
         }
+        /* LEGIT: phase-1 color-space support is bounded to a known-good
+         * subset; callers outside it receive a parseable error string. */
         return ME_E_UNSUPPORTED;
     }
 

@@ -66,17 +66,46 @@ grep -rEn 'STUB:[[:space:]]+[A-Za-z0-9_-]+' src 2>/dev/null \
     }' \
   | sort
 
-raw_count=$(grep -rn 'return ME_E_UNSUPPORTED' src include 2>/dev/null | wc -l | tr -d ' ')
-runtime_reject_count=$((raw_count - marked_count))
-printf '\nRaw `return ME_E_UNSUPPORTED` returns: %s\n' "$raw_count"
-printf 'Runtime-reject returns (raw − marked stubs; informational): %s\n\n' "$runtime_reject_count"
+# Require a trailing `;` to filter out prose mentions in doc
+# comments (e.g. header docstring "return ME_E_UNSUPPORTED
+# synchronously; ..."). Only statement-form returns count.
+raw_count=$(grep -rn 'return ME_E_UNSUPPORTED;' src include 2>/dev/null | wc -l | tr -d ' ')
 
-if [ "$runtime_reject_count" -lt 0 ]; then
+# LEGIT: sites explicitly tagged as legitimate runtime rejects (not
+# stubs). Tag convention: a `LEGIT:` marker on the same line or
+# within the 4 lines immediately preceding the raw return (the
+# 4-line window accommodates multi-line block comments that wrap
+# the rationale above a multi-line if-block).
+legit_count=0
+unaccounted=0
+while IFS= read -r hit; do
+  [ -z "$hit" ] && continue
+  path="${hit%%:*}"
+  rest="${hit#*:}"
+  lineno="${rest%%:*}"
+  start=$((lineno - 4))
+  [ "$start" -lt 1 ] && start=1
+  window=$(sed -n "${start},${lineno}p" "$path" 2>/dev/null)
+  if printf '%s' "$window" | grep -q 'LEGIT:'; then
+    legit_count=$((legit_count + 1))
+  elif printf '%s' "$window" | grep -q 'STUB:'; then
+    : # already counted under marked_count
+  else
+    unaccounted=$((unaccounted + 1))
+  fi
+done < <(grep -rn 'return ME_E_UNSUPPORTED;' src include 2>/dev/null)
+
+printf '\nRaw `return ME_E_UNSUPPORTED` returns: %s\n' "$raw_count"
+printf 'Annotated legit rejects (LEGIT: marker nearby): %s\n' "$legit_count"
+printf 'Unaccounted (raw − STUB − LEGIT): %s\n' "$unaccounted"
+printf '_goal: unaccounted == 0 (every raw return is either a STUB with a backlog slug or a LEGIT with a reason)_\n\n'
+
+if [ "$((raw_count - marked_count))" -lt 0 ]; then
   printf '_inconsistency: STUB markers outnumber raw rejects — investigate_\n\n'
 fi
 
 printf 'Raw ME_E_UNSUPPORTED by file:\n'
-grep -rn 'return ME_E_UNSUPPORTED' src include 2>/dev/null \
+grep -rn 'return ME_E_UNSUPPORTED;' src include 2>/dev/null \
   | awk -F: '{ print $1 }' | sort | uniq -c | sort -rn \
   | awk '{ printf "- %s: %d\n", $2, $1 }'
 echo

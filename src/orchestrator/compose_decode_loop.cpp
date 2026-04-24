@@ -321,6 +321,10 @@ me_status_t run_compose_video_frame_loop(
                                "!= 0) to opt into the affine "
                                "pre-composite path";
                     }
+                    /* LEGIT: source frame dimensions disagree with the
+                     * timeline resolution and no Transform is set to
+                     * opt into the affine pre-composite path. Reject
+                     * with actionable guidance in err_msg. */
                     return ME_E_UNSUPPORTED;
                 }
                 me::compose::alpha_over(

@@ -85,6 +85,8 @@ me_status_t open_audio_track_feed(
     const AVCodec* codec = avcodec_find_decoder(st->codecpar->codec_id);
     if (!codec) {
         if (err) *err = "open_audio_track_feed: no decoder for audio codec_id";
+        /* LEGIT: FFmpeg build without a decoder for the source's audio
+         * codec — runtime reject, not a stub. */
         return ME_E_UNSUPPORTED;
     }
 

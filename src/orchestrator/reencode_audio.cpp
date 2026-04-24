@@ -30,6 +30,8 @@ me_status_t open_audio_encoder(me::resource::CodecPool&      pool,
     const AVCodec* enc = avcodec_find_encoder_by_name("aac");
     if (!enc) {
         if (err) *err = "encoder aac not available";
+        /* LEGIT: FFmpeg build without native AAC encoder (rare —
+         * stock builds include it). Reject with diagnostic. */
         return ME_E_UNSUPPORTED;
     }
     auto ctx = pool.allocate(enc);

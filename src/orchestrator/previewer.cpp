@@ -201,9 +201,12 @@ me_status_t Previewer::frame_at(me_rational_t time, me_frame** out_frame) {
     if (rc < 0) { avformat_close_input(&fmt); return ME_E_DECODE; }
 
     const int vs = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    /* LEGIT: source file has no video stream — frame server can't
+     * produce a frame. Non-stub. */
     if (vs < 0) { avformat_close_input(&fmt); return ME_E_UNSUPPORTED; }
     AVStream* vstream = fmt->streams[vs];
     const AVCodec* dec_codec = avcodec_find_decoder(vstream->codecpar->codec_id);
+    /* LEGIT: FFmpeg build missing a decoder for this stream's codec. */
     if (!dec_codec) { avformat_close_input(&fmt); return ME_E_UNSUPPORTED; }
 
     auto dec = (engine_ && engine_->codecs)

@@ -59,6 +59,9 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
 
     if (!tl_ || tl_->clips.empty()) {
         if (err) *err = "phase-1: timeline must have at least one clip";
+        /* LEGIT: empty timelines have no render semantics; reject
+         * synchronously so hosts catch the misconfiguration before
+         * spawning the worker. */
         return ME_E_UNSUPPORTED;
     }
     /* Audio tracks flow through ComposeSink's AudioMixer path
@@ -189,7 +192,7 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         sink = make_output_sink(spec, std::move(common),
                                  std::move(ranges), codec_pool, err);
     }
-    if (!sink) return ME_E_UNSUPPORTED;
+    if (!sink) return ME_E_UNSUPPORTED;  /* LEGIT: make_*_sink rejected the spec (unknown codec, unsupported combo); err already set */
 
     me_engine* eng = engine_;
     Job* raw = job.get();

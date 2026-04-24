@@ -146,6 +146,8 @@ me_status_t probe_and_render(me_engine_t*  engine,
     if (vs < 0) {
         me::detail::set_error(engine, "no video stream");
         avformat_close_input(&fmt);
+        /* LEGIT: source file contains no video stream — thumbnail is
+         * undefined; report as unsupported with a clear message. */
         return ME_E_UNSUPPORTED;
     }
 
@@ -156,6 +158,8 @@ me_status_t probe_and_render(me_engine_t*  engine,
         me::detail::set_error(engine, std::string("no decoder for ") +
                                        avcodec_get_name(vstream->codecpar->codec_id));
         avformat_close_input(&fmt);
+        /* LEGIT: FFmpeg build lacks a decoder for this codec id;
+         * runtime reject with codec name in last_error. */
         return ME_E_UNSUPPORTED;
     }
     CodecCtxPtr dec = engine->codecs
@@ -250,6 +254,9 @@ me_status_t probe_and_render(me_engine_t*  engine,
     if (!png_enc) {
         me::detail::set_error(engine, "PNG encoder not available");
         avformat_close_input(&fmt);
+        /* LEGIT: PNG encoder is always shipped with stock FFmpeg, but
+         * custom builds may strip it; this path surfaces that cleanly
+         * instead of crashing in the encoder open call. */
         return ME_E_UNSUPPORTED;
     }
     CodecCtxPtr enc = engine->codecs

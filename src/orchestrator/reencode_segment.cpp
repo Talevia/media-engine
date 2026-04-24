@@ -53,6 +53,8 @@ me_status_t open_decoder(me::resource::CodecPool&      pool,
     if (!dec) {
         if (err) *err = std::string("no decoder for ") +
                          avcodec_get_name(in_stream->codecpar->codec_id);
+        /* LEGIT: FFmpeg build missing a decoder for the input stream's
+         * codec (rare on stock builds; surfaced clearly). */
         return ME_E_UNSUPPORTED;
     }
     auto ctx = pool.allocate(dec);

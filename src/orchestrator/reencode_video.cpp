@@ -28,6 +28,8 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
     const AVCodec* enc = avcodec_find_encoder_by_name("h264_videotoolbox");
     if (!enc) {
         if (err) *err = "encoder h264_videotoolbox not available in this FFmpeg build";
+        /* LEGIT: Linux / Windows hosts lack videotoolbox; reject with
+         * a clear diagnostic so callers know the platform gate. */
         return ME_E_UNSUPPORTED;
     }
     auto ctx = pool.allocate(enc);
