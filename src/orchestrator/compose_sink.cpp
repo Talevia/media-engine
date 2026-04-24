@@ -33,6 +33,7 @@
 #include "io/demux_context.hpp"
 #include "io/ffmpeg_raii.hpp"
 #include "io/mux_context.hpp"
+#include "orchestrator/compose_transition_step.hpp"
 #include "orchestrator/encoder_mux_setup.hpp"
 #include "orchestrator/frame_puller.hpp"
 #include "orchestrator/reencode_audio.hpp"
@@ -339,28 +340,9 @@ public:
                     av_frame_unref(td.frame_scratch.get());
                     transform_clip_idx = ta.clip_idx;
                 } else {
-                    /* Transition. Pull from + to decoders, both at
-                     * canvas resolution for phase-1 (cross_dissolve
-                     * requires matching dims + strides across all
-                     * three buffers — enforcing W×H avoids a separate
-                     * affine pre-composite for each endpoint).
-                     *
-                     * Phase-1 limitations (documented in the
-                     * cross-dissolve-transition-render-wire decision):
-                     *   - No per-clip Transform applied to from/to
-                     *     during the transition window (identity
-                     *     assumed). Slow-path affine during blend is
-                     *     a follow-up.
-                     *   - to_clip's single-clip region after the
-                     *     transition window plays `duration/2` ahead
-                     *     of what the schema nominally says — because
-                     *     the to decoder advances by one frame per
-                     *     output frame throughout the window, arriving
-                     *     at the post-window boundary with
-                     *     `duration/2 * fps` frames consumed. Slowly-
-                     *     changing content makes this visually
-                     *     imperceptible; proper handles / seeking
-                     *     is future work. */
+                    /* Transition. Delegate to compose_transition_step
+                     * (free function in compose_transition_step.cpp —
+                     * scope-A slice of debt-split-compose-sink-cpp). */
                     const std::size_t from_ci = fs.transition_from_clip_idx;
                     const std::size_t to_ci   = fs.transition_to_clip_idx;
                     if (from_ci >= clip_decoders.size() ||
@@ -370,79 +352,12 @@ public:
                     if (td_from.video_stream_idx < 0 || !td_from.dec ||
                         td_to.video_stream_idx   < 0 || !td_to.dec) continue;
 
-                    /* Pull from_clip; if exhausted, degrade to to-only
-                     * single-clip rendering (weight-based soft degrade
-                     * isn't possible without a cached last-from frame,
-                     * which is a follow-up for real handle support). */
-                    const me_status_t pull_from = pull_next_video_frame(
-                        td_from.demux->fmt, td_from.video_stream_idx,
-                        td_from.dec.get(), td_from.pkt_scratch.get(),
-                        td_from.frame_scratch.get(), err);
-                    bool from_valid = false;
-                    int from_w = 0, from_h = 0;
-                    if (pull_from == ME_OK) {
-                        from_w = td_from.frame_scratch->width;
-                        from_h = td_from.frame_scratch->height;
-                        if (auto s = me::compose::frame_to_rgba8(
-                                td_from.frame_scratch.get(), from_rgba, err);
-                            s != ME_OK) {
-                            av_frame_unref(td_from.frame_scratch.get());
-                            return s;
-                        }
-                        av_frame_unref(td_from.frame_scratch.get());
-                        from_valid = true;
-                    } else if (pull_from != ME_E_NOT_FOUND) {
-                        return pull_from;
-                    }
-
-                    /* Pull to_clip. */
-                    const me_status_t pull_to = pull_next_video_frame(
-                        td_to.demux->fmt, td_to.video_stream_idx,
-                        td_to.dec.get(), td_to.pkt_scratch.get(),
-                        td_to.frame_scratch.get(), err);
-                    if (pull_to == ME_E_NOT_FOUND) continue;   /* whole transition contributes nothing */
-                    if (pull_to != ME_OK) return pull_to;
-
-                    const int to_w = td_to.frame_scratch->width;
-                    const int to_h = td_to.frame_scratch->height;
-                    if (auto s = me::compose::frame_to_rgba8(
-                            td_to.frame_scratch.get(), to_rgba, err);
-                        s != ME_OK) {
-                        av_frame_unref(td_to.frame_scratch.get());
-                        return s;
-                    }
-                    av_frame_unref(td_to.frame_scratch.get());
-
-                    /* Enforce W×H for transition endpoint frames. */
-                    if (to_w != W || to_h != H ||
-                        (from_valid && (from_w != W || from_h != H))) {
-                        if (err) {
-                            *err = "ComposeSink: cross-dissolve endpoint frame size "
-                                   "doesn't match output; transition rendering "
-                                   "requires W×H-matching source frames for phase-1 "
-                                   "(affine pre-composite during blend is a "
-                                   "follow-up of cross-dissolve-transition-render-wire)";
-                        }
-                        return ME_E_UNSUPPORTED;
-                    }
-
-                    const std::size_t bytes = static_cast<std::size_t>(W) * H * 4;
-                    if (track_rgba.size() != bytes) track_rgba.resize(bytes);
-
-                    if (from_valid) {
-                        me::compose::cross_dissolve(
-                            track_rgba.data(),
-                            from_rgba.data(), to_rgba.data(),
-                            W, H, static_cast<std::size_t>(W) * 4,
-                            fs.transition.t);
-                    } else {
-                        /* from exhausted — copy to into track_rgba
-                         * unblended (t effectively = 1). */
-                        std::memcpy(track_rgba.data(), to_rgba.data(), bytes);
-                    }
-                    src_w = W;
-                    src_h = H;
-                    transform_clip_idx = to_ci;   /* to_clip's opacity / transform wins for layer compositing */
+                    const me_status_t trs = compose_transition_step(
+                        fs, td_from, td_to, W, H,
+                        track_rgba, from_rgba, to_rgba,
+                        src_w, src_h, transform_clip_idx, err);
+                    if (trs == ME_E_NOT_FOUND) continue;
+                    if (trs != ME_OK) return trs;
                 }
 
                 /* Common: apply per-clip opacity + optional affine
