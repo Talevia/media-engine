@@ -32,6 +32,27 @@ FetchContent_MakeAvailable(taskflow)
 
 find_package(FFMPEG REQUIRED)
 
+# libass — M5 subtitle rendering via pkg-config find_package.
+# Unlike the FetchContent'd deps (SoundTouch, bgfx, OCIO,
+# nlohmann, taskflow), libass builds via autoconf + transitive
+# non-CMake deps (fribidi, HarfBuzz, FreeType), so pkg-config
+# on the dev machine's installed copy is the pragmatic path
+# (see 6be4cde libass-subtitles-plan for the integration survey).
+# Dev setup: `brew install libass` on macOS or `apt install
+# libass-dev` on Linux. `ME_HAS_LIBASS=1` compile def gates the
+# SubtitleRenderer codepath.
+if(ME_WITH_LIBASS)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(LIBASS libass)
+  if(NOT LIBASS_FOUND)
+    message(WARNING "ME_WITH_LIBASS=ON but libass not found via "
+            "pkg-config — flipping OFF for this build. Install via "
+            "`brew install libass` (macOS) or `apt install libass-dev` "
+            "(Linux) and reconfigure to enable subtitle rendering.")
+    set(ME_WITH_LIBASS OFF CACHE BOOL "" FORCE)
+  endif()
+endif()
+
 # OpenColorIO — opt-in (off by default; see ME_WITH_OCIO in top-level
 # CMakeLists.txt for the rationale). When on, we FetchContent OCIO
 # v2.5.1 and let it pull its own transitive deps (Imath, yaml-cpp,
@@ -199,6 +220,7 @@ add_library(media_engine STATIC
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/gpu_effect_chain.cpp>
   effect/lut.cpp
   $<$<BOOL:${ME_WITH_SOUNDTOUCH}>:${CMAKE_CURRENT_SOURCE_DIR}/audio/tempo.cpp>
+  $<$<BOOL:${ME_WITH_LIBASS}>:${CMAKE_CURRENT_SOURCE_DIR}/text/subtitle_renderer.cpp>
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp
@@ -292,6 +314,18 @@ endif()
 if(ME_WITH_SOUNDTOUCH)
   target_link_libraries(media_engine PRIVATE SoundTouch)
   target_compile_definitions(media_engine PRIVATE ME_HAS_SOUNDTOUCH=1)
+endif()
+
+# libass link — SubtitleRenderer uses ass_library_init /
+# ass_renderer_init / ass_read_memory / ass_render_frame from
+# libass. pkg-config populated LIBASS_* vars above; imported
+# target isn't used because pkg-config doesn't emit one
+# directly.
+if(ME_WITH_LIBASS)
+  target_include_directories(media_engine PRIVATE ${LIBASS_INCLUDE_DIRS})
+  target_link_directories(media_engine PRIVATE ${LIBASS_LIBRARY_DIRS})
+  target_link_libraries(media_engine PRIVATE ${LIBASS_LIBRARIES})
+  target_compile_definitions(media_engine PRIVATE ME_HAS_LIBASS=1)
 endif()
 
 target_compile_features(media_engine PUBLIC cxx_std_20)

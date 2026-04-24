@@ -62,6 +62,7 @@ set(_test_suites
   test_tempo
   test_audio_effect_chain
   test_reencode_pts_remap
+  test_subtitle_renderer
 )
 
 foreach(_suite ${_test_suites})
@@ -449,6 +450,14 @@ target_include_directories(test_audio_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/s
 target_include_directories(test_reencode_pts_remap PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_reencode_pts_remap PRIVATE
   FFMPEG::avutil FFMPEG::avcodec)
+
+# test_subtitle_renderer exercises me::text::SubtitleRenderer
+# (libass wrapper). ME_HAS_LIBASS compile def gates the real
+# test body. Needs src/ on include path for the wrapper header.
+target_include_directories(test_subtitle_renderer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_LIBASS)
+  target_compile_definitions(test_subtitle_renderer PRIVATE ME_HAS_LIBASS=1)
+endif()
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

@@ -42,6 +42,16 @@ option(ME_WITH_OCIO      "Fetch and link OpenColorIO (M2 color pipeline)" ON)
 # workflows can flip OFF to skip the fetch.
 option(ME_WITH_SOUNDTOUCH "Fetch and link SoundTouch (M4 tempo)"          ON)
 
+# M5 subtitle rendering via libass. Link path is pkg-config
+# find_package (libass doesn't ship a clean CMake build — see
+# docs(libass-subtitles-plan) commit 6be4cde for the integration
+# survey). Dev machines need `brew install libass` on macOS or
+# `apt install libass-dev` on Linux; CMake detects + uses the
+# system install. ON default because libass is a normal dev
+# dependency and the ME_HAS_LIBASS-guarded code path degrades
+# cleanly when absent.
+option(ME_WITH_LIBASS    "find_package libass for subtitle rendering (M5)" ON)
+
 # M3 GPU render benchmarks (bench/). OFF by default — benches are
 # run ad-hoc by dev machines + CI perf gates, not on every build.
 # Requires ME_WITH_GPU=ON to do anything useful; the bench/
