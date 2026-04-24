@@ -34,6 +34,7 @@ set(_test_suites
   test_output_sink
   test_probe
   test_thumbnail
+  test_composition_thumbnailer
   test_asset_reuse
   test_timeline_segment
   test_color_pipeline
@@ -247,6 +248,15 @@ add_dependencies(test_thumbnail determinism_fixture determinism_fixture_tagged)
 target_compile_definitions(test_thumbnail PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
   ME_TEST_FIXTURE_MP4_TAGGED="${_fixture_mp4_tagged}")
+
+# test_composition_thumbnailer exercises CompositionThumbnailer::png_at
+# (composition-level thumbnail — distinct from me_thumbnail_png's
+# asset-level path). Reaches into src/ to instantiate the class
+# directly; no C API exposure yet.
+target_include_directories(test_composition_thumbnailer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_dependencies(test_composition_thumbnailer determinism_fixture)
+target_compile_definitions(test_composition_thumbnailer PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
 # test_render_cancel exercises me_render_start → me_render_cancel →
 # me_render_wait against the shared determinism fixture. Uses a 3-clip

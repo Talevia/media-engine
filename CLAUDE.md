@@ -71,9 +71,7 @@ Red lines. If a task requires any of these, stop and challenge per VISION §"发
 
 Visible in code but not wired end-to-end — expected follow-ups beyond M1, not bugs. This list reflects **current** reality; items that landed get deleted (not struck through or commented out). Authoritative stub inventory lives in `tools/check_stubs.sh` output — this section is the narrative gloss.
 
-- `CompositionThumbnailer` returns `ME_E_UNSUPPORTED` — timeline-level composited thumbnails land with M2 compose (see `STUB: composition-thumbnail-impl`; asset-level `me_thumbnail_png` is fully implemented and is a separate path, see `docs/PAIN_POINTS.md` 2026-04-23)
-
-Touching any of these → expect to wire it up rather than work around it.
+_(No known-incomplete items in the current snapshot — the stub inventory is empty. Run `tools/scan-debt.sh` to re-audit before any claim to the contrary.)_
 
 ## Commit conventions
 

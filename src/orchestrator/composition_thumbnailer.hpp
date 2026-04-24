@@ -30,9 +30,11 @@ public:
     CompositionThumbnailer(me_engine* engine, std::shared_ptr<const Timeline> timeline)
         : engine_(engine), tl_(std::move(timeline)) {}
 
-    /* Render a PNG of the composition at `time`. Caller frees *out_png via
-     * me_buffer_free. Returns ME_E_UNSUPPORTED until composition-thumbnail-impl
-     * lands (awaits M6 frame server). */
+    /* Render a PNG of the composition at `time`. Caller frees
+     * *out_png via me_buffer_free. Pulls a composed RGBA8 frame
+     * via Previewer::frame_at, scales to fit within
+     * (max_width, max_height) preserving aspect ratio (zero means
+     * "no cap on that axis"), then PNG-encodes via libavcodec. */
     me_status_t png_at(me_rational_t time,
                        int           max_width,
                        int           max_height,
@@ -40,8 +42,8 @@ public:
                        size_t*       out_size);
 
 private:
-    [[maybe_unused]] me_engine*      engine_;  /* used once composition-thumbnail-impl lands */
-    [[maybe_unused]] std::shared_ptr<const Timeline> tl_;
+    me_engine*                       engine_;
+    std::shared_ptr<const Timeline>  tl_;
 };
 
 }  // namespace me::orchestrator
