@@ -265,6 +265,23 @@ me::TextClipParams parse_text_clip_params(const json& j,
         out.y = parse_animated_number(j["y"], where + ".y");
     }
 
+    if (j.contains("maxWidth")) {
+        require(j["maxWidth"].is_number(), ME_E_PARSE,
+                where + ".maxWidth: expected number");
+        const double w = j.at("maxWidth").get<double>();
+        require(w > 0.0, ME_E_PARSE,
+                where + ".maxWidth: must be positive");
+        out.max_width = w;
+    }
+    if (j.contains("lineHeightMultiplier")) {
+        require(j["lineHeightMultiplier"].is_number(), ME_E_PARSE,
+                where + ".lineHeightMultiplier: expected number");
+        const double m = j.at("lineHeightMultiplier").get<double>();
+        require(m > 0.0, ME_E_PARSE,
+                where + ".lineHeightMultiplier: must be positive");
+        out.line_height_multiplier = m;
+    }
+
     return out;
 }
 

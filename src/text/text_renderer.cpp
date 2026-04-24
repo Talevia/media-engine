@@ -69,11 +69,21 @@ void TextRenderer::render(const me::TextClipParams& params,
     const double y_d         = params.y.evaluate_at(t);
     const auto   rgba        = params.color.evaluate_at(t);
 
-    backend_->draw_string(params.content,
-                          static_cast<float>(x_d),
-                          static_cast<float>(y_d),
-                          static_cast<float>(font_size_d),
-                          rgba[0], rgba[1], rgba[2], rgba[3]);
+    if (params.max_width.has_value()) {
+        backend_->draw_paragraph(params.content,
+                                  static_cast<float>(x_d),
+                                  static_cast<float>(y_d),
+                                  static_cast<float>(font_size_d),
+                                  static_cast<float>(*params.max_width),
+                                  static_cast<float>(params.line_height_multiplier),
+                                  rgba[0], rgba[1], rgba[2], rgba[3]);
+    } else {
+        backend_->draw_string(params.content,
+                              static_cast<float>(x_d),
+                              static_cast<float>(y_d),
+                              static_cast<float>(font_size_d),
+                              rgba[0], rgba[1], rgba[2], rgba[3]);
+    }
 
     backend_->read_pixels(out_rgba, stride_bytes);
 }

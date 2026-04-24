@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **text-clip-multiline-word-wrap** — `src/text/skia_backend.cpp:72-112` `draw_string` 调 SkCanvas::drawString 是单行 API。长 `TextClipParams.content` 溢出 canvas 右边界（无换行、无 wrap）。常见 motion-graphics 需求：caption-style 两三行 subtitle-ish text。**方向：** TextClipParams 加 `max_width` + `line_height_multiplier` 可选字段；SkiaBackend 加 `draw_paragraph(text, x, y, font_size, color, max_width)` 使用 Skia 的 SkParagraph module（或手动 word-break + shapeText）；render() 在 max_width 有值时走新路径。单元测试 emoji + CJK 两行 word-wrap。Milestone §M5-debt (cross)，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 

@@ -98,6 +98,35 @@ public:
                                     std::uint8_t     b,
                                     std::uint8_t     a);
 
+    /* Greedy word-wrap paragraph renderer. Breaks `text` into
+     * lines where each line measures ≤ `max_width` pixels (as
+     * computed by `SkFont::measureText`), then draws each line via
+     * `draw_string_with_fallback` at a y offset advanced by
+     * `font_size * line_height_multiplier` between lines.
+     *
+     * Break policy: explicit `\n` always starts a new line.
+     * Otherwise the loop advances codepoint-by-codepoint; when
+     * adding the next codepoint would push the current line past
+     * `max_width`, it flushes whatever the line holds and starts
+     * a fresh line with the pending codepoint. This gives
+     * correct wrapping for CJK (every codepoint is a valid break
+     * point) and for emoji, and acceptable wrapping for Latin
+     * text (may split mid-word; smart whitespace-aware wrap is
+     * a follow-up).
+     *
+     * When `max_width <= 0` or text is empty, degrades to a
+     * single `draw_string_with_fallback` call. */
+    void draw_paragraph(std::string_view text,
+                        float            x,
+                        float            y,
+                        float            font_size,
+                        float            max_width,
+                        float            line_height_multiplier,
+                        std::uint8_t     r,
+                        std::uint8_t     g,
+                        std::uint8_t     b,
+                        std::uint8_t     a);
+
     /* Copy current RGBA8 surface contents to the caller's buffer.
      * `dst_rgba` must have at least `width × height × 4` bytes;
      * `stride_bytes` is the pitch (usually width * 4). Returns

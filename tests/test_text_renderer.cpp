@@ -69,7 +69,7 @@ TEST_CASE("TextRenderer: static params render non-transparent pixels") {
 
     me::TextClipParams p;
     p.content    = "Hi";
-    p.color      = "#FFFFFF";  // white
+    p.color      = me::AnimatedColor::from_hex("#FFFFFF");  // white
     p.font_size  = me::AnimatedNumber::from_static(40.0);
     p.x          = me::AnimatedNumber::from_static(16.0);
     p.y          = me::AnimatedNumber::from_static(48.0);
@@ -94,7 +94,7 @@ TEST_CASE("TextRenderer: animated font_size → larger pixel coverage") {
 
     me::TextClipParams p;
     p.content   = "X";
-    p.color     = "#FFFFFF";
+    p.color     = me::AnimatedColor::from_hex("#FFFFFF");
     p.font_size = me::AnimatedNumber::from_keyframes(std::move(kfs));
     p.x         = me::AnimatedNumber::from_static(16.0);
     p.y         = me::AnimatedNumber::from_static(48.0);
@@ -126,7 +126,7 @@ TEST_CASE("TextRenderer: animated x shifts centroid right over time") {
 
     me::TextClipParams p;
     p.content   = "dot";
-    p.color     = "#FFFFFF";
+    p.color     = me::AnimatedColor::from_hex("#FFFFFF");
     p.font_size = me::AnimatedNumber::from_static(32.0);
     p.x         = me::AnimatedNumber::from_keyframes(std::move(kfs));
     p.y         = me::AnimatedNumber::from_static(48.0);
@@ -145,6 +145,109 @@ TEST_CASE("TextRenderer: animated x shifts centroid right over time") {
     REQUIRE(c_right.x > 0);
     /* Moved ~144px right → centroid should shift substantially. */
     CHECK(c_right.x > c_left.x + 50.0);
+}
+
+TEST_CASE("TextRenderer: max_width wraps long content across multiple lines") {
+    /* Pin text-clip-multiline-word-wrap: when TextClipParams has
+     * max_width set, TextRenderer routes through
+     * SkiaBackend::draw_paragraph which greedy-wraps at
+     * codepoint boundaries. A long CJK string at a small
+     * max_width must fill multiple y-bands; the same string
+     * without max_width should produce a single band that
+     * extends beyond the canvas right edge (pixels at the
+     * overflow x don't fit in W=256). */
+    const int tall_h = 192;
+    me::text::TextRenderer r(W, tall_h);
+    REQUIRE(r.valid());
+
+    me::TextClipParams p;
+    /* ~20 CJK + emoji codepoints — well over W=256 at 32px
+     * glyph width. */
+    p.content   = "你好世界日本語中国語test english 🎉 emoji";
+    p.color     = me::AnimatedColor::from_hex("#FFFFFF");
+    p.font_size = me::AnimatedNumber::from_static(32.0);
+    p.x         = me::AnimatedNumber::from_static(4.0);
+    p.y         = me::AnimatedNumber::from_static(40.0);
+    p.max_width = 240.0;  /* fits inside the W=256 canvas */
+    p.line_height_multiplier = 1.4;
+
+    /* Re-use the test's H=tall_h: pixel-scan the output for
+     * non-transparent y-rows; multi-line output should touch
+     * at least two separated y-bands (baselines at
+     * 40 / 40+32*1.4 = 44.8 → 84). */
+    std::vector<std::uint8_t> buf(static_cast<std::size_t>(W) * tall_h * 4, 0);
+    r.render(p, me_rational_t{0, 1}, buf.data(),
+             static_cast<std::size_t>(W) * 4);
+
+    /* Count rows with any non-transparent pixel; multi-line
+     * output crosses at least two distinct y-bands. */
+    int rows_with_ink = 0;
+    for (int y = 0; y < tall_h; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const std::size_t i = (static_cast<std::size_t>(y) * W + x) * 4;
+            if (buf[i + 3] != 0) { ++rows_with_ink; break; }
+        }
+    }
+    /* A single 32px line usually paints ~25-40 rows of ink.
+     * Two lines should paint ≥45. Use a conservative floor
+     * to keep the test stable across font versions. */
+    CHECK(rows_with_ink > 40);
+
+    /* Sanity: y-band separation. Find a y somewhere between
+     * the first-line baseline (~40) and second-line baseline
+     * (~85) that has no ink — proves two lines, not just one
+     * big line. */
+    auto any_ink_at_row = [&](int y) {
+        for (int x = 0; x < W; ++x) {
+            const std::size_t i = (static_cast<std::size_t>(y) * W + x) * 4;
+            if (buf[i + 3] != 0) return true;
+        }
+        return false;
+    };
+    bool found_gap = false;
+    for (int y = 50; y < 75; ++y) {
+        if (!any_ink_at_row(y)) { found_gap = true; break; }
+    }
+    CHECK(found_gap);
+}
+
+TEST_CASE("TextRenderer: explicit newline forces a break even inside max_width") {
+    me::text::TextRenderer r(W, 128);
+    REQUIRE(r.valid());
+
+    me::TextClipParams p;
+    p.content   = "A\nB";    /* two short lines, both fit max_width */
+    p.color     = me::AnimatedColor::from_hex("#FFFFFF");
+    p.font_size = me::AnimatedNumber::from_static(24.0);
+    p.x         = me::AnimatedNumber::from_static(4.0);
+    p.y         = me::AnimatedNumber::from_static(30.0);
+    p.max_width = 200.0;
+    p.line_height_multiplier = 1.5;
+
+    std::vector<std::uint8_t> buf(static_cast<std::size_t>(W) * 128 * 4, 0);
+    r.render(p, me_rational_t{0, 1}, buf.data(),
+             static_cast<std::size_t>(W) * 4);
+
+    /* Two distinct y-bands expected. Find the topmost inked row
+     * and the bottommost inked row; separation ≥ line_height. */
+    int top_y = -1, bot_y = -1;
+    for (int y = 0; y < 128; ++y) {
+        bool ink = false;
+        for (int x = 0; x < W; ++x) {
+            const std::size_t i = (static_cast<std::size_t>(y) * W + x) * 4;
+            if (buf[i + 3] != 0) { ink = true; break; }
+        }
+        if (ink) {
+            if (top_y < 0) top_y = y;
+            bot_y = y;
+        }
+    }
+    REQUIRE(top_y >= 0);
+    REQUIRE(bot_y >= 0);
+    /* line_height = 24 * 1.5 = 36; two lines span ~36px between
+     * baselines. Glyph ink extents are 15-20px; gap between
+     * lines ≥ 10px in practice. */
+    CHECK(bot_y - top_y >= 20);
 }
 
 TEST_CASE("TextRenderer: parse_hex_rgba round-trips #RRGGBB + #RRGGBBAA") {

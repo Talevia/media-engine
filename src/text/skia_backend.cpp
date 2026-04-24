@@ -198,4 +198,87 @@ void SkiaBackend::draw_string_with_fallback(std::string_view text,
     flush_run();
 }
 
+void SkiaBackend::draw_paragraph(std::string_view text,
+                                   float x, float y, float font_size,
+                                   float max_width, float line_height_mul,
+                                   std::uint8_t r, std::uint8_t g,
+                                   std::uint8_t b, std::uint8_t a) {
+    if (!valid_ || text.empty()) return;
+    if (max_width <= 0.0f || line_height_mul <= 0.0f) {
+        draw_string_with_fallback(text, x, y, font_size, r, g, b, a);
+        return;
+    }
+    if (!impl_->default_face) return;
+
+    const SkFont probe(impl_->default_face, font_size);
+    const float  line_height = font_size * line_height_mul;
+
+    /* Wrap one paragraph slice [ps, pe) into lines; advance
+     * `cursor_y` as it emits each line. Greedy per-codepoint:
+     * keep extending the current line until the next codepoint
+     * would push us past `max_width`, then flush and start
+     * a new one. */
+    float cursor_y = y;
+    auto emit_paragraph = [&](const char* ps, const char* pe) {
+        if (ps >= pe) {
+            /* Empty paragraph from a lone `\n` — still advances
+             * the cursor so explicit blank lines render. */
+            cursor_y += line_height;
+            return;
+        }
+        const char* line_start = ps;
+        const char* line_end   = ps;
+        while (line_end < pe) {
+            /* Advance one codepoint past line_end to form a
+             * candidate slice [line_start, next). */
+            const char* next = line_end;
+            (void)utf8_decode(next, pe);
+            const std::string_view candidate(
+                line_start, static_cast<std::size_t>(next - line_start));
+            const SkScalar w = probe.measureText(
+                candidate.data(), candidate.size(),
+                SkTextEncoding::kUTF8);
+            if (w > max_width && line_end > line_start) {
+                /* Overflow: flush the current line, restart at
+                 * the pending codepoint. */
+                const std::string_view line(
+                    line_start,
+                    static_cast<std::size_t>(line_end - line_start));
+                draw_string_with_fallback(line, x, cursor_y, font_size,
+                                           r, g, b, a);
+                cursor_y += line_height;
+                line_start = line_end;
+                /* Do not advance line_end — reprocess the pending
+                 * codepoint as the first char of the new line. */
+                continue;
+            }
+            line_end = next;
+        }
+        if (line_start < pe) {
+            const std::string_view line(
+                line_start,
+                static_cast<std::size_t>(pe - line_start));
+            draw_string_with_fallback(line, x, cursor_y, font_size,
+                                       r, g, b, a);
+            cursor_y += line_height;
+        }
+    };
+
+    /* Split `text` on explicit `\n`. Each paragraph goes through
+     * the wrapper; an explicit newline always forces a break. */
+    const char* p          = text.data();
+    const char* end        = p + text.size();
+    const char* para_start = p;
+    while (p < end) {
+        if (*p == '\n') {
+            emit_paragraph(para_start, p);
+            para_start = p + 1;
+        }
+        ++p;
+    }
+    if (para_start <= end) {
+        emit_paragraph(para_start, end);
+    }
+}
+
 }  // namespace me::text

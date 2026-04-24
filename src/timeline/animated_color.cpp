@@ -2,6 +2,7 @@
 #include "timeline/animated_interp.hpp"
 
 #include <cmath>
+#include <string>
 
 namespace me {
 
@@ -20,6 +21,34 @@ inline std::uint8_t lerp_u8(std::uint8_t a, std::uint8_t b, double u) {
 }
 
 }  // namespace
+
+namespace {
+
+std::uint8_t nibble_from(char c) {
+    if (c >= '0' && c <= '9') return static_cast<std::uint8_t>(c - '0');
+    if (c >= 'a' && c <= 'f') return static_cast<std::uint8_t>(c - 'a' + 10);
+    if (c >= 'A' && c <= 'F') return static_cast<std::uint8_t>(c - 'A' + 10);
+    return 0;
+}
+std::uint8_t byte_from(char hi, char lo) {
+    return static_cast<std::uint8_t>((nibble_from(hi) << 4) | nibble_from(lo));
+}
+
+}  // namespace
+
+AnimatedColor AnimatedColor::from_hex(const char* hex) {
+    if (!hex) return default_opaque_white();
+    const std::size_t n = std::char_traits<char>::length(hex);
+    if ((n != 7 && n != 9) || hex[0] != '#') {
+        return default_opaque_white();
+    }
+    std::array<std::uint8_t, 4> rgba{0xFF, 0xFF, 0xFF, 0xFF};
+    rgba[0] = byte_from(hex[1], hex[2]);
+    rgba[1] = byte_from(hex[3], hex[4]);
+    rgba[2] = byte_from(hex[5], hex[6]);
+    if (n == 9) rgba[3] = byte_from(hex[7], hex[8]);
+    return from_static(rgba);
+}
 
 std::array<std::uint8_t, 4> AnimatedColor::evaluate_at(me_rational_t t) const {
     if (static_value.has_value()) return *static_value;

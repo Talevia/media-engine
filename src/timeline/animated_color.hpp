@@ -71,6 +71,15 @@ struct AnimatedColor {
         return from_static({0xFF, 0xFF, 0xFF, 0xFF});
     }
 
+    /* Construct a static AnimatedColor from a literal hex string.
+     * Accepts "#RRGGBB" (size 7, opaque) or "#RRGGBBAA" (size 9).
+     * Invalid shapes produce opaque white — this factory is
+     * intended for hand-written test / example code where the
+     * shape is known at the call site; production parsing goes
+     * through `parse_animated_color` which rejects invalid shapes
+     * with ME_E_PARSE. */
+    static AnimatedColor from_hex(const char* hex);
+
     /* Evaluate at composition-time t. Contract mirrors
      * AnimatedNumber::evaluate_at — static ignores t; keyframed
      * returns first kf before the range / last kf after; between

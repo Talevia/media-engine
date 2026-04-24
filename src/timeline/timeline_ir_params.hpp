@@ -18,6 +18,7 @@
 #include "timeline/animated_number.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -161,6 +162,17 @@ struct TextClipParams {
     AnimatedNumber font_size  = AnimatedNumber::from_static(48.0);
     AnimatedNumber x          = AnimatedNumber::from_static(0.0);
     AnimatedNumber y          = AnimatedNumber::from_static(0.0);
+
+    /* Paragraph layout — absent / nullopt = old single-line
+     * behaviour (draw_string_with_fallback, no wrap). Positive
+     * value activates word-wrap via SkiaBackend::draw_paragraph:
+     * the renderer greedy-breaks the content at codepoint
+     * boundaries so no line exceeds max_width pixels, and
+     * advances the y cursor by `font_size *
+     * line_height_multiplier` between lines. Explicit `\n` in
+     * content always starts a new line regardless of max_width. */
+    std::optional<double> max_width;
+    double                line_height_multiplier = 1.2;
 };
 
 /* Synthetic subtitle-clip parameters — used when ClipType::Subtitle.
