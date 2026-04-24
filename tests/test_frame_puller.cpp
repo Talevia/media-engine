@@ -204,25 +204,27 @@ TEST_CASE("pull_next_audio_frame: negative stream idx returns ME_E_INVALID_ARG")
               fmt.f, -1, nullptr, pkt.p, frame.f, nullptr) == ME_E_INVALID_ARG);
 }
 
-TEST_CASE("pull_next_audio_frame: when fixture has no audio, returns NOT_FOUND if run against video stream index") {
-    /* The shared determinism fixture is video-only. Exercising
-     * pull_next_audio_frame against its video stream idx (with an
-     * arbitrary decoder) would mix state-machine semantics — the
-     * helper filters out non-matching stream_index packets, so
-     * passing an audio_stream_idx that doesn't exist in the demux
-     * drains without producing any frames. */
-    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+TEST_CASE("pull_next_audio_frame: drains silent AAC audio from --with-audio fixture") {
+    /* Uses the audio-capable variant of the determinism fixture
+     * (gen_fixture --with-audio) so this test exercises the real
+     * AAC decode path rather than falling through to skip. The
+     * fixture is declared via ME_TEST_FIXTURE_MP4_WITH_AUDIO by
+     * tests/CMakeLists.txt, which wires the dependency. */
+#ifndef ME_TEST_FIXTURE_MP4_WITH_AUDIO
+#define ME_TEST_FIXTURE_MP4_WITH_AUDIO ""
+#endif
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping: audio fixture not available");
+        return;
+    }
 
     FmtGuard fmt;
     REQUIRE(avformat_open_input(&fmt.f, fixture_path.c_str(), nullptr, nullptr) >= 0);
     REQUIRE(avformat_find_stream_info(fmt.f, nullptr) >= 0);
 
     const int asi = av_find_best_stream(fmt.f, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-    if (asi < 0) {
-        MESSAGE("fixture has no audio stream — pull_next_audio_frame full-drain test skipped");
-        return;
-    }
+    REQUIRE(asi >= 0);  /* --with-audio variant must have audio */
 
     /* Fixture surprisingly has audio — drain and count. */
     const AVCodec* codec = avcodec_find_decoder(fmt.f->streams[asi]->codecpar->codec_id);

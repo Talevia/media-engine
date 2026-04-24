@@ -182,6 +182,19 @@ add_custom_command(
   VERBATIM)
 add_custom_target(determinism_fixture_tagged DEPENDS ${_fixture_mp4_tagged})
 
+# Audio-capable variant: same video stream + a silent AAC audio stream.
+# Consumers: audio-mix pipeline tests that need a real audio stream
+# to exercise pull_next_audio_frame / the planned AudioMixScheduler.
+set(_fixture_mp4_with_audio "${_fixture_dir}/determinism_input_with_audio.mp4")
+add_custom_command(
+  OUTPUT ${_fixture_mp4_with_audio}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
+  COMMAND $<TARGET_FILE:gen_fixture> --with-audio ${_fixture_mp4_with_audio}
+  DEPENDS gen_fixture ${CMAKE_CURRENT_LIST_FILE}
+  COMMENT "Generating audio-capable determinism test fixture: ${_fixture_mp4_with_audio}"
+  VERBATIM)
+add_custom_target(determinism_fixture_with_audio DEPENDS ${_fixture_mp4_with_audio})
+
 # test_probe reuses the determinism fixture — same build-time MP4 gives
 # us a known codec / dimensions / framerate / color-tag state to assert
 # probe output against.
@@ -211,10 +224,13 @@ target_compile_definitions(test_render_cancel PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
 # test_frame_puller wires its fixture path + dependency now that
-# _fixture_mp4 is defined.
-add_dependencies(test_frame_puller determinism_fixture)
+# _fixture_mp4 is defined. Also picks up the audio-capable variant
+# for the pull_next_audio_frame drain test (video-only fixture
+# makes that path fall through to the skip branch).
+add_dependencies(test_frame_puller determinism_fixture determinism_fixture_with_audio)
 target_compile_definitions(test_frame_puller PRIVATE
-  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 
 # test_compose_sink_e2e builds a 2-track timeline using the shared
 # fixture twice (both tracks reference the same asset; loader creates

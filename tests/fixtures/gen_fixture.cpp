@@ -90,39 +90,52 @@ int die(const char* where, int rc) {
 }
 
 int drain_packets(AVCodecContext* enc, AVFormatContext* oc, AVPacket* pkt,
-                   AVRational enc_tb, AVRational mux_tb) {
+                   AVRational enc_tb, AVRational mux_tb, int stream_index = 0) {
     for (;;) {
         const int rc = avcodec_receive_packet(enc, pkt);
         if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) return 0;
         if (rc < 0) return die("avcodec_receive_packet", rc);
 
         av_packet_rescale_ts(pkt, enc_tb, mux_tb);
-        pkt->stream_index = 0;
+        pkt->stream_index = stream_index;
         const int wr = av_interleaved_write_frame(oc, pkt);
         av_packet_unref(pkt);
         if (wr < 0) return die("av_interleaved_write_frame", wr);
     }
 }
 
+/* Audio encoder constants for the --with-audio variant. 48000 Hz mono
+ * FLTP is the canonical AAC decoder output format; encoder accepts it
+ * natively, no swresample needed. 1s of silence = 47 or 48 frames at
+ * 1024 samples/frame (AAC LC default frame_size). */
+constexpr int kAudioSampleRate = 48000;
+constexpr int kAudioDurationFrames = 48;   /* ~1.024 s, slightly > video length */
+
 }  // namespace
 
 int main(int argc, char** argv) {
     const char* out_path = nullptr;
     bool tagged = false;
+    bool with_audio = false;
 
-    /* Accept `gen_fixture <out>` (original shape) or `gen_fixture
-     * --tagged <out>`. The tagged variant sets bt709 / limited color
-     * metadata on the encoder before avcodec_open2; whether it survives
-     * into the MP4 container depends on the muxer — MPEG-4 Part 2 in
-     * mov doesn't reliably round-trip every field, so the tagged
-     * fixture is a scaffold for future color-aware thumbnail /
-     * probe tests rather than a strict "these fields will ffprobe
-     * correctly" guarantee. See decision
-     * 2026-04-23-debt-test-thumbnail-color-tagged-fixture.md. */
+    /* Accepted shapes:
+     *   gen_fixture <out>                            — video-only default
+     *   gen_fixture --tagged <out>                   — same + bt709/limited metadata
+     *   gen_fixture --with-audio <out>               — adds silent AAC mono audio
+     *
+     * The --with-audio variant is for tests that need a real audio
+     * stream (e.g. the audio-mix pipeline's per-demux pull helper).
+     * The output has 1s of silence at 48000 Hz mono AAC alongside the
+     * video; MP4 container. Determinism on the audio side depends on
+     * libavcodec's AAC encoder being deterministic given BITEXACT
+     * flag + thread_count=1 + fixed input — it generally is, though
+     * we don't test this fixture in byte-determinism suites. */
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
         if (std::strcmp(a, "--tagged") == 0) {
             tagged = true;
+        } else if (std::strcmp(a, "--with-audio") == 0) {
+            with_audio = true;
         } else if (!out_path) {
             out_path = a;
         } else {
@@ -131,7 +144,7 @@ int main(int argc, char** argv) {
         }
     }
     if (!out_path) {
-        std::fprintf(stderr, "usage: gen_fixture [--tagged] <out.mp4>\n");
+        std::fprintf(stderr, "usage: gen_fixture [--tagged] [--with-audio] <out.mp4>\n");
         return 2;
     }
 
@@ -190,6 +203,44 @@ int main(int argc, char** argv) {
     rc = avcodec_parameters_from_context(st->codecpar, enc.get());
     if (rc < 0) return die("avcodec_parameters_from_context", rc);
 
+    /* --- Audio stream (optional, --with-audio flag) --------------------
+     * libavcodec's built-in AAC encoder, mono 48kHz FLTP, silent samples.
+     * Purpose: produce a fixture that test_frame_puller / audio-mix
+     * tests can drain to exercise the pull_next_audio_frame path. Not
+     * part of test_determinism (AAC encoder determinism is weaker than
+     * MPEG-4 Part 2 under bitexact flags). */
+    CodecCtxPtr aenc;
+    AVStream* ast = nullptr;
+    if (with_audio) {
+        const AVCodec* acodec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+        if (!acodec) {
+            std::fprintf(stderr, "gen_fixture: AAC encoder not available\n");
+            return 1;
+        }
+        aenc.reset(avcodec_alloc_context3(acodec));
+        if (!aenc) return die("avcodec_alloc_context3(audio)", AVERROR(ENOMEM));
+        aenc->sample_rate  = kAudioSampleRate;
+        aenc->sample_fmt   = AV_SAMPLE_FMT_FLTP;
+        AVChannelLayout mono = AV_CHANNEL_LAYOUT_MONO;
+        rc = av_channel_layout_copy(&aenc->ch_layout, &mono);
+        if (rc < 0) return die("av_channel_layout_copy", rc);
+        aenc->bit_rate     = 64000;
+        aenc->time_base    = AVRational{1, kAudioSampleRate};
+        aenc->thread_count = 1;
+        aenc->flags       |= AV_CODEC_FLAG_BITEXACT;
+        if (oc->oformat->flags & AVFMT_GLOBALHEADER) {
+            aenc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        }
+        rc = avcodec_open2(aenc.get(), acodec, nullptr);
+        if (rc < 0) return die("avcodec_open2(audio)", rc);
+
+        ast = avformat_new_stream(oc, nullptr);
+        if (!ast) { std::fprintf(stderr, "gen_fixture: avformat_new_stream(audio)\n"); return 1; }
+        ast->time_base = aenc->time_base;
+        rc = avcodec_parameters_from_context(ast->codecpar, aenc.get());
+        if (rc < 0) return die("avcodec_parameters_from_context(audio)", rc);
+    }
+
     rc = avio_open(&oc->pb, out_path, AVIO_FLAG_WRITE);
     if (rc < 0) return die("avio_open", rc);
     rc = avformat_write_header(oc, nullptr);
@@ -219,11 +270,56 @@ int main(int argc, char** argv) {
         }
     }
 
-    /* Flush encoder */
+    /* Flush video encoder */
     rc = avcodec_send_frame(enc.get(), nullptr);
     if (rc < 0) return die("avcodec_send_frame(flush)", rc);
     if (int r = drain_packets(enc.get(), oc, pkt.get(), enc->time_base, st->time_base); r != 0) {
         return r;
+    }
+
+    /* --- Audio encode loop (if --with-audio) -----------------------
+     * kAudioDurationFrames × aenc->frame_size samples of silence.
+     * AAC LC default frame_size = 1024; kAudioDurationFrames=48 gives
+     * 48 * 1024 = 49152 samples = 1.024s at 48kHz. Silence = all-zero
+     * FLTP planes. PTS = i * frame_size. */
+    if (with_audio && aenc && ast) {
+        FramePtr aframe(av_frame_alloc());
+        if (!aframe) return die("av_frame_alloc(audio)", AVERROR(ENOMEM));
+        aframe->format      = aenc->sample_fmt;
+        aframe->sample_rate = aenc->sample_rate;
+        rc = av_channel_layout_copy(&aframe->ch_layout, &aenc->ch_layout);
+        if (rc < 0) return die("av_channel_layout_copy(audio frame)", rc);
+        aframe->nb_samples  = aenc->frame_size > 0 ? aenc->frame_size : 1024;
+        rc = av_frame_get_buffer(aframe.get(), 0);
+        if (rc < 0) return die("av_frame_get_buffer(audio)", rc);
+
+        const int audio_stream_idx = ast->index;
+        for (int i = 0; i < kAudioDurationFrames; ++i) {
+            rc = av_frame_make_writable(aframe.get());
+            if (rc < 0) return die("av_frame_make_writable(audio)", rc);
+            /* Silence: zero out the FLTP plane(s). Mono → 1 plane. */
+            for (int ch = 0; ch < aframe->ch_layout.nb_channels; ++ch) {
+                std::memset(aframe->data[ch], 0,
+                            aframe->nb_samples * sizeof(float));
+            }
+            aframe->pts = static_cast<int64_t>(i) * aframe->nb_samples;
+
+            rc = avcodec_send_frame(aenc.get(), aframe.get());
+            if (rc < 0) return die("avcodec_send_frame(audio)", rc);
+            if (int r = drain_packets(aenc.get(), oc, pkt.get(),
+                                       aenc->time_base, ast->time_base,
+                                       audio_stream_idx); r != 0) {
+                return r;
+            }
+        }
+        /* Flush audio encoder */
+        rc = avcodec_send_frame(aenc.get(), nullptr);
+        if (rc < 0) return die("avcodec_send_frame(audio flush)", rc);
+        if (int r = drain_packets(aenc.get(), oc, pkt.get(),
+                                   aenc->time_base, ast->time_base,
+                                   audio_stream_idx); r != 0) {
+            return r;
+        }
     }
 
     rc = av_write_trailer(oc);
