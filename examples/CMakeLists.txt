@@ -123,3 +123,9 @@ foreach(_expected ${_me_expected_examples})
       "media_engine::media_engine. Did its CMakeLists bypass me_add_example?")
   endif()
 endforeach()
+
+# ctest coverage for examples 07 / 08 / 09 lives in tests/CMakeLists.txt
+# (see "ctest coverage for examples 07/08/09" section). The fixture
+# target (`determinism_fixture`) is created in tests/CMakeLists.txt and
+# top-level adds tests AFTER examples, so the add_test calls have to
+# live where the target is already in scope.

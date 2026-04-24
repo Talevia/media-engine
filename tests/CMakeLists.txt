@@ -590,3 +590,43 @@ target_compile_definitions(test_render_job_lifecycle PRIVATE
 add_dependencies(test_output_spec determinism_fixture)
 target_compile_definitions(test_output_spec PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# ----- ctest coverage for examples 07 / 08 / 09 ---------------------------
+# These three examples landed in cycle 65 (afa76a7) but no ctest target
+# exercised them — a future me_render_frame / me_render_start /
+# me_thumbnail signature drift would break them silently until talevia
+# integrates. The add_test entries live here (not in examples/CMakeLists)
+# because the determinism_fixture target is created above and top-level
+# adds examples BEFORE tests; deferring to tests/ keeps the dependency
+# direction one-way.
+if(TARGET 07_compose_multitrack
+    AND TARGET 08_frame_server_scrub
+    AND TARGET 09_text_clip)
+  set(_me_example_out "${CMAKE_BINARY_DIR}/examples/_test_output")
+  file(MAKE_DIRECTORY "${_me_example_out}")
+
+  add_test(NAME example_07_compose_multitrack
+           COMMAND $<TARGET_FILE:07_compose_multitrack>
+                   "${_fixture_mp4}"
+                   "${_me_example_out}/07_out.mp4")
+  set_tests_properties(example_07_compose_multitrack PROPERTIES TIMEOUT 30)
+  add_dependencies(07_compose_multitrack determinism_fixture)
+
+  add_test(NAME example_08_frame_server_scrub
+           COMMAND $<TARGET_FILE:08_frame_server_scrub>
+                   "${_fixture_mp4}"
+                   "${_me_example_out}/08_frames")
+  set_tests_properties(example_08_frame_server_scrub PROPERTIES TIMEOUT 30)
+  add_dependencies(08_frame_server_scrub determinism_fixture)
+
+  # 09_text_clip composites a Skia-rendered text overlay onto video;
+  # without ME_HAS_SKIA the text branch is omitted (compose still runs
+  # the video bottom track). Run the test either way — exit code is the
+  # signal we care about.
+  add_test(NAME example_09_text_clip
+           COMMAND $<TARGET_FILE:09_text_clip>
+                   "${_fixture_mp4}"
+                   "${_me_example_out}/09_out.mp4")
+  set_tests_properties(example_09_text_clip PROPERTIES TIMEOUT 30)
+  add_dependencies(09_text_clip determinism_fixture)
+endif()
