@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **effect-gpu-color-correct** — 首个真实 GPU effect。`grep 'ColorCorrect\|Brightness\|Contrast\|Saturation' src` 空。M3 exit criterion "≥ 3 个 GPU effect (blur / color-correct / LUT)" 中最简单的一个（单 fragment shader、3 个标量 uniform，无 kernel 邻域采样）。**方向：** 新 `src/effect/color_correct_effect.{hpp,cpp}` : `GpuEffect`，embedded GLSL-ES fragment shader `fs_color_correct.sc`（brightness / contrast / saturation 各一 uniform float）；先不走 bgfx shaderc 预编译（会把 BGFX_BUILD_TOOLS 打开，重新 ~3min 编译）——用 `bgfx::ShaderHandle bgfx::createEmbeddedShader` + 手写 SPIR-V 字节数组，或者 runtime `bgfx::createShader` 用 `BGFX_RESOURCE_PATH` 下的编译产物（一次性 commit 编译好的 .bin）。实装 tests/test_color_correct_effect.cpp：创建 1×1 红色 src framebuffer，brightness=0.5，readback 应为灰色（0.5, 0, 0）。Milestone §M3，Rubric §5.3。
 
 ## P1（强烈建议，M3 主线 / 跨 milestone debt）
 

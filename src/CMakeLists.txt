@@ -162,6 +162,7 @@ add_library(media_engine STATIC
   gpu/gpu_backend.cpp
   gpu/render_thread.cpp
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/gpu/bgfx_gpu_backend.cpp>
+  $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/color_correct_effect.cpp>
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp

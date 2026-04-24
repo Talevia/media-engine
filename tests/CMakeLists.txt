@@ -324,6 +324,23 @@ if(ME_WITH_GPU)
   add_test(NAME test_gpu_effect_chain COMMAND test_gpu_effect_chain)
 endif()
 
+# test_color_correct_effect verifies the first real GpuEffect's
+# fragment-shader math (brightness / contrast / saturation) via
+# pixel readback. ME_WITH_GPU-only; skips on non-Metal at runtime
+# (shader bytecode today is Metal-only — see
+# src/effect/shaders/README.md).
+if(ME_WITH_GPU)
+  add_executable(test_color_correct_effect test_main.cpp test_color_correct_effect.cpp)
+  target_link_libraries(test_color_correct_effect PRIVATE
+    media_engine::media_engine
+    doctest::doctest
+    bgfx
+    bx)
+  target_include_directories(test_color_correct_effect PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(test_color_correct_effect PRIVATE ME_HAS_GPU=1)
+  add_test(NAME test_color_correct_effect COMMAND test_color_correct_effect)
+endif()
+
 # test_animated_number_loader exercises the JSON → me::AnimatedNumber
 # parse helper (layer 2 of transform-animated-support). Pure C++;
 # pulls in nlohmann/json via loader_helpers.hpp.
