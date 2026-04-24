@@ -18,6 +18,18 @@ Every other API call takes an engine handle. An engine is **thread-safe at the A
 
 Create one engine per "hosting context" (e.g., per talevia `App`, per test). Many engines can coexist in one process.
 
+`me_engine_create` accepts an optional `me_engine_config_t` (pass `NULL` for defaults). Struct layout is append-only — zero-init existing fields continue to map to the original defaults:
+
+| Field                 | Type             | Default | Meaning                                                                                                 |
+|-----------------------|------------------|---------|---------------------------------------------------------------------------------------------------------|
+| `num_worker_threads`  | `int`            | `0`     | Workers for decode / filter / encode. `0` = `std::thread::hardware_concurrency()`.                      |
+| `log_level`           | `me_log_level_t` | `TRACE` | Minimum severity retained by the engine's internal log router.                                          |
+| `cache_dir`           | `const char*`    | `NULL`  | On-disk cache root. `NULL` / empty = disk cache disabled; frames stay in-memory only.                   |
+| `memory_cache_bytes`  | `int64_t`        | `0`     | In-memory frame-pool cap. `0` = unlimited (no eviction). When positive, `FramePool::acquire` returns `nullptr` once the currently-held byte count would exceed the cap — callers treat `nullptr` as back-pressure. |
+| `disk_cache_bytes`    | `int64_t`        | `0`     | On-disk cache cap. `0` = unlimited (directory grows until the host clears it). Positive cap enables LRU-by-mtime eviction inside `DiskCache::put` — oldest `.bin` entries are removed to keep the footprint under the limit. Cap only applies when `cache_dir` is set. |
+
+`memory_cache_bytes` enforces currently-held bytes; `disk_cache_bytes` enforces `.bin` file footprint — each has its own counter and eviction policy. Both fields are advisory back-pressure signals, not hard capacity guarantees: a single entry larger than the cap is rejected outright (returns `false` / `nullptr`) without evicting live data.
+
 ### Timeline
 
 `me_timeline_t*` is an **immutable parsed IR**. Loading is a one-shot operation; to "edit" a timeline, the host rebuilds JSON and re-loads. The engine may intern timeline objects internally, so re-loading a semantically identical JSON can return a cached IR cheaply.
