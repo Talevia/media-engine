@@ -17,6 +17,7 @@
 #include <doctest/doctest.h>
 
 #include "resource/disk_cache.hpp"
+#include "scratch_dir.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -30,23 +31,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-/* Create a unique scratch directory for a test case, scoped to
- * a RAII guard that removes it on destruction. */
-struct ScratchDir {
-    fs::path path;
-    ScratchDir() {
-        path = fs::temp_directory_path() /
-               ("me_disk_cache_test_" +
-                std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())) +
-                "_" +
-                std::to_string(reinterpret_cast<uintptr_t>(this)));
-        fs::create_directories(path);
-    }
-    ~ScratchDir() {
-        std::error_code ec;
-        fs::remove_all(path, ec);
-    }
-};
+using me::testing::ScratchDir;
 
 /* Make a deterministic checkerboard RGBA pattern for round-trip
  * verification. */
@@ -75,7 +60,7 @@ TEST_CASE("DiskCache: empty-dir ctor → disabled") {
 }
 
 TEST_CASE("DiskCache: put + get round-trip preserves pixels") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string());
     REQUIRE(c.enabled());
 
@@ -95,13 +80,13 @@ TEST_CASE("DiskCache: put + get round-trip preserves pixels") {
 }
 
 TEST_CASE("DiskCache: get missing hash → nullopt") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string());
     CHECK_FALSE(c.get("never_written").has_value());
 }
 
 TEST_CASE("DiskCache: second put on same hash overwrites") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string());
 
     const auto v1 = make_rgba(4, 4, 0x10);
@@ -117,7 +102,7 @@ TEST_CASE("DiskCache: second put on same hash overwrites") {
 }
 
 TEST_CASE("DiskCache: invalidate removes a single entry") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string());
 
     const auto v = make_rgba(4, 4);
@@ -130,7 +115,7 @@ TEST_CASE("DiskCache: invalidate removes a single entry") {
 }
 
 TEST_CASE("DiskCache: clear removes all .bin files") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string());
 
     const auto v = make_rgba(4, 4);
@@ -150,7 +135,7 @@ TEST_CASE("DiskCache: clear removes all .bin files") {
 }
 
 TEST_CASE("DiskCache: limit=0 (unlimited) never evicts") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string(), /*limit_bytes=*/0);
 
     const auto rgba = make_rgba(16, 16);
@@ -168,7 +153,7 @@ TEST_CASE("DiskCache: limit=0 (unlimited) never evicts") {
 }
 
 TEST_CASE("DiskCache: bounded limit evicts oldest on put overflow") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     /* Each 16×16 RGBA frame = 16 header + 16×16×4 body = 1040
      * bytes.  Cap at 3 frames worth (3120 bytes). */
     constexpr int64_t kFrameBytes = 16 + 16 * 16 * 4;
@@ -202,7 +187,7 @@ TEST_CASE("DiskCache: bounded limit evicts oldest on put overflow") {
 }
 
 TEST_CASE("DiskCache: oversized put rejected without evicting") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     constexpr int64_t kSmallCap = 1024;  /* under one 16×16 frame */
     me::resource::DiskCache c(d.path.string(), kSmallCap);
 
@@ -220,7 +205,7 @@ TEST_CASE("DiskCache: oversized put rejected without evicting") {
 }
 
 TEST_CASE("DiskCache: invalidate / clear update disk_bytes_used") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string(), /*limit=*/0);
 
     const auto rgba = make_rgba(8, 8);
@@ -239,7 +224,7 @@ TEST_CASE("DiskCache: invalidate / clear update disk_bytes_used") {
 }
 
 TEST_CASE("DiskCache: ctor seeds disk_bytes_used from existing files") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     {
         me::resource::DiskCache c(d.path.string(), /*limit=*/0);
         const auto rgba = make_rgba(8, 8);
@@ -255,7 +240,7 @@ TEST_CASE("DiskCache: ctor seeds disk_bytes_used from existing files") {
 }
 
 TEST_CASE("DiskCache: concurrent puts from multiple threads don't corrupt") {
-    ScratchDir d;
+    ScratchDir d{"disk_cache"};
     me::resource::DiskCache c(d.path.string());
 
     constexpr int N_THREADS = 4;

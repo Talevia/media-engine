@@ -11,10 +11,13 @@
 
 #include <media_engine.h>
 
+#include "scratch_dir.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -53,18 +56,15 @@ std::string build_single_clip_json(const char* uri) {
 struct TimelineRAII {
     me_engine_t*   eng = nullptr;
     me_timeline_t* tl  = nullptr;
-    /* Scratch dir for DiskCache tests — created when use_cache is
-     * true. Cleaned up in dtor. */
-    std::filesystem::path cache_dir;
+    /* Scratch dir for DiskCache tests — populated when use_cache
+     * is true. ScratchDir's dtor handles remove_all. */
+    std::unique_ptr<me::testing::ScratchDir> cache_dir;
 
     explicit TimelineRAII(bool use_cache = false) {
         me_engine_config_t cfg{};
         if (use_cache) {
-            cache_dir = std::filesystem::temp_directory_path() /
-                        ("me_frame_server_test_" +
-                         std::to_string(reinterpret_cast<uintptr_t>(this)));
-            std::filesystem::create_directories(cache_dir);
-            cache_dir_str = cache_dir.string();
+            cache_dir = std::make_unique<me::testing::ScratchDir>("frame_server");
+            cache_dir_str = cache_dir->path.string();
             cfg.cache_dir = cache_dir_str.c_str();
         }
         me_engine_create(&cfg, &eng);
@@ -75,10 +75,7 @@ struct TimelineRAII {
     ~TimelineRAII() {
         if (tl)  me_timeline_destroy(tl);
         if (eng) me_engine_destroy(eng);
-        if (!cache_dir.empty()) {
-            std::error_code ec;
-            std::filesystem::remove_all(cache_dir, ec);
-        }
+        /* cache_dir's unique_ptr dtor → ScratchDir dtor → remove_all */
     }
 private:
     std::string cache_dir_str;  /* keeps the C string alive for cfg.cache_dir */

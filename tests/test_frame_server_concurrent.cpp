@@ -23,6 +23,8 @@
 
 #include <media_engine.h>
 
+#include "scratch_dir.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -81,19 +83,10 @@ TEST_CASE("me_render_frame: concurrent scrubbing from 4 threads returns valid fr
      * — threaded fetches should race through the cache's mutex
      * without corrupting the in-memory `disk_bytes_used` counter
      * or the .bin files on disk. */
-    const fs::path cache_dir = fs::temp_directory_path() /
-                                ("me_frame_server_concurrent_" +
-                                 std::to_string(
-                                     reinterpret_cast<uintptr_t>(
-                                         &fixture_path)));
-    fs::create_directories(cache_dir);
-    struct ScratchGuard {
-        fs::path p;
-        ~ScratchGuard() { std::error_code ec; fs::remove_all(p, ec); }
-    } cleanup{cache_dir};
+    me::testing::ScratchDir cache{"frame_server_concurrent"};
 
     me_engine_config_t cfg{};
-    const std::string cache_dir_str = cache_dir.string();
+    const std::string cache_dir_str = cache.path.string();
     cfg.cache_dir = cache_dir_str.c_str();
 
     EngineHandle eng;
