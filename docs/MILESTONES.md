@@ -46,7 +46,7 @@
 ### Exit criteria
 - [x] 所有 animated property 类型的插值正确（linear / bezier / hold / stepped）
 - [x] bgfx 集成，macOS Metal 后端可渲染
-- [ ] EffectChain 能把连续 ≥ 2 个像素级 effect 合并成单 pass
+- [x] EffectChain 能把连续 ≥ 2 个像素级 effect 合并成单 pass
 - [x] ≥ 3 个 GPU effect（blur / color-correct / LUT）
 - [ ] 1080p@60 可实时渲染带 3-5 个 GPU effect 的 timeline
 
