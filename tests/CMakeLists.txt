@@ -63,6 +63,7 @@ set(_test_suites
   test_audio_effect_chain
   test_reencode_pts_remap
   test_subtitle_renderer
+  test_skia_backend
 )
 
 foreach(_suite ${_test_suites})
@@ -457,6 +458,13 @@ target_link_libraries(test_reencode_pts_remap PRIVATE
 target_include_directories(test_subtitle_renderer PRIVATE ${CMAKE_SOURCE_DIR}/src)
 if(ME_WITH_LIBASS)
   target_compile_definitions(test_subtitle_renderer PRIVATE ME_HAS_LIBASS=1)
+endif()
+
+# test_skia_backend exercises me::text::SkiaBackend (Skia
+# wrapper). ME_HAS_SKIA compile def gates the real test body.
+target_include_directories(test_skia_backend PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_SKIA)
+  target_compile_definitions(test_skia_backend PRIVATE ME_HAS_SKIA=1)
 endif()
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE

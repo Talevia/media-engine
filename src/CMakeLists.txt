@@ -53,6 +53,52 @@ if(ME_WITH_LIBASS)
   endif()
 endif()
 
+# Skia — prebuilt binary via JetBrains skia-pack (per ab08f7b
+# skia-integration-plan). Platform coverage today: macOS arm64
+# + macOS x86_64. The skia-pack release bundles per-platform
+# artifacts; we pick the right one via the `SKIA_ARCH` branch
+# below. Linux / Windows extensions add parallel branches in a
+# follow-up cycle. Flag auto-flips OFF on unsupported hosts —
+# SkiaBackend codepath degrades cleanly (ME_HAS_SKIA compile
+# def gates every use).
+if(ME_WITH_SKIA)
+  set(SKIA_URL   "")
+  set(SKIA_HASH  "")
+  set(SKIA_ARCH  "")
+  if(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+    set(SKIA_ARCH "arm64")
+    set(SKIA_URL  "https://github.com/JetBrains/skia-pack/releases/download/m144-e2e6623374-4/Skia-m144-e2e6623374-4-macos-Release-arm64.zip")
+    set(SKIA_HASH "5ec2f81f28bf79ce4b9fd744dd183b3f718cb72a742a8465ae44f395a7bfb411")
+  elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+    set(SKIA_ARCH "x64")
+    set(SKIA_URL  "https://github.com/JetBrains/skia-pack/releases/download/m144-e2e6623374-4/Skia-m144-e2e6623374-4-macos-Release-x64.zip")
+    set(SKIA_HASH "077513011356f9d96c596def3c5b292e43c705dc6902812daa82bc147303a9f4")
+  else()
+    message(WARNING "ME_WITH_SKIA=ON but platform is not macOS arm64 / x86_64 "
+            "(got ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}) — "
+            "flipping OFF. Linux / Windows binaries exist on the "
+            "same skia-pack release; add parallel branches here "
+            "when a real build target needs them.")
+    set(ME_WITH_SKIA OFF CACHE BOOL "" FORCE)
+  endif()
+
+  if(ME_WITH_SKIA)
+    FetchContent_Declare(
+      skia_pack
+      URL      "${SKIA_URL}"
+      URL_HASH SHA256=${SKIA_HASH}
+    )
+    FetchContent_MakeAvailable(skia_pack)
+
+    set(SKIA_OUT_DIR "${skia_pack_SOURCE_DIR}/out/Release-macos-${SKIA_ARCH}")
+    add_library(skia STATIC IMPORTED)
+    set_target_properties(skia PROPERTIES
+      IMPORTED_LOCATION             "${SKIA_OUT_DIR}/libskia.a"
+      INTERFACE_INCLUDE_DIRECTORIES "${skia_pack_SOURCE_DIR}"
+    )
+  endif()
+endif()
+
 # OpenColorIO — opt-in (off by default; see ME_WITH_OCIO in top-level
 # CMakeLists.txt for the rationale). When on, we FetchContent OCIO
 # v2.5.1 and let it pull its own transitive deps (Imath, yaml-cpp,
@@ -221,6 +267,7 @@ add_library(media_engine STATIC
   effect/lut.cpp
   $<$<BOOL:${ME_WITH_SOUNDTOUCH}>:${CMAKE_CURRENT_SOURCE_DIR}/audio/tempo.cpp>
   $<$<BOOL:${ME_WITH_LIBASS}>:${CMAKE_CURRENT_SOURCE_DIR}/text/subtitle_renderer.cpp>
+  $<$<BOOL:${ME_WITH_SKIA}>:${CMAKE_CURRENT_SOURCE_DIR}/text/skia_backend.cpp>
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp
@@ -326,6 +373,20 @@ if(ME_WITH_LIBASS)
   target_link_directories(media_engine PRIVATE ${LIBASS_LIBRARY_DIRS})
   target_link_libraries(media_engine PRIVATE ${LIBASS_LIBRARIES})
   target_compile_definitions(media_engine PRIVATE ME_HAS_LIBASS=1)
+endif()
+
+# Skia link — SkiaBackend uses SkCanvas / SkFont / SkTextBlob.
+# libskia.a bundles its transitive deps (FreeType / HarfBuzz /
+# libpng / libjpeg / ...) so a single IMPORTED target covers
+# linking, aside from macOS system frameworks Skia hooks (Core*).
+if(ME_WITH_SKIA)
+  target_link_libraries(media_engine PRIVATE
+    skia
+    "-framework CoreGraphics"
+    "-framework CoreText"
+    "-framework CoreFoundation"
+    "-framework AppKit")
+  target_compile_definitions(media_engine PRIVATE ME_HAS_SKIA=1)
 endif()
 
 target_compile_features(media_engine PUBLIC cxx_std_20)

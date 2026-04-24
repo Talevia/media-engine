@@ -52,6 +52,14 @@ option(ME_WITH_SOUNDTOUCH "Fetch and link SoundTouch (M4 tempo)"          ON)
 # cleanly when absent.
 option(ME_WITH_LIBASS    "find_package libass for subtitle rendering (M5)" ON)
 
+# M5 Skia — text + vector rendering. Prebuilt binaries from
+# JetBrains skia-pack (per ab08f7b plan); FetchContent downloads
+# the platform-appropriate .zip via URL + SHA256 pin. Phase-1
+# supports macOS arm64 only (dev environment); other platforms
+# get ME_WITH_SKIA auto-flipped OFF with a CMake message.
+# Opt-in-by-default matches OCIO / SoundTouch pattern.
+option(ME_WITH_SKIA      "Fetch JetBrains skia-pack prebuilt (M5 text/vector)" ON)
+
 # M3 GPU render benchmarks (bench/). OFF by default — benches are
 # run ad-hoc by dev machines + CI perf gates, not on every build.
 # Requires ME_WITH_GPU=ON to do anything useful; the bench/

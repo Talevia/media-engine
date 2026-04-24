@@ -1,0 +1,92 @@
+/*
+ * me::text::SkiaBackend — thin Skia wrapper for rasterizing
+ * text + vector primitives onto an RGBA8 framebuffer.
+ *
+ * M5 exit criterion "Skia 集成" foundation. Skia provides a
+ * mature 2D rasterizer that M5's text / future M8+ vector /
+ * HDR work can build on. This first landing delivers just the
+ * plumbing + a "draw a string" smoke path — enough to prove
+ * the Skia .a links, SkCanvas initializes, and glyphs land in
+ * our RGBA buffer. Richer surfaces (paragraph layout,
+ * effects, path rendering) arrive with consumer bullets.
+ *
+ * Compiled only when `-DME_WITH_SKIA=ON`. Cross-platform
+ * coverage today: macOS arm64 only — the JetBrains skia-pack
+ * release ships per-platform .a bundles and we download only
+ * the host platform's binary per the platform branch in
+ * src/CMakeLists.txt. Adding Linux x64 / Windows is a
+ * mechanical extension (parallel FetchContent_Declare +
+ * IMPORTED_LOCATION branches).
+ *
+ * Opaque libass-style wrapping: the public header
+ * (subtitle_renderer.hpp parallel) keeps Skia types off the
+ * caller's include graph. The .cpp pulls in
+ * <include/core/SkCanvas.h> etc. internally.
+ *
+ * Threading: Skia's SkSurface / SkCanvas are not thread-safe.
+ * One SkiaBackend per thread, or external serialization.
+ *
+ * Ownership: ctor allocates an SkSurface at the given
+ * dimensions + an associated SkCanvas. dtor releases both via
+ * Skia's sk_sp<> reference counting.
+ */
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+
+namespace me::text {
+
+class SkiaBackend {
+public:
+    /* Construct a pixel surface of `width × height` RGBA8. The
+     * surface is rendered to by draw_* calls; read_pixels()
+     * copies the current state into a caller buffer. */
+    SkiaBackend(int width, int height);
+    ~SkiaBackend();
+
+    SkiaBackend(const SkiaBackend&)            = delete;
+    SkiaBackend& operator=(const SkiaBackend&) = delete;
+
+    /* Clear the surface to a solid RGBA color. */
+    void clear(std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a);
+
+    /* Draw a UTF-8 string at (x, y) with the given font size +
+     * solid RGBA fill color. y is the glyph baseline (Skia
+     * convention — typical baselines land near the bottom of
+     * a cap-height). Uses the platform's default font. */
+    void draw_string(std::string_view text,
+                     float            x,
+                     float            y,
+                     float            font_size,
+                     std::uint8_t     r,
+                     std::uint8_t     g,
+                     std::uint8_t     b,
+                     std::uint8_t     a);
+
+    /* Copy current RGBA8 surface contents to the caller's buffer.
+     * `dst_rgba` must have at least `width × height × 4` bytes;
+     * `stride_bytes` is the pitch (usually width * 4). Returns
+     * true iff the read succeeded. */
+    bool read_pixels(std::uint8_t* dst_rgba, std::size_t stride_bytes);
+
+    /* True iff ctor successfully allocated the Skia surface.
+     * draw_* / read_pixels are no-ops when false. */
+    bool valid() const noexcept { return valid_; }
+
+    int width()  const noexcept { return width_;  }
+    int height() const noexcept { return height_; }
+
+private:
+    /* Opaque impl pointer — keeps Skia types out of the header.
+     * Body is a struct in the .cpp holding sk_sp<SkSurface>. */
+    struct Impl;
+    Impl* impl_ = nullptr;
+
+    int  width_  = 0;
+    int  height_ = 0;
+    bool valid_  = false;
+};
+
+}  // namespace me::text

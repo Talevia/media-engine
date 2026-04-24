@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M5 主线 / 跨 milestone debt）
 
-- **skia-integration** — M5 exit criterion "Skia 集成" 的起步。`grep -rn 'Skia\|skia' src include` 空（只有 `docs/ARCHITECTURE.md:85` 白名单声明 Skia BSD-3 Phase 5 text/vector）。**方向：** (1) 根 `CMakeLists.txt` 新 `ME_WITH_SKIA` option (default ON)。(2) `src/CMakeLists.txt` 加 `FetchContent_Declare(skia GIT_REPOSITORY ... GIT_TAG <stable-branch>)` 或先 `find_package(skia)`（Skia 的 CMake 是实验性的，可能需要 bazel 包装）。(3) 新 `src/text/skia_backend.{hpp,cpp}` — 薄 wrapper 对接 `SkCanvas::drawString` / `SkTextBlob`。(4) tests/test_skia_backend.cpp: 渲染 "Hello" 到 RGBA8 buffer，assert 至少有非零 alpha 像素（文本落在画布上）。Milestone §M5，Rubric §5.3。
 - **text-clip-render-skia** — 依赖 `skia-integration` 和 `text-clip-ir`。`grep -rn 'render.*text\|text.*render' src` 空。Text clip IR 解析出来但 ComposeSink / 其他 render path 不画。**方向：** 新 `src/text/text_renderer.{hpp,cpp}` — 接受 `TextClipParams` 和一个 RGBA8 画布 (W, H)，在指定位置绘制文本。集成点：`src/orchestrator/compose_decode_loop.cpp` 的 per-frame loop 检测 `Clip::text_params`，调用 text_renderer 而不是 decode 视频帧。Milestone §M5，Rubric §5.3。
 - **font-fallback-cjk-emoji** — M5 exit criterion "CJK + emoji + 字体 fallback 正确". `grep -rn 'fontconfig\|FcPattern\|FcConfig\|CoreText' src include` 空。Skia 集成后，当请求字体没有 CJK 字形或 emoji 时要自动 fallback。**方向：** 新 `src/text/font_resolver.{hpp,cpp}` — 平台分支：macOS 用 CoreText 的 `CTFontCreateForString` 自动 fallback；Linux 用 fontconfig 的 `FcPatternFormat`。Skia 的 `SkFontMgr::matchFamilyStyleCharacter` 是 API 前端。Test: 渲染 "hello 你好 👋" 到画布，assert 三段都有非零像素。Milestone §M5，Rubric §5.3。
 
