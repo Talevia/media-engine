@@ -17,8 +17,6 @@
 
 ## P1（强烈建议，M2 主线 / 跨 milestone debt）
 
-- **bgfx-integration-skeleton** — M3 exit criterion "bgfx 集成，macOS Metal 后端可渲染" 的起步。接口 skeleton 已就位（`src/gpu/gpu_backend.{hpp,cpp}` + `null_gpu_backend.hpp`，4 case / 204 assertion，由 `gpu-backend-skeleton` cycle 添加）—— `me::gpu::GpuBackend` 抽象类 + `NullGpuBackend` 默认 + `make_gpu_backend()` factory + 根 CMake `ME_WITH_GPU` option (默认 OFF, 占位)。**剩余工作：** (1) 根 `CMakeLists.txt` 在 `if(ME_WITH_GPU)` 下加 `FetchContent_Declare(bgfx)` 通过 `bkaradzic/bgfx.cmake` wrapper（bgfx 自家非 CMake 构建）。(2) 新 `src/gpu/bgfx_gpu_backend.{hpp,cpp}` 实装 `BgfxGpuBackend : GpuBackend` —— `bgfx::Init` w/ Metal renderer, `bgfx::setViewClear`, `bgfx::frame`, `bgfx::shutdown`；`available()` 返 true when init 成功。(3) `make_gpu_backend()` 改成 `#if ME_WITH_GPU → BgfxGpuBackend` 分支，else `NullGpuBackend`。(4) `me_engine` 持 `std::unique_ptr<GpuBackend>` 字段（engine create 时 `= make_gpu_backend()`）。(5) ARCHITECTURE.md 白名单 + version pin 落地（bgfx commit hash）。Skeleton scope 止于"bgfx init 成功 + clear a backbuffer + shutdown"——真实 effect render 走 `effect-gpu-*` 后续 bullet。Milestone §M3，Rubric §5.3。
-
 ## P2（未来，当前 milestone 不挤占）
 
 - **codec-pool-real-pooling** — `src/resource/codec_pool.hpp:6` 注释: "encoder reuse (the "pool" in the name) is deferred"；`codec_pool.cpp` 只 `++live_count_` / `--live_count_`。`reencode-multi-clip` N-segment 开独立 AVCodecContext（`reencode_segment.cpp:112`），但每段 open_decoder 只 ~ms，没 profile 证据表明是瓶颈。**方向：** 等 M4 多段音频或 benchmark 证实瓶颈再加 `get_or_make_decoder(codec_id, codecpar)` + `avcodec_flush_buffers` pool 路径。Milestone §M4-prep，Rubric §5.3。

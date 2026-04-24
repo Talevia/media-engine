@@ -277,9 +277,15 @@ target_include_directories(test_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # interpolation primitive). Pure C++ (no libav).
 target_include_directories(test_animated_number PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-# test_gpu_backend exercises the phase-1 NullGpuBackend factory. Pure
-# C++. When ME_WITH_GPU + bgfx lands, add BgfxGpuBackend-path cases.
+# test_gpu_backend exercises both GpuBackend implementations: default
+# NullGpuBackend (phase-1) and BgfxGpuBackend (ME_WITH_GPU=ON). Mirror
+# the `ME_HAS_GPU` compile def from media_engine so the bgfx-specific
+# test cases (behind `#ifdef ME_HAS_GPU`) participate in the build
+# when GPU is on.
 target_include_directories(test_gpu_backend PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_GPU)
+  target_compile_definitions(test_gpu_backend PRIVATE ME_HAS_GPU=1)
+endif()
 
 # test_animated_number_loader exercises the JSON → me::AnimatedNumber
 # parse helper (layer 2 of transform-animated-support). Pure C++;

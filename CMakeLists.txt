@@ -35,14 +35,17 @@ option(ME_WERROR         "Treat warnings as errors" OFF)
 # `IdentityPipeline`).
 option(ME_WITH_OCIO      "Fetch and link OpenColorIO (M2 color pipeline)" ON)
 
-# M3 GPU backend (bgfx). Phase-1: flag exists + GpuBackend abstract
-# interface + NullGpuBackend default. Flipping ON today changes
-# nothing visible — the follow-up cycle of bgfx-integration-skeleton
-# adds FetchContent_Declare(bgfx) + BgfxGpuBackend impl + Metal
-# context init under this gate. Default OFF matches M3 scope note
-# ("opt-in at M3 start"); safe to leave OFF indefinitely for
-# CPU-only builds.
-option(ME_WITH_GPU       "Enable bgfx GPU backend (M3, currently stub)" OFF)
+# M3 GPU backend (bgfx). ON wires FetchContent_Declare(bgfx.cmake)
+# and swaps the `make_gpu_backend()` factory to return a
+# `BgfxGpuBackend` whose ctor performs a headless `bgfx::init`
+# (Metal renderer preferred on macOS) + clears a 1x1 backbuffer +
+# retains the context for future compose kernel cycles; dtor calls
+# `bgfx::shutdown`. OFF keeps the phase-1 NullGpuBackend (CPU
+# compose stays the only render path). Default OFF because bgfx
+# adds ~several minutes first-configure cost and the compose
+# kernels don't depend on it yet — it's live only for smoke /
+# bring-up work until effect-gpu-* bullets land.
+option(ME_WITH_GPU       "Enable bgfx GPU backend (M3 Metal on macOS)" OFF)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)

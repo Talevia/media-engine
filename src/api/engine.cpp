@@ -28,6 +28,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
     try {
         /* Resources owned by engine. Budget / codec-cache sizes will flow from
          * config once we define the keys; bootstrap uses defaults. */
+        e->gpu_backend  = me::gpu::make_gpu_backend();
         e->frames       = std::make_unique<me::resource::FramePool>(
                               e->config.memory_cache_bytes);
         e->codecs       = std::make_unique<me::resource::CodecPool>();

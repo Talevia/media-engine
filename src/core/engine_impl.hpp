@@ -2,6 +2,7 @@
 #pragma once
 
 #include "media_engine/engine.h"
+#include "gpu/gpu_backend.hpp"
 #include "resource/asset_hash_cache.hpp"
 #include "resource/codec_pool.hpp"
 #include "resource/frame_pool.hpp"
@@ -16,7 +17,13 @@ struct me_engine {
 
     /* Resources owned by engine lifetime. Declaration order matters —
      * Scheduler holds references to FramePool and CodecPool, so those must
-     * outlive it. Destruction is reverse order (Scheduler first, good). */
+     * outlive it. Destruction is reverse order (Scheduler first, good).
+     *
+     * gpu_backend is always populated (NullGpuBackend default; BgfxGpuBackend
+     * under ME_WITH_GPU=ON). Placed before Scheduler so it outlives any
+     * kernel that might consult `available()` during task execution; lands
+     * independent of frame/codec pools. */
+    std::unique_ptr<me::gpu::GpuBackend>           gpu_backend;
     std::unique_ptr<me::resource::FramePool>       frames;
     std::unique_ptr<me::resource::CodecPool>       codecs;
     std::unique_ptr<me::resource::AssetHashCache>  asset_hashes;

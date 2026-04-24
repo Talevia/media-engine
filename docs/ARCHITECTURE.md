@@ -81,7 +81,7 @@ VISION §3.4 locks the supply chain at LGPL-clean. Enforcement happens here:
 | Allowed | License | When added |
 |---|---|---|
 | FFmpeg (LGPL build only, no `--enable-gpl`) | LGPL-2.1+ | Phase 1 (I/O) |
-| bgfx     | BSD-2  | Phase 3 (GPU backend) |
+| bgfx (via `bkaradzic/bgfx.cmake` wrapper, pin `v1.143.9226-530`) | BSD-2 | Phase 3 (GPU backend) — CMake opt-in behind `ME_WITH_GPU` (OFF default; ~5 min first-configure compile cost). `me::gpu::BgfxGpuBackend` does a headless init (0×0 resolution, `platformData.nwh = nullptr`) and picks Metal on macOS / Vulkan on Linux / D3D12 on Windows via auto-select with a Noop retry for drivers that refuse headless. `bgfx::setViewClear` + `bgfx::frame` + `bgfx::shutdown` are exercised per engine lifetime. Real render-target framebuffers are created per compose kernel (future effect-gpu-* cycles). |
 | Skia     | BSD-3  | Phase 5 (text / vector) |
 | OpenColorIO (and its transitive deps: Imath / yaml-cpp / pystring / expat / minizip-ng / zlib / sse2neon) | BSD-3 (OCIO, Imath, pystring, sse2neon), MIT (yaml-cpp, expat), Zlib (zlib, minizip-ng) — all LGPL-clean | Phase 2 (color mgmt) — CMake opt-in behind `ME_WITH_OCIO` (ON default as of 2026-04-23 `ocio-pipeline-enable` cycle). Upstream v2.5.1 passes `CMAKE_POLICY_VERSION_MINIMUM=3.5` into its `yaml-cpp_install` ExternalProject, which fixed the nested CMake-4.x floor issue that blocked 2.3.2. `me::color::OcioPipeline` is the current return of `make_pipeline()`; bt709 ↔ sRGB ↔ linear conversion math lands with `ocio-colorspace-conversions`. |
 | libass   | ISC    | Phase 5 (subtitles) |

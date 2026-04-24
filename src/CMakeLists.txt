@@ -68,6 +68,44 @@ if(ME_WITH_OCIO)
   FetchContent_MakeAvailable(OpenColorIO)
 endif()
 
+# bgfx — opt-in (off by default; see ME_WITH_GPU in top-level
+# CMakeLists.txt). Fetched via `bkaradzic/bgfx.cmake` wrapper (bgfx
+# itself uses GENie, not CMake). Version pin: v1.143.9226-530
+# (tested on macOS arm64, 2026-04-23). Disable bgfx-side examples /
+# tools / tests / shaderc build so first configure stays under
+# several minutes and no GLFW / stb extras leak into link graph.
+# `ME_HAS_GPU=1` compile def gates the BgfxGpuBackend codepath in
+# `src/gpu/gpu_backend.cpp`; tests use the same define to guard
+# ME_WITH_GPU-only assertions.
+if(ME_WITH_GPU)
+  FetchContent_Declare(
+    bgfx_cmake
+    GIT_REPOSITORY https://github.com/bkaradzic/bgfx.cmake.git
+    GIT_TAG        v1.143.9226-530
+    GIT_SHALLOW    TRUE
+  )
+  set(BGFX_BUILD_EXAMPLES  OFF CACHE INTERNAL "")
+  set(BGFX_BUILD_TOOLS     OFF CACHE INTERNAL "")
+  set(BGFX_BUILD_TESTS     OFF CACHE INTERNAL "")
+  set(BGFX_INSTALL         OFF CACHE INTERNAL "")
+  set(BGFX_CUSTOM_TARGETS  OFF CACHE INTERNAL "")
+  include(fetchcontent_policy)
+  FetchContent_MakeAvailable(bgfx_cmake)
+
+  # bgfx + bx use GNU extensions (token-pasting `, ##__VA_ARGS__`,
+  # variadic zero-args) that clang flags under
+  # `-Wgnu-zero-variadic-macro-arguments`. Our root-level `-Werror`
+  # (ME_WERROR=ON in CI / Release) would turn those into build
+  # failures inside 3rd-party code we can't patch. Scope `-Werror`
+  # off for the bgfx-side targets so `ME_WERROR=ON AND ME_WITH_GPU=ON`
+  # is buildable. Our own `src/` / `tests/` TUs keep -Werror.
+  foreach(_bgfx_tgt bgfx bx bimg bimg_decode bimg_encode astc-encoder edtaa3 etc1 etc2 iqa nvtt pvrtc squish)
+    if(TARGET ${_bgfx_tgt})
+      target_compile_options(${_bgfx_tgt} PRIVATE -Wno-error)
+    endif()
+  endforeach()
+endif()
+
 # --- Build-time version header --------------------------------------------
 # Capture the git short SHA (+ "-dirty" if the working tree has uncommitted
 # changes) at configure time and expose it to the C API via a generated
@@ -122,6 +160,7 @@ add_library(media_engine STATIC
   timeline/animated_number.cpp
   timeline/segmentation.cpp
   gpu/gpu_backend.cpp
+  $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/gpu/bgfx_gpu_backend.cpp>
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp
@@ -198,6 +237,14 @@ if(ME_WITH_OCIO)
   # prefer the namespaced alias.
   target_link_libraries(media_engine PRIVATE OpenColorIO)
   target_compile_definitions(media_engine PRIVATE ME_HAS_OCIO=1)
+endif()
+
+# Conditional: `me::gpu::BgfxGpuBackend` links against bgfx (+ bx / bimg
+# pulled in by the wrapper). `ME_HAS_GPU=1` compile def is the
+# source-level switch mirroring OCIO's pattern.
+if(ME_WITH_GPU)
+  target_link_libraries(media_engine PRIVATE bgfx bx bimg)
+  target_compile_definitions(media_engine PRIVATE ME_HAS_GPU=1)
 endif()
 
 target_compile_features(media_engine PUBLIC cxx_std_20)
