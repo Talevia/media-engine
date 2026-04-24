@@ -119,4 +119,14 @@ me_status_t encode_video_frame(AVFrame*         in_frame,
     return ME_OK;
 }
 
+int64_t remap_source_pts_to_output(int64_t     src_pts,
+                                    int64_t     first_src_pts,
+                                    AVRational  src_tb,
+                                    AVRational  out_tb,
+                                    int64_t     segment_base_out_pts) {
+    const int64_t src_offset     = src_pts - first_src_pts;
+    const int64_t out_offset     = av_rescale_q(src_offset, src_tb, out_tb);
+    return segment_base_out_pts + out_offset;
+}
+
 }  // namespace me::orchestrator::detail

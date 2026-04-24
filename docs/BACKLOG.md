@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M4 主线 / 跨 milestone debt）
 
-- **vfr-av-sync** — M4 exit criterion "VFR 输入 + 分数帧率输出下 A/V 漂移 < 1 ms / 小时"。`src/orchestrator/reencode_segment.hpp:64` 注释承诺 "output even from VFR inputs, which is standard re-encode" 但没有漂移测量。`grep -rn 'VFR\|variable.*frame.*rate\|av.*sync' src tests` 基本空。现在 re-encode 把 VFR 当 CFR 处理（每输入帧一个输出帧，丢 / 重 frame），但不追踪 timestamps → 累积漂移可能大。**方向：** (1) `src/orchestrator/reencode_video.cpp` 改 frame-pulling loop 根据真实 `pts` vs 输出帧率调度：维护 `output_pts_accumulator`，每次输出帧时 `output_pts_accumulator += 1/output_fps`，从 demux 选 `pts >= output_pts_accumulator - 1/(2*fps)` 最近的 frame（drop / duplicate 以保持 wall-time 对齐）。(2) 对应 test：生成带 VFR mock input（frame_rate wobble ±10%）+ 分数帧率输出（30000/1001 = 29.97fps），跑 1hour-equivalent 长度的短 clip（其实 60s 即可按比例 assert < 1/60 ms 漂移），断言 output 音频 wave sample k 与 video frame k 的 PTS 差 < 16.67 ms 的 1/60 部分。Milestone §M4，Rubric §5.2。
 - **codec-pool-real-pooling** — `src/resource/codec_pool.hpp:6` 注释: "encoder reuse (the "pool" in the name) is deferred"；`codec_pool.cpp` 只 `++live_count_` / `--live_count_`。`reencode-multi-clip` N-segment 开独立 AVCodecContext（`reencode_segment.cpp:112`），但每段 open_decoder 只 ~ms，没 profile 证据表明是瓶颈。**方向：** 等 M4 多段音频或 benchmark 证实瓶颈再加 `get_or_make_decoder(codec_id, codecpar)` + `avcodec_flush_buffers` pool 路径。Milestone §M4，Rubric §5.3。
 
 ## P2（未来，当前 milestone 不挤占）

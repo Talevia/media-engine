@@ -61,6 +61,7 @@ set(_test_suites
   test_lut_parser
   test_tempo
   test_audio_effect_chain
+  test_reencode_pts_remap
 )
 
 foreach(_suite ${_test_suites})
@@ -424,6 +425,14 @@ endif()
 # + Gain/Pan/Lowpass concrete effects. Pure C++; no bgfx /
 # SoundTouch / libav.
 target_include_directories(test_audio_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_reencode_pts_remap exercises the PTS remap helper at the
+# heart of the vfr-av-sync fix. Pure math on int64 + AVRational
+# — needs libav headers (AVRational / av_rescale_q) but no
+# codec contexts.
+target_include_directories(test_reencode_pts_remap PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_reencode_pts_remap PRIVATE
+  FFMPEG::avutil FFMPEG::avcodec)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

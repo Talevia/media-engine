@@ -187,25 +187,66 @@ me_status_t process_segment(const ReencodeSegment&      seg,
     FramePtr  dec_frame(av_frame_alloc());
     me_status_t terminal = ME_OK;
 
-    /* Feed decoded video frames to the encoder with shared.next_video_pts
-     * stamped directly in venc->time_base units. encode_video_frame
-     * rescales via its `in_stream_tb` arg; handing it venc->time_base
-     * makes that rescale an identity.
+    /* Feed decoded video frames to the encoder, preserving source
+     * frame timing (VFR-safe).
+     *
+     * Historical note: prior to this cycle (pre-vfr-av-sync), the
+     * PTS path CFR-forced every frame via `f->pts = next_video_pts;
+     * next_video_pts += video_pts_delta`. That flattens VFR input
+     * to CFR output, accumulating A/V drift against the audio
+     * stream (which is sample-count-driven and therefore tracks
+     * real source time). Fix: anchor at the first frame's source
+     * PTS, carry source inter-frame intervals through via
+     * remap_source_pts_to_output. `segment_base_pts` captures
+     * where this segment starts in the cumulative output timeline
+     * (= value of shared.next_video_pts on entry), which gives
+     * multi-segment concat monotonic output PTS.
+     *
+     * `shared.next_video_pts` post-fix tracks "next slot beyond
+     * everything seen so far" — used by progress reporting + the
+     * next segment's segment_base_pts on entry.
+     *
+     * For CFR input with integer PTS (the deterministic test
+     * fixture), the output is byte-identical to the pre-fix CFR
+     * path because source PTS spacing already matches
+     * video_pts_delta — the test_determinism tripwire guards
+     * this.
      *
      * Color pipeline hook: `shared.color_pipeline` (IdentityPipeline
      * today — see ocio-pipeline-wire-first-consumer decision) is
-     * invoked on the Y plane before the encoder sees the frame. The
-     * src/dst ColorSpace pair is placeholder default-constructed today
-     * because the asset-level color space hasn't been threaded through
-     * SharedEncState yet — that's a future cycle (likely when M2
-     * compose introduces a typed frame handle). Identity apply
-     * preserves bytes so the determinism tripwire in test_determinism
-     * stays green. */
-    auto push_video_frame = [&](AVFrame* f) -> me_status_t {
+     * invoked on the Y plane before the encoder sees the frame.
+     * The src/dst ColorSpace pair is placeholder default-
+     * constructed today because the asset-level color space hasn't
+     * been threaded through SharedEncState yet. Identity apply
+     * preserves bytes so the determinism tripwire stays green. */
+    const AVRational vin_tb = (vsi >= 0)
+        ? ifmt->streams[vsi]->time_base
+        : AVRational{0, 1};
+    const int64_t segment_base_pts = shared.next_video_pts;
+    int64_t first_src_pts = AV_NOPTS_VALUE;
+
+    auto push_video_frame = [&, vin_tb, segment_base_pts, first_src_pts]
+        (AVFrame* f) mutable -> me_status_t {
         if (f) {
-            f->pts     = shared.next_video_pts;
-            f->pkt_dts = shared.next_video_pts;
-            shared.next_video_pts += shared.video_pts_delta;
+            int64_t out_pts = shared.next_video_pts;
+            if (f->pts != AV_NOPTS_VALUE) {
+                if (first_src_pts == AV_NOPTS_VALUE) {
+                    first_src_pts = f->pts;
+                }
+                out_pts = remap_source_pts_to_output(
+                    f->pts, first_src_pts, vin_tb,
+                    shared.venc->time_base, segment_base_pts);
+            }
+            f->pts     = out_pts;
+            f->pkt_dts = out_pts;
+            /* Advance shared.next_video_pts to track the max output
+             * PTS + one delta slot, so progress reporting + next
+             * segment's base_pts reflect what's been submitted. */
+            const int64_t next_slot = out_pts + shared.video_pts_delta;
+            if (next_slot > shared.next_video_pts) {
+                shared.next_video_pts = next_slot;
+            }
+
             if (shared.color_pipeline && f->data[0] && f->linesize[0] > 0) {
                 const std::size_t y_plane_bytes =
                     static_cast<std::size_t>(f->linesize[0]) *

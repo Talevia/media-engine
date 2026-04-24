@@ -49,4 +49,34 @@ me_status_t encode_video_frame(AVFrame*         in_frame,
                                AVRational       in_stream_tb,
                                std::string*     err);
 
+/* Compute an output-stream PTS that preserves source-stream timing.
+ *
+ * Background: the old reencode path overwrote every frame's PTS with
+ * a CFR counter (`next_video_pts += delta`), which flattens VFR input
+ * to CFR output — accumulating A/V drift against the audio stream
+ * (which stays anchored to source sample-count timing). This helper
+ * computes the "right" output PTS: anchor at the first frame's
+ * source PTS, keep the inter-frame intervals intact, add a segment-
+ * base offset for multi-segment concatenation.
+ *
+ * Inputs:
+ *   src_pts              — current frame's PTS in source stream tb.
+ *   first_src_pts        — PTS of this segment's first video frame
+ *                          (in source stream tb). Anchors output to 0
+ *                          at segment start.
+ *   src_tb               — source stream time_base (e.g. {1, 30}).
+ *   out_tb               — encoder time_base.
+ *   segment_base_out_pts — cumulative output PTS at segment start
+ *                          (prior segments' total duration in out_tb).
+ *
+ * Returns: `segment_base_out_pts + av_rescale_q(src_pts - first_src_pts,
+ * src_tb, out_tb)`.
+ *
+ * Pure math; no libav mutation — tests drive it with synthetic ints. */
+int64_t remap_source_pts_to_output(int64_t     src_pts,
+                                    int64_t     first_src_pts,
+                                    AVRational  src_tb,
+                                    AVRational  out_tb,
+                                    int64_t     segment_base_out_pts);
+
 }  // namespace me::orchestrator::detail
