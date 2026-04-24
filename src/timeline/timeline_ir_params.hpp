@@ -14,6 +14,7 @@
 #pragma once
 
 #include "media_engine/types.h"
+#include "timeline/animated_color.hpp"
 #include "timeline/animated_number.hpp"
 
 #include <cstdint>
@@ -152,7 +153,10 @@ enum class ClipType : uint8_t {
  */
 struct TextClipParams {
     std::string    content;
-    std::string    color      = "#FFFFFFFF";
+    /* Animated RGBA. Default = opaque white. JSON accepts three
+     * shapes (legacy / explicit static / keyframed) — see
+     * animated_color.hpp doc. */
+    AnimatedColor  color      = AnimatedColor::default_opaque_white();
     std::string    font_family;
     AnimatedNumber font_size  = AnimatedNumber::from_static(48.0);
     AnimatedNumber x          = AnimatedNumber::from_static(0.0);

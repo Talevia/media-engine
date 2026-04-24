@@ -25,12 +25,10 @@ std::uint8_t hex_byte(char hi, char lo) {
 void TextRenderer::parse_hex_rgba(const std::string& hex,
                                     std::uint8_t& r, std::uint8_t& g,
                                     std::uint8_t& b, std::uint8_t& a) {
-    /* Loader already validated the shape at IR-load time
-     * (loader_helpers::parse_text_clip_params + is_valid_hex_color).
-     * We trust it here: "#RRGGBB" (size 7) or "#RRGGBBAA" (size 9).
-     * Invalid strings would have been rejected at load; an unexpected
-     * shape here means IR corruption — defend by defaulting to
-     * opaque white. */
+    /* Retained for unit-test compatibility + host debugging. The
+     * IR now stores color as `me::AnimatedColor`; render() pulls
+     * its evaluated RGBA directly without round-tripping through
+     * the hex string. Invalid strings → opaque white (defensive). */
     r = g = b = 0xFF;
     a = 0xFF;
     if (hex.size() != 7 && hex.size() != 9) return;
@@ -64,20 +62,18 @@ void TextRenderer::render(const me::TextClipParams& params,
     backend_->clear(0, 0, 0, 0);
 
     /* Evaluate animated fields at t. font_size / x / y are
-     * AnimatedNumber (static or keyframed); evaluate_at returns
-     * a double. Skia expects float. */
+     * AnimatedNumber → double; color is AnimatedColor → RGBA bytes.
+     * Skia expects float for font_size / x / y. */
     const double font_size_d = params.font_size.evaluate_at(t);
     const double x_d         = params.x.evaluate_at(t);
     const double y_d         = params.y.evaluate_at(t);
-
-    std::uint8_t r, g, b, a;
-    parse_hex_rgba(params.color, r, g, b, a);
+    const auto   rgba        = params.color.evaluate_at(t);
 
     backend_->draw_string(params.content,
                           static_cast<float>(x_d),
                           static_cast<float>(y_d),
                           static_cast<float>(font_size_d),
-                          r, g, b, a);
+                          rgba[0], rgba[1], rgba[2], rgba[3]);
 
     backend_->read_pixels(out_rgba, stride_bytes);
 }

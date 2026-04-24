@@ -260,6 +260,7 @@ add_library(media_engine STATIC
   timeline/loader_helpers_animated.cpp
   timeline/loader_helpers_clip_params.cpp
   timeline/animated_number.cpp
+  timeline/animated_color.cpp
   timeline/segmentation.cpp
   gpu/gpu_backend.cpp
   gpu/render_thread.cpp

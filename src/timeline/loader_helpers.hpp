@@ -63,6 +63,20 @@ double          parse_animated_static_number(const nlohmann::json& prop,
 me::AnimatedNumber parse_animated_number(const nlohmann::json& prop,
                                           const std::string& where);
 
+/* Parse an animated-color JSON property. Accepts three shapes:
+ *
+ *   "color": "#FFFFFFFF"                        (legacy plain string)
+ *   "color": { "static": "#FFFFFFFF" }          (explicit static)
+ *   "color": { "keyframes": [ { "t": …, "v": "#RRGGBBAA",
+ *                               "interp": "…", "cp": [...]? }, … ] }
+ *
+ * Returns `me::AnimatedColor`. The hex string must be the strict
+ * 7- or 9-char `#RRGGBB[AA]` form the text renderer already
+ * expects (same `is_valid_hex_color` predicate). Keyframe time /
+ * interp / cp rules mirror `parse_animated_number`. */
+me::AnimatedColor parse_animated_color(const nlohmann::json& prop,
+                                        const std::string& where);
+
 me::Transform   parse_transform   (const nlohmann::json& j, const std::string& where);
 me::ColorSpace  parse_color_space (const nlohmann::json& j, const std::string& where);
 

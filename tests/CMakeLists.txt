@@ -56,6 +56,7 @@ set(_test_suites
   test_audio_mixer
   test_effect_chain
   test_animated_number
+  test_animated_color
   test_gpu_backend
   test_animated_number_loader
   test_compose_sink_gpu_detect
@@ -304,6 +305,13 @@ target_include_directories(test_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_animated_number exercises me::AnimatedNumber (M3 keyframe
 # interpolation primitive). Pure C++ (no libav).
 target_include_directories(test_animated_number PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_animated_color exercises the AnimatedColor primitive + its
+# loader (parse_animated_color + parse_text_clip_params color
+# field). Reaches into src/ like the sibling animated_number
+# test; pulls in nlohmann/json via loader_helpers.hpp.
+target_include_directories(test_animated_color PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_animated_color PRIVATE nlohmann_json::nlohmann_json)
 
 # test_gpu_backend exercises both GpuBackend implementations: default
 # NullGpuBackend (phase-1) and BgfxGpuBackend (ME_WITH_GPU=ON). Mirror
