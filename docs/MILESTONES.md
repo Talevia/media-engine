@@ -2,7 +2,7 @@
 
 当前里程碑（本文件唯一的真理源）：
 
-> **Current: M3 — Animated params + GPU backend (Metal first)**
+> **Current: M4 — Audio polish + A/V sync**
 
 `iterate-gap` skill 在 repopulate backlog 时按「当前 milestone」偏置挑选候选——当前 milestone 未达到 exit criteria 前，跨 milestone 的 gap 进 P2 或被放回"等合适时机"，不抢当前任务资源。
 
