@@ -281,3 +281,114 @@ TEST_CASE("active_clips_at: output order mirrors Timeline::tracks declaration or
     CHECK(act[1].track_idx == 1);
     CHECK(tl.tracks[act[1].track_idx].id == "v0");
 }
+
+/* ----------------------------------------------------------------------
+ * frame_source_at — precedence resolver: transition > single-clip > none.
+ * ---------------------------------------------------------------------- */
+
+namespace {
+
+/* Shared fixture: 2-clip track with a 1s cross-dissolve transition.
+ * clip A: [0, 2s), clip B: [2s, 4s). Transition window [1.5s, 2.5s).
+ * Matches the existing active_transition_at fixture for continuity. */
+me::Timeline two_clip_with_transition() {
+    me::Timeline tl;
+    tl.frame_rate = me_rational_t{30, 1};
+    tl.duration   = me_rational_t{120, 30};
+    tl.assets.emplace("a1", me::Asset{});
+    tl.tracks.push_back(me::Track{"v0", me::TrackKind::Video, true});
+    {
+        me::Clip c;
+        c.id = "cA"; c.asset_id = "a1"; c.track_id = "v0";
+        c.time_start    = me_rational_t{0, 30};
+        c.time_duration = me_rational_t{60, 30};
+        c.source_start  = me_rational_t{0, 30};
+        tl.clips.push_back(std::move(c));
+    }
+    {
+        me::Clip c;
+        c.id = "cB"; c.asset_id = "a1"; c.track_id = "v0";
+        c.time_start    = me_rational_t{60, 30};
+        c.time_duration = me_rational_t{60, 30};
+        c.source_start  = me_rational_t{0, 30};
+        tl.clips.push_back(std::move(c));
+    }
+    tl.transitions.push_back(me::Transition{
+        me::TransitionKind::CrossDissolve, "v0", "cA", "cB",
+        me_rational_t{30, 30},
+    });
+    return tl;
+}
+
+}  // namespace
+
+TEST_CASE("frame_source_at: single-clip region returns SingleClip kind") {
+    me::Timeline tl = two_clip_with_transition();
+
+    /* T = 1s — inside clip A, well before transition window (starts at 1.5s). */
+    const auto fs = me::compose::frame_source_at(tl, 0, me_rational_t{30, 30});
+    CHECK(fs.kind == me::compose::FrameSourceKind::SingleClip);
+    CHECK(fs.single.track_idx == 0);
+    CHECK(fs.single.clip_idx == 0);          /* clip A is clips[0] */
+    /* source_time = 0 + (1s - 0) = 1s = 30/30 */
+    CHECK(fs.single.source_time.num * me_rational_t{30, 30}.den
+          == me_rational_t{30, 30}.num * fs.single.source_time.den);
+}
+
+TEST_CASE("frame_source_at: inside transition window returns Transition kind with resolved clip indices") {
+    me::Timeline tl = two_clip_with_transition();
+
+    /* T = 2s — midpoint of transition window, t should be ~0.5.
+     * Both from_clip (A) and to_clip (B) cover this T:
+     *   - A: [0, 2s) — 2s is the half-open end; A does NOT cover 2s.
+     *   - B: [2s, 4s) — B covers 2s.
+     * So the SingleClip precedence-disabled path would have returned
+     * B alone. frame_source_at must short-circuit to Transition
+     * instead (the point of this test). */
+    const auto fs = me::compose::frame_source_at(tl, 0, me_rational_t{60, 30});
+    REQUIRE(fs.kind == me::compose::FrameSourceKind::Transition);
+    CHECK(fs.transition.t == doctest::Approx(0.5f));
+    CHECK(fs.transition.transition_idx == 0);
+
+    /* clip A is clips[0], clip B is clips[1] */
+    CHECK(fs.transition_from_clip_idx == 0);
+    CHECK(fs.transition_to_clip_idx   == 1);
+
+    /* source_time for from_clip at T=2s: 0 + (2 - 0) = 2s = 60/30.
+     * source_time for to_clip   at T=2s: 0 + (2 - 2) = 0s =  0/30. */
+    CHECK(fs.transition_from_source_time.num * me_rational_t{60, 30}.den
+          == me_rational_t{60, 30}.num * fs.transition_from_source_time.den);
+    CHECK(fs.transition_to_source_time.num == 0);
+}
+
+TEST_CASE("frame_source_at: transition precedence overrides single-clip at overlap boundary") {
+    /* This test specifically pins the precedence rule. Pick T in the
+     * transition window's front half [1.5s, 2s) where only clip A
+     * covers (B starts at 2s). Without precedence, the resolver
+     * would return SingleClip(A); with precedence, Transition wins. */
+    me::Timeline tl = two_clip_with_transition();
+
+    const auto fs = me::compose::frame_source_at(tl, 0, me_rational_t{50, 30});  /* 1.667s */
+    REQUIRE(fs.kind == me::compose::FrameSourceKind::Transition);
+    CHECK(fs.transition_from_clip_idx == 0);
+    CHECK(fs.transition_to_clip_idx   == 1);
+    /* t = (50/30 - 45/30) / (30/30) = (5/30) / 1 = 1/6 ≈ 0.1667. */
+    CHECK(fs.transition.t == doctest::Approx(5.0f / 30.0f));
+}
+
+TEST_CASE("frame_source_at: out-of-bounds T or unknown track returns None") {
+    me::Timeline tl = two_clip_with_transition();
+
+    /* T past timeline duration (4s) — nothing covers. */
+    const auto fs_past = me::compose::frame_source_at(tl, 0, me_rational_t{150, 30});
+    CHECK(fs_past.kind == me::compose::FrameSourceKind::None);
+
+    /* Invalid track_idx. */
+    const auto fs_bad_track = me::compose::frame_source_at(tl, 99, me_rational_t{30, 30});
+    CHECK(fs_bad_track.kind == me::compose::FrameSourceKind::None);
+
+    /* Empty timeline. */
+    me::Timeline empty;
+    const auto fs_empty = me::compose::frame_source_at(empty, 0, me_rational_t{0, 1});
+    CHECK(fs_empty.kind == me::compose::FrameSourceKind::None);
+}

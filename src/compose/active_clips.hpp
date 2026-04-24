@@ -74,4 +74,55 @@ std::optional<ActiveTransition> active_transition_at(
     std::size_t         track_idx,
     me_rational_t       time);
 
+/* Per-track frame source at time T: either a single active clip, or a
+ * transition (in which case both endpoint clips contribute to the
+ * blended output). Encapsulates the precedence rule between
+ * active_transition_at (when a transition window covers T) and
+ * active_clips_at (single-clip fallback).
+ *
+ * Precedence (transition > single clip):
+ *   - If active_transition_at(tl, track_idx, T) returns a value, the
+ *     frame source is Transition — the compose loop must pull frames
+ *     from BOTH from_clip and to_clip decoders and blend via
+ *     cross_dissolve(..., t). The single active_clips_at result is
+ *     IGNORED for this track at this T, even if present. (A well-
+ *     formed timeline always has at least the to_clip covering T
+ *     during the window's back half; the from_clip covers the front
+ *     half. Edge cases are the loader's problem.)
+ *   - Else if active_clips_at returns an entry for this track, the
+ *     frame source is SingleClip.
+ *   - Else frame source kind is None — this track contributes nothing
+ *     at T (compositor skips the layer).
+ *
+ * Pure function of (Timeline, track_idx, T). Same inputs → same
+ * outputs. Linear in Timeline::clips + Timeline::transitions (each
+ * internal query does one scan). Called per output frame per track
+ * by the compose scheduler — if this becomes a bottleneck, the
+ * follow-up `cross-dissolve-transition-render-wire` cycle can cache
+ * the per-track precedence at timeline-compile-time. */
+enum class FrameSourceKind { None, SingleClip, Transition };
+
+struct FrameSource {
+    FrameSourceKind  kind = FrameSourceKind::None;
+
+    /* Populated iff kind == SingleClip. */
+    TrackActive      single{};
+
+    /* Populated iff kind == Transition. */
+    ActiveTransition transition{};
+
+    /* For convenience, source_time of from_clip and to_clip at T are
+     * resolved alongside ActiveTransition to save the caller the
+     * clip-id → clip-idx second lookup. Both are populated only when
+     * kind == Transition. */
+    me_rational_t    transition_from_source_time{0, 1};
+    me_rational_t    transition_to_source_time{0, 1};
+    std::size_t      transition_from_clip_idx = 0;
+    std::size_t      transition_to_clip_idx   = 0;
+};
+
+FrameSource frame_source_at(const me::Timeline& tl,
+                            std::size_t         track_idx,
+                            me_rational_t       time);
+
 }  // namespace me::compose
