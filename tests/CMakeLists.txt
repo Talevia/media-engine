@@ -287,6 +287,25 @@ if(ME_WITH_GPU)
   target_compile_definitions(test_gpu_backend PRIVATE ME_HAS_GPU=1)
 endif()
 
+# test_bgfx_metal_render is the pixel-level render-proof test that
+# closes M3's "bgfx 集成，macOS Metal 后端可渲染" exit criterion. Only
+# built when ME_WITH_GPU=ON — the entire test file is #ifdef
+# ME_HAS_GPU-guarded, and without bgfx linked there's no way to call
+# bgfx::createFrameBuffer / readTexture. Links bgfx + bx directly
+# (not just via media_engine, which has them PRIVATE) so the test
+# TU's #include <bgfx/bgfx.h> resolves + the bgfx symbols link.
+if(ME_WITH_GPU)
+  add_executable(test_bgfx_metal_render test_main.cpp test_bgfx_metal_render.cpp)
+  target_link_libraries(test_bgfx_metal_render PRIVATE
+    media_engine::media_engine
+    doctest::doctest
+    bgfx
+    bx)
+  target_include_directories(test_bgfx_metal_render PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(test_bgfx_metal_render PRIVATE ME_HAS_GPU=1)
+  add_test(NAME test_bgfx_metal_render COMMAND test_bgfx_metal_render)
+endif()
+
 # test_animated_number_loader exercises the JSON → me::AnimatedNumber
 # parse helper (layer 2 of transform-animated-support). Pure C++;
 # pulls in nlohmann/json via loader_helpers.hpp.
