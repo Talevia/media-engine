@@ -56,6 +56,24 @@ me_status_t pull_next_video_frame(
     AVFrame*         out_frame,
     std::string*     err);
 
+/* Audio-side analog of pull_next_video_frame — drives the libav
+ * state machine (av_read_frame → send_packet → receive_frame +
+ * drain) to pull the next decoded audio AVFrame from a (demux,
+ * decoder) pair. Same contract: ME_OK (frame filled, caller
+ * av_frame_unref), ME_E_NOT_FOUND (clean EOF after drain),
+ * ME_E_DECODE / ME_E_IO on errors, ME_E_INVALID_ARG on null args.
+ *
+ * Skips non-audio packets on other stream indices. Caller allocates
+ * pkt_scratch + out_frame; this helper unrefs pkt_scratch per
+ * iteration and populates out_frame on success. */
+me_status_t pull_next_audio_frame(
+    AVFormatContext* demux,
+    int              audio_stream_idx,
+    AVCodecContext*  dec,
+    AVPacket*        pkt_scratch,
+    AVFrame*         out_frame,
+    std::string*     err);
+
 /* Per-track decode state bundle: demux + video stream index +
  * opened video decoder + caller-reused scratch packet / frame for
  * pull_next_video_frame. `video_stream_idx < 0` means the demux has

@@ -98,6 +98,71 @@ me_status_t pull_next_video_frame(
     }
 }
 
+me_status_t pull_next_audio_frame(
+    AVFormatContext* demux,
+    int              audio_stream_idx,
+    AVCodecContext*  dec,
+    AVPacket*        pkt_scratch,
+    AVFrame*         out_frame,
+    std::string*     err) {
+
+    /* Structurally identical to pull_next_video_frame — only the
+     * packet stream-index filter and the "we want audio" framing
+     * differ. libav's codec state machine doesn't distinguish
+     * video vs audio at the send_packet/receive_frame API level. */
+    if (!demux || !dec || !pkt_scratch || !out_frame) {
+        if (err) *err = "pull_next_audio_frame: null arg";
+        return ME_E_INVALID_ARG;
+    }
+    if (audio_stream_idx < 0) {
+        if (err) *err = "pull_next_audio_frame: negative audio_stream_idx";
+        return ME_E_INVALID_ARG;
+    }
+
+    bool draining = false;
+    while (true) {
+        int rc = avcodec_receive_frame(dec, out_frame);
+        if (rc == 0) return ME_OK;
+        if (rc == AVERROR(EAGAIN)) {
+            /* need more packet input */
+        } else if (rc == AVERROR_EOF) {
+            return ME_E_NOT_FOUND;
+        } else {
+            if (err) *err = "avcodec_receive_frame: " + me::io::av_err_str(rc);
+            return ME_E_DECODE;
+        }
+
+        if (draining) continue;
+
+        rc = av_read_frame(demux, pkt_scratch);
+        if (rc == AVERROR_EOF) {
+            draining = true;
+            int send_rc = avcodec_send_packet(dec, nullptr);
+            if (send_rc < 0) {
+                if (err) *err = "avcodec_send_packet(drain): " + me::io::av_err_str(send_rc);
+                return ME_E_DECODE;
+            }
+            continue;
+        }
+        if (rc < 0) {
+            if (err) *err = "av_read_frame: " + me::io::av_err_str(rc);
+            return ME_E_IO;
+        }
+
+        if (pkt_scratch->stream_index != audio_stream_idx) {
+            av_packet_unref(pkt_scratch);
+            continue;
+        }
+
+        int send_rc = avcodec_send_packet(dec, pkt_scratch);
+        av_packet_unref(pkt_scratch);
+        if (send_rc < 0) {
+            if (err) *err = "avcodec_send_packet: " + me::io::av_err_str(send_rc);
+            return ME_E_DECODE;
+        }
+    }
+}
+
 me_status_t open_track_decoder(
     std::shared_ptr<me::io::DemuxContext> demux,
     me::resource::CodecPool&               pool,

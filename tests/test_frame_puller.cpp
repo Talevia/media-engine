@@ -185,6 +185,68 @@ TEST_CASE("open_track_decoder: null demux returns ME_E_INVALID_ARG") {
           == ME_E_INVALID_ARG);
 }
 
+TEST_CASE("pull_next_audio_frame: null args return ME_E_INVALID_ARG") {
+    PacketGuard pkt;
+    FrameGuard  frame;
+    std::string err;
+    CHECK(me::orchestrator::pull_next_audio_frame(
+              nullptr, 0, nullptr, pkt.p, frame.f, &err) == ME_E_INVALID_ARG);
+}
+
+TEST_CASE("pull_next_audio_frame: negative stream idx returns ME_E_INVALID_ARG") {
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+    FmtGuard fmt;
+    REQUIRE(avformat_open_input(&fmt.f, fixture_path.c_str(), nullptr, nullptr) >= 0);
+    PacketGuard pkt;
+    FrameGuard  frame;
+    CHECK(me::orchestrator::pull_next_audio_frame(
+              fmt.f, -1, nullptr, pkt.p, frame.f, nullptr) == ME_E_INVALID_ARG);
+}
+
+TEST_CASE("pull_next_audio_frame: when fixture has no audio, returns NOT_FOUND if run against video stream index") {
+    /* The shared determinism fixture is video-only. Exercising
+     * pull_next_audio_frame against its video stream idx (with an
+     * arbitrary decoder) would mix state-machine semantics — the
+     * helper filters out non-matching stream_index packets, so
+     * passing an audio_stream_idx that doesn't exist in the demux
+     * drains without producing any frames. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+
+    FmtGuard fmt;
+    REQUIRE(avformat_open_input(&fmt.f, fixture_path.c_str(), nullptr, nullptr) >= 0);
+    REQUIRE(avformat_find_stream_info(fmt.f, nullptr) >= 0);
+
+    const int asi = av_find_best_stream(fmt.f, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    if (asi < 0) {
+        MESSAGE("fixture has no audio stream — pull_next_audio_frame full-drain test skipped");
+        return;
+    }
+
+    /* Fixture surprisingly has audio — drain and count. */
+    const AVCodec* codec = avcodec_find_decoder(fmt.f->streams[asi]->codecpar->codec_id);
+    REQUIRE(codec != nullptr);
+    DecGuard dec;
+    dec.c = avcodec_alloc_context3(codec);
+    avcodec_parameters_to_context(dec.c, fmt.f->streams[asi]->codecpar);
+    avcodec_open2(dec.c, codec, nullptr);
+
+    PacketGuard pkt;
+    FrameGuard  frame;
+    int pulled = 0;
+    while (true) {
+        me_status_t s = me::orchestrator::pull_next_audio_frame(
+            fmt.f, asi, dec.c, pkt.p, frame.f, nullptr);
+        if (s == ME_E_NOT_FOUND) break;
+        REQUIRE(s == ME_OK);
+        ++pulled;
+        av_frame_unref(frame.f);
+        if (pulled > 10000) break;   /* safety */
+    }
+    CHECK(pulled >= 1);
+}
+
 TEST_CASE("pull_next_video_frame: second call after EOF still returns ME_E_NOT_FOUND (idempotent)") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
     if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
