@@ -33,6 +33,12 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
                               e->config.memory_cache_bytes);
         e->codecs       = std::make_unique<me::resource::CodecPool>();
         e->asset_hashes = std::make_unique<me::resource::AssetHashCache>();
+        /* DiskCache takes cache_dir from config (empty string =
+         * disabled). Ctor doesn't touch the filesystem; first
+         * put() does the mkdir lazily. */
+        e->disk_cache   = std::make_unique<me::resource::DiskCache>(
+                              e->config.cache_dir ? std::string(e->config.cache_dir)
+                                                  : std::string{});
         e->scheduler    = std::make_unique<me::sched::Scheduler>(
                               me::sched::Config{.cpu_threads = e->config.num_worker_threads},
                               *e->frames, *e->codecs);

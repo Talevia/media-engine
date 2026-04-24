@@ -67,6 +67,7 @@ set(_test_suites
   test_text_renderer
   test_font_fallback
   test_frame_server
+  test_disk_cache
 )
 
 foreach(_suite ${_test_suites})
@@ -492,6 +493,11 @@ endif()
 add_dependencies(test_frame_server determinism_fixture)
 target_compile_definitions(test_frame_server PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_disk_cache exercises DiskCache (filesystem-backed frame
+# cache). Uses temp_directory_path for scratch. Needs src/ on
+# include path for the header.
+target_include_directories(test_disk_cache PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

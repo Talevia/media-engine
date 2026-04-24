@@ -289,6 +289,7 @@ add_library(media_engine STATIC
   resource/codec_pool.cpp
   resource/content_hash.cpp
   resource/asset_hash_cache.cpp
+  resource/disk_cache.cpp
   scheduler/eval_instance.cpp
   scheduler/scheduler.cpp
   orchestrator/segment_cache.cpp

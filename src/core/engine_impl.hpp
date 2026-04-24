@@ -5,6 +5,7 @@
 #include "gpu/gpu_backend.hpp"
 #include "resource/asset_hash_cache.hpp"
 #include "resource/codec_pool.hpp"
+#include "resource/disk_cache.hpp"
 #include "resource/frame_pool.hpp"
 #include "scheduler/scheduler.hpp"
 
@@ -27,6 +28,11 @@ struct me_engine {
     std::unique_ptr<me::resource::FramePool>       frames;
     std::unique_ptr<me::resource::CodecPool>       codecs;
     std::unique_ptr<me::resource::AssetHashCache>  asset_hashes;
+    /* DiskCache populated iff me_engine_config_t.cache_dir is non-
+     * null + non-empty. Disabled instance when absent (put/get
+     * silently no-op). Consumer is Previewer::frame_at's future
+     * cache-aware path (scrub-cache-reuse bullet). */
+    std::unique_ptr<me::resource::DiskCache>       disk_cache;
     std::unique_ptr<me::sched::Scheduler>          scheduler;
 };
 
