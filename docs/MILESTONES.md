@@ -77,7 +77,7 @@
 
 ### Exit criteria
 - [x] Kotlin/Native cinterop `.def` + 示例 Gradle 项目
-- [ ] JVM JNI 样例（macOS / Linux）
+- [x] JVM JNI 样例（macOS / Linux）
 - [ ] 在 talevia 内建一个 `platform-impls/video-media-engine-jvm` 最小 wrapper，跑通 passthrough 替代 shell-out FFmpeg
 
 ## M8+ — 待定
