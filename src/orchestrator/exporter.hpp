@@ -1,12 +1,20 @@
 /*
  * Exporter — batch encoding: timeline + output_spec → file on disk.
  *
- * Bootstrap: the passthrough path still runs through the legacy
- * io::remux_passthrough function. The refactor-passthrough-into-graph-
- * exporter backlog item replaces the internals with an io::demux kernel
- * + MuxerState driven by the scheduler.
+ * Routing (see exporter.cpp::export_to):
+ *   - audio-only timeline → make_audio_only_sink
+ *   - multi-track OR has transitions OR has audio tracks →
+ *     make_compose_sink (runs the per-frame compose loop + audio
+ *     mixer path; requires h264+aac encoder combo today).
+ *   - otherwise → make_output_sink (single-track passthrough /
+ *     h264+aac reencode via reencode_pipeline).
  *
- * Non-passthrough codecs return ME_E_UNSUPPORTED for now.
+ * Supported codec combos: `passthrough` (stream-copy) and
+ * `h264` + `aac` (h264_videotoolbox on macOS; other platforms
+ * skip with ME_E_UNSUPPORTED per hardware availability). Unknown
+ * codec names return ME_E_UNSUPPORTED synchronously; sink-layer
+ * mismatches (e.g. compose path with passthrough) are rejected
+ * at render_start time.
  */
 #pragma once
 
