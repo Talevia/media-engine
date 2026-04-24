@@ -59,15 +59,6 @@ bool streq(const char* a, const char* b) {
     return a && b && std::strcmp(a, b) == 0;
 }
 
-/* Find the first clip on a given track. Returns SIZE_MAX if the track
- * has no clips (factory should reject this, but defensive). */
-std::size_t first_clip_on_track(const me::Timeline& tl, const std::string& track_id) {
-    for (std::size_t i = 0; i < tl.clips.size(); ++i) {
-        if (tl.clips[i].track_id == track_id) return i;
-    }
-    return SIZE_MAX;
-}
-
 class ComposeSink final : public OutputSink {
 public:
     ComposeSink(const me::Timeline&        tl,
@@ -163,15 +154,23 @@ public:
         if (auto s = mux->open_avio(err);    s != ME_OK) return s;
         if (auto s = mux->write_header(err); s != ME_OK) return s;
 
-        /* --- Per-track video decoders ---------------------------- */
-        std::vector<TrackDecoderState> track_decoders(tl_.tracks.size());
-        for (std::size_t ti = 0; ti < tl_.tracks.size(); ++ti) {
-            const std::size_t clip_idx =
-                first_clip_on_track(tl_, tl_.tracks[ti].id);
-            if (clip_idx == SIZE_MAX) continue;  /* empty track; skip */
-            if (clip_idx >= demuxes.size() || !demuxes[clip_idx]) continue;
-            if (auto s = open_track_decoder(demuxes[clip_idx], *pool_,
-                                             track_decoders[ti], err);
+        /* --- Per-clip video decoders ----------------------------
+         * One TrackDecoderState per Timeline::clips entry, keyed by
+         * clip_idx. Prior design opened one decoder per track (first
+         * clip only), which silently broke multi-clip-per-track
+         * compose and can't support cross-dissolve transitions that
+         * need frames from BOTH endpoint clips simultaneously. Per-
+         * clip indexing aligns with `TrackActive::clip_idx` from
+         * active_clips_at / frame_source_at — the frame loop looks
+         * up `clip_decoders[ta.clip_idx]` or `clip_decoders[
+         * fs.transition_{from,to}_clip_idx]` directly. Decoders for
+         * clips whose demux is absent or non-video stay default-
+         * constructed and are skipped at pull time. */
+        std::vector<TrackDecoderState> clip_decoders(tl_.clips.size());
+        for (std::size_t ci = 0; ci < tl_.clips.size(); ++ci) {
+            if (ci >= demuxes.size() || !demuxes[ci]) continue;
+            if (auto s = open_track_decoder(demuxes[ci], *pool_,
+                                             clip_decoders[ci], err);
                 s != ME_OK) {
                 return s;
             }
@@ -249,8 +248,8 @@ public:
                 }
 
                 for (const auto& ta : active) {
-                    if (ta.track_idx >= track_decoders.size()) continue;
-                    TrackDecoderState& td = track_decoders[ta.track_idx];
+                    if (ta.clip_idx >= clip_decoders.size()) continue;
+                    TrackDecoderState& td = clip_decoders[ta.clip_idx];
                     if (td.video_stream_idx < 0 || !td.dec) continue;
 
                     me_status_t pull_s = pull_next_video_frame(
