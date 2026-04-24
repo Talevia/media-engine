@@ -7,6 +7,10 @@
 #include "orchestrator/compose_transition_step.hpp"
 #include "orchestrator/reencode_video.hpp"
 
+#ifdef ME_HAS_SKIA
+#include "text/text_renderer.hpp"
+#endif
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/frame.h>
@@ -16,7 +20,9 @@ extern "C" {
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace me::orchestrator {
 
@@ -36,6 +42,15 @@ me_status_t run_compose_video_frame_loop(
     const int64_t total_frames =
         (tl.duration.num * tl.frame_rate.num + tl.duration.den * tl.frame_rate.den - 1) /
         (tl.duration.den * tl.frame_rate.den);
+
+#ifdef ME_HAS_SKIA
+    /* Per-text-clip lazy-init renderer cache. TextClipParams live on
+     * `Clip::text_params`; we key by clip_idx so each text clip gets
+     * its own TextRenderer (canvas is W×H for all; Skia surface alloc
+     * isn't free — avoid rebuilding per frame). Non-text clips leave
+     * their slot null — zero-cost for video-only timelines. */
+    std::vector<std::unique_ptr<me::text::TextRenderer>> text_renderers(tl.clips.size());
+#endif
 
     for (int64_t fi = 0; fi < total_frames; ++fi) {
         if (shared.cancel &&
@@ -86,6 +101,37 @@ me_status_t run_compose_video_frame_loop(
             if (fs.kind == me::compose::FrameSourceKind::SingleClip) {
                 const me::compose::TrackActive& ta = fs.single;
                 if (ta.clip_idx >= clip_decoders.size()) continue;
+
+                const me::Clip& cur_clip = tl.clips[ta.clip_idx];
+                bool text_handled = false;
+
+#ifdef ME_HAS_SKIA
+                /* Text clip: synthetic, no decoder. Lazy-init the
+                 * TextRenderer at the output canvas size and draw the
+                 * current clip params at T onto track_rgba. Size it
+                 * here (not outside the branch) to keep the vector
+                 * usable below without a parallel size check. */
+                if (cur_clip.type == me::ClipType::Text &&
+                    cur_clip.text_params.has_value()) {
+                    auto& tr = text_renderers[ta.clip_idx];
+                    if (!tr) {
+                        tr = std::make_unique<me::text::TextRenderer>(W, H);
+                    }
+                    const std::size_t pitch =
+                        static_cast<std::size_t>(W) * 4;
+                    ctx.track_rgba.assign(pitch * static_cast<std::size_t>(H), 0);
+                    if (tr->valid()) {
+                        tr->render(*cur_clip.text_params, T,
+                                    ctx.track_rgba.data(), pitch);
+                    }
+                    src_w = W;
+                    src_h = H;
+                    transform_clip_idx = ta.clip_idx;
+                    text_handled = true;
+                }
+#endif
+
+                if (!text_handled) {
                 TrackDecoderState& td = clip_decoders[ta.clip_idx];
                 if (td.video_stream_idx < 0 || !td.dec) continue;
 
@@ -122,6 +168,7 @@ me_status_t run_compose_video_frame_loop(
                 }
                 av_frame_unref(td.frame_scratch.get());
                 transform_clip_idx = ta.clip_idx;
+                }  /* !text_handled */
             } else {
                 /* Transition. Delegate to compose_transition_step
                  * (free function in compose_transition_step.cpp —

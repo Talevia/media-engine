@@ -96,10 +96,28 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         !route_audio_only &&
         (is_multi_track || has_transitions || has_audio_tracks);
 
-    /* Compile a demux graph + carry a ClipTimeRange per clip. */
+    /* Compile a demux graph + carry a ClipTimeRange per clip.
+     * Text clips are synthetic (no asset / no demux); their ClipPlan
+     * slot carries a null graph + default color space. Downstream
+     * compose paths already tolerate a null demux at the matching
+     * clip_idx (see compose_sink.cpp's `if (!demuxes[ci]) continue`
+     * guard). Keeping the plans vector 1:1 with `tl_->clips` means
+     * TrackActive::clip_idx stays a valid index into both. */
     std::vector<ClipPlan> plans;
     plans.reserve(tl_->clips.size());
     for (const auto& clip : tl_->clips) {
+        if (clip.type == me::ClipType::Text) {
+            plans.push_back(ClipPlan{
+                /*graph=*/nullptr, /*term=*/graph::PortRef{},
+                ClipTimeRange{
+                    clip.source_start,
+                    clip.time_duration,
+                    clip.time_start,
+                    me::ColorSpace{},
+                },
+            });
+            continue;
+        }
         const std::string& uri = resolve_uri(*tl_, clip.asset_id);
         auto [g, term] = build_demux_graph(uri);
         graph_cache_.insert(g->content_hash(), g);
@@ -194,6 +212,11 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         std::vector<std::shared_ptr<io::DemuxContext>> demuxes;
         demuxes.reserve(plans.size());
         for (size_t i = 0; i < plans.size() && final_status == ME_OK; ++i) {
+            /* Null-graph plans mark text clips — no asset, no demux. */
+            if (!plans[i].graph) {
+                demuxes.push_back(nullptr);
+                continue;
+            }
             auto fut = eng->scheduler->evaluate_port<std::shared_ptr<io::DemuxContext>>(
                            *plans[i].graph, plans[i].term, ctx);
             try {
