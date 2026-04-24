@@ -155,13 +155,16 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
 
     me::resource::CodecPool* const codec_pool =
         engine_ ? engine_->codecs.get() : nullptr;
+    const me::gpu::GpuBackend* const gpu_backend =
+        engine_ ? engine_->gpu_backend.get() : nullptr;
     std::unique_ptr<OutputSink> sink;
     if (route_audio_only) {
         sink = make_audio_only_sink(*tl_, spec, std::move(common),
                                      std::move(ranges), codec_pool, err);
     } else if (route_through_compose) {
         sink = make_compose_sink(*tl_, spec, std::move(common),
-                                  std::move(ranges), codec_pool, err);
+                                  std::move(ranges), codec_pool,
+                                  gpu_backend, err);
     } else {
         sink = make_output_sink(spec, std::move(common),
                                  std::move(ranges), codec_pool, err);

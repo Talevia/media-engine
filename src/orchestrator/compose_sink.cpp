@@ -30,6 +30,7 @@
 #include "compose/alpha_over.hpp"
 #include "compose/cross_dissolve.hpp"
 #include "compose/frame_convert.hpp"
+#include "gpu/gpu_backend.hpp"
 #include "io/av_err.hpp"
 #include "io/demux_context.hpp"
 #include "io/ffmpeg_raii.hpp"
@@ -69,12 +70,14 @@ public:
                 SinkCommon                 common,
                 std::vector<ClipTimeRange> ranges,
                 me::resource::CodecPool*   pool,
+                const me::gpu::GpuBackend* gpu,
                 int64_t                    video_bitrate,
                 int64_t                    audio_bitrate)
         : tl_(tl),
           common_(std::move(common)),
           ranges_(std::move(ranges)),
           pool_(pool),
+          gpu_backend_(gpu),
           video_bitrate_(video_bitrate),
           audio_bitrate_(audio_bitrate) {}
 
@@ -486,11 +489,32 @@ private:
     SinkCommon                 common_;
     std::vector<ClipTimeRange> ranges_;
     me::resource::CodecPool*   pool_ = nullptr;
+    /* Borrowed; owned by me_engine. May be null (tests / engines that
+     * predate the gpu_backend field). Not yet consulted by the CPU
+     * compose path — `[[maybe_unused]]` silences -Wunused-private-field
+     * until the effect-gpu-* + compose-sink-gpu-path cycles read it.
+     * Plumbing the field now keeps that future cycle local to this
+     * TU rather than cross-file surgery. */
+    [[maybe_unused]] const me::gpu::GpuBackend* gpu_backend_ = nullptr;
     int64_t                    video_bitrate_ = 0;
     int64_t                    audio_bitrate_ = 0;
 };
 
 }  // namespace
+
+bool is_gpu_compose_usable(const me::gpu::GpuBackend* gpu) noexcept {
+    if (!gpu) return false;
+    if (!gpu->available()) return false;
+    const char* n = gpu->name();
+    if (!n) return false;
+    /* Must be a bgfx-<real-renderer> backend. Null backend's name
+     * is "null"; Noop fallback's is "bgfx-Noop" — both unsuitable
+     * for actual GPU compose (Noop reports available=true but its
+     * draws are silent no-ops, producing no pixels). */
+    if (std::strncmp(n, "bgfx-", 5) != 0) return false;
+    if (std::strcmp(n, "bgfx-Noop") == 0) return false;
+    return true;
+}
 
 std::unique_ptr<OutputSink> make_compose_sink(
     const me::Timeline&            tl,
@@ -498,6 +522,7 @@ std::unique_ptr<OutputSink> make_compose_sink(
     SinkCommon                     common,
     std::vector<ClipTimeRange>     clip_ranges,
     me::resource::CodecPool*       pool,
+    const me::gpu::GpuBackend*     gpu_backend,
     std::string*                   err) {
 
     if (!streq(spec.video_codec, "h264") || !streq(spec.audio_codec, "aac")) {
@@ -567,6 +592,7 @@ std::unique_ptr<OutputSink> make_compose_sink(
         std::move(common),
         std::move(clip_ranges),
         pool,
+        gpu_backend,
         spec.video_bitrate_bps,
         spec.audio_bitrate_bps);
 }

@@ -28,8 +28,21 @@
 #include <memory>
 
 namespace me { struct Timeline; }
+namespace me::gpu { class GpuBackend; }
 
 namespace me::orchestrator {
+
+/* True iff `gpu` is a GPU backend usable for accelerated compose:
+ * non-null, reports `available()`, and its renderer is a real bgfx
+ * backend (name starts with "bgfx-" and is not "bgfx-Noop" — the
+ * Noop fallback claims available=true but doesn't write real pixels,
+ * so it must not be treated as GPU-usable by compose kernels).
+ *
+ * Exposed publicly so the same predicate drives ComposeSink's path
+ * selection + a unit-test harness that mocks GpuBackend subclasses
+ * (compose_sink.cpp is otherwise entirely in an anonymous
+ * namespace). */
+bool is_gpu_compose_usable(const me::gpu::GpuBackend* gpu) noexcept;
 
 /* Constructs a ComposeSink for a multi-track video timeline. Returns
  * nullptr (and writes a diagnostic to *err) on argument validation
@@ -39,13 +52,21 @@ namespace me::orchestrator {
  * `tl` is borrowed and must outlive the returned sink (the Exporter
  * keeps the Timeline alive for the lifetime of the render job). `pool`
  * is the engine's CodecPool — required because compose always runs
- * through re-encode (no passthrough compose is physically possible). */
+ * through re-encode (no passthrough compose is physically possible).
+ *
+ * `gpu_backend` is the engine's GpuBackend (borrowed; may be null).
+ * Today ComposeSink records it but always runs the CPU compose path;
+ * future cycles (effect-gpu-* + pass-merge) flip the branch to route
+ * through GPU when `is_gpu_compose_usable(gpu_backend)` returns true.
+ * The parameter is plumbed now so that future cycle is local to
+ * compose_sink.cpp rather than a cross-file signature change. */
 std::unique_ptr<OutputSink> make_compose_sink(
     const me::Timeline&            tl,
     const me_output_spec_t&        spec,
     SinkCommon                     common,
     std::vector<ClipTimeRange>     clip_ranges,
     me::resource::CodecPool*       pool,
+    const me::gpu::GpuBackend*     gpu_backend,
     std::string*                   err);
 
 }  // namespace me::orchestrator

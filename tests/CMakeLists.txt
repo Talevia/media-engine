@@ -56,6 +56,7 @@ set(_test_suites
   test_animated_number
   test_gpu_backend
   test_animated_number_loader
+  test_compose_sink_gpu_detect
 )
 
 foreach(_suite ${_test_suites})
@@ -327,6 +328,12 @@ endif()
 # pulls in nlohmann/json via loader_helpers.hpp.
 target_include_directories(test_animated_number_loader PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_animated_number_loader PRIVATE nlohmann_json::nlohmann_json)
+
+# test_compose_sink_gpu_detect exercises the
+# me::orchestrator::is_gpu_compose_usable predicate with inline
+# MockGpuBackend subclasses. Pure C++; no libav / bgfx. Needs
+# src/ on the include path for compose_sink.hpp + gpu_backend.hpp.
+target_include_directories(test_compose_sink_gpu_detect PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
