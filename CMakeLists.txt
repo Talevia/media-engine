@@ -78,6 +78,14 @@ option(ME_BUILD_BENCH    "Build GPU render benchmarks (bench/)"          OFF)
 # bring-up work until effect-gpu-* bullets land.
 option(ME_WITH_GPU       "Enable bgfx GPU backend (M3 Metal on macOS)" OFF)
 
+# M7 JNI glue (bindings/jni/). OFF by default — requires a JDK at
+# configure time via `find_package(JNI)`, and the JVM host surface
+# is a subset of our targets (iOS / native-C hosts don't need it).
+# Flip ON to produce `libmedia_engine_jni.{dylib,so,dll}` alongside
+# the main engine lib. See `bindings/jni/CMakeLists.txt` for the
+# expected `System.loadLibrary` contract.
+option(ME_BUILD_JNI      "Build JNI glue for JVM hosts (bindings/jni/)" OFF)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
   if(ME_WERROR)
@@ -98,4 +106,8 @@ endif()
 
 if(ME_BUILD_BENCH)
   add_subdirectory(bench)
+endif()
+
+if(ME_BUILD_JNI)
+  add_subdirectory(bindings/jni)
 endif()

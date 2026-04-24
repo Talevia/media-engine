@@ -30,6 +30,18 @@ Rationale: keeps the engine simple and testable, and avoids a round-trip callbac
 
 ## JNI (JVM, Android)
 
+**Canonical in-repo example: `bindings/jni/`.** `MediaEngine.java` + `me_jni.cpp` + `CMakeLists.txt` build an opt-in `libmedia_engine_jni.{dylib,so,dll}` via `-DME_BUILD_JNI=ON` and expose the engine/timeline/render-job surface as a minimal `AutoCloseable`-based Java API with a `ProgressListener` callback interface. The class has a `main` entrypoint for smoke runs:
+
+```sh
+cmake -B build -DME_BUILD_JNI=ON && cmake --build build --target media_engine_jni
+javac -d build/classes bindings/jni/src/io/mediaengine/MediaEngine.java
+java -Djava.library.path=build/bindings/jni:build/src \
+     -cp build/classes \
+     io.mediaengine.MediaEngine [timeline.json] [out.mp4]
+```
+
+With no args the smoke prints version + round-trips an engine handle; with one arg it additionally loads the timeline; with two, it runs a full render to `out.mp4`.
+
 ### Build
 
 - Package the native library as a JAR resource per platform pair (e.g., `media-engine-macos-arm64.jar`, `media-engine-linux-x86_64.jar`, `media-engine-android-arm64-v8a.so` in the APK).
