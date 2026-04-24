@@ -4,24 +4,20 @@
 
 See `docs/ARCHITECTURE_GRAPH.md` §Task 运行时与 Kernel 注册 for the contract.
 
-## 当前状态
+## 当前文件
 
-**Scaffolded, impl incoming**——本目录只有这个 README。具体文件由 backlog `graph-task-bootstrap` 实装。
+- `task_kind.hpp` — `enum class TaskKindId`（`IoDemux`、`Test*` bootstrap kinds）、`KindInfo` 描述符、`PortDecl` / `ParamDecl` schema 描述。
+- `context.hpp` — `TaskContext`：kernel 调用时的注入容器，携带 FramePool / CodecPool / GpuContext / Cache 引用 + cancel flag + InputValue / OutputSlot。
+- `registry.hpp` / `registry.cpp` — 全局 kernel registry：`register_kind(KindInfo)`、`lookup(TaskKindId)`、`best_kernel_for(kind, affinity_hint)`。Scheduler 派发时查这里。
 
-## 计划的文件
+## 已注册 kinds
 
-- `task_kind.hpp` — `enum class TaskKindId`，`KindInfo`，`PortDecl` / `ParamDecl` schema 描述
-- `context.hpp` — `TaskContext`、`InputValue` / `OutputSlot` variant
-- `registry.hpp` / `registry.cpp` — `register_kind(KindInfo)` / `register_variant(...)` / `lookup(TaskKindId)` / `best_kernel_for(kind, affinity_hint)`
+- `IoDemux` — `src/io/demux_kernel.cpp` 注册；消费 `uri` property，产出 `shared_ptr<io::DemuxContext>`。orchestrator 的 per-clip `build_demux_graph` 用的就是这个。
+- Bootstrap test kinds（`TaskKindId::Test*`） — `tests/test_scheduler_smoke` 用途，生产路径无关。
 
-## 首批 kind（由各自 backlog 实装）
+## 计划中的 kinds（由各自 backlog 实装）
 
-- `io::demux` / `io::decode_video` / `io::decode_audio`（M1）
-- `algo::content_hash` / `algo::thumbnail`（M1）
-- `render::compose_cpu`（M2）
-- `render::cross_dissolve`（M2）
-- `render::effect_chain_gpu`（M3）
-- `audio::mix` / `audio::resample` / `audio::timestretch`（M4）
+随各自 feature 增长；orchestrator 走的主路径（passthrough / reencode / compose）目前不依赖 kernel 注册外的额外 kinds——Previewer / Exporter / ComposeSink 直接调 io / compose / reencode 函数。Graph eval 只深用 `IoDemux` 一个 kernel。
 
 ## 边界
 

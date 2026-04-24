@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **debt-scaffold-readmes-doc-rot** — `src/graph/README.md:9`, `src/scheduler/README.md:9`, `src/task/README.md:9` 各自写 "Scaffolded, impl incoming——本目录只有这个 README"。但 `ls src/{graph,scheduler,task}` 显示每目录都有 6-8 个真实文件：`graph.{hpp,cpp}` / `scheduler.{hpp,cpp}` / `task_kind.hpp` / `eval_instance.{hpp,cpp}` 等。README 多个 milestone 前就过时了。**方向：** 三个 README 改为实际描述的模块 role（graph = 纯数据 Node/Graph；task = kernel registry；scheduler = task runtime）+ 列当前 file 的职责 + 哪些 rubric 轴已覆盖。Milestone §M7-debt (cross)，Rubric §5.6。
 - **bench-text-paragraph-perf** — cycle 50 (4677e21) 加 `SkiaBackend::draw_paragraph` + 两个 test case 验证正确性，但没 bench 测吞吐。`draw_paragraph` 的 greedy codepoint 算法是 O(n) measureText calls per line；未来 caption-heavy workflow 可能需要 O(n log n) 或 SkParagraph 替代。没 baseline bench 就没 regression 信号。**方向：** 新 `bench/bench_text_paragraph.cpp` — 生成 1000-codepoint CJK+emoji 混合 string，测 `draw_paragraph` 每秒能处理多少 frame；配 `ME_BUILD_BENCH=ON` ctest entry。阈值：60 fps / paragraph for 1000 codepoint content。Milestone §M5-debt (cross)，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
