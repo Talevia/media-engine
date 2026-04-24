@@ -1,4 +1,4 @@
-/* Internal timeline IR. Minimal — expands as schema v1 coverage grows.
+/* Internal timeline IR — composition structure.
  *
  * Phase-1 scope: single video track with N contiguous clips, no effects,
  * no transforms. Everything else is rejected at load time with
@@ -9,48 +9,26 @@
  * keeps per-asset metadata (URI, content hash, and future colorSpace /
  * metadata bag) orthogonal to per-clip metadata (time window) — same
  * asset referenced by N clips stores only once.
+ *
+ * Layout: this header carries the composition-structure types (Asset,
+ * Clip, Track, Transition, Timeline, me_timeline). Parameter PODs
+ * (ColorSpace, Transform, ClipType, TextClipParams, SubtitleClipParams,
+ * EffectSpec) live in `timeline_ir_params.hpp` and are included here;
+ * TUs that only need parameter types (loader_helpers parsers) can
+ * include that file directly.
  */
 #pragma once
 
 #include "media_engine/types.h"
 #include "timeline/animated_number.hpp"
+#include "timeline/timeline_ir_params.hpp"
 
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
 namespace me {
-
-/* Per-asset color space override (TIMELINE_SCHEMA.md §Color). Each axis is
- * independently optional — `Unspecified` means "trust container metadata
- * for this axis". Populated into Asset only when JSON explicitly carries
- * `"colorSpace":{...}`; a missing object leaves Asset::color_space as
- * std::nullopt (= trust container for everything).
- *
- * M2 OCIO pipeline consumes these enums to pick a working-space transform.
- * Keep the enumeration stable with the schema string tables in the loader;
- * adding a value needs a matching entry in both directions. */
-struct ColorSpace {
-    enum class Primaries : uint8_t {
-        Unspecified = 0, BT709, BT601, BT2020, P3_D65
-    };
-    enum class Transfer : uint8_t {
-        Unspecified = 0, BT709, SRGB, Linear, PQ, HLG, Gamma22, Gamma28
-    };
-    enum class Matrix : uint8_t {
-        Unspecified = 0, BT709, BT601, BT2020NC, Identity
-    };
-    enum class Range : uint8_t {
-        Unspecified = 0, Limited, Full
-    };
-
-    Primaries primaries{Primaries::Unspecified};
-    Transfer  transfer {Transfer::Unspecified};
-    Matrix    matrix   {Matrix::Unspecified};
-    Range     range    {Range::Unspecified};
-};
 
 struct Asset {
     std::string uri;          /* resolved later (strip file:// at I/O time) */
@@ -64,193 +42,6 @@ struct Asset {
      * JSON asset object carried `"colorSpace":{...}`. M2-prep — M2 OCIO
      * is the only consumer. */
     std::optional<ColorSpace> color_space;
-};
-
-/* Snapshot of a Transform's 8 fields at a specific composition time.
- * Produced by `Transform::evaluate_at(t)`; consumed by the compose
- * loop / affine math. Identity defaults match Transform's defaults. */
-struct TransformEvaluated {
-    double translate_x  = 0.0;
-    double translate_y  = 0.0;
-    double scale_x      = 1.0;
-    double scale_y      = 1.0;
-    double rotation_deg = 0.0;
-    double opacity      = 1.0;
-    double anchor_x     = 0.5;
-    double anchor_y     = 0.5;
-
-    /* Spatial identity ⇔ translate == 0, scale == 1, rotation == 0.
-     * Opacity and anchor don't participate — opacity is applied via
-     * alpha_over (not spatial); anchor only matters when there's
-     * rotation/scale. */
-    bool spatial_identity() const {
-        return translate_x  == 0.0 &&
-               translate_y  == 0.0 &&
-               scale_x      == 1.0 &&
-               scale_y      == 1.0 &&
-               rotation_deg == 0.0;
-    }
-};
-
-/* 2D transform applied when the clip composites onto the output canvas.
- * Each field is an `AnimatedNumber` — supports `{"static": v}` and
- * `{"keyframes": [...]}` JSON forms (migrated by the
- * `transform-animated-support` bullet layer 3). Identity defaults make
- * `Transform{}` a valid "no-op" state.
- *
- * Caller pattern: `auto eval = clip.transform->evaluate_at(T);` — reads
- * 8 doubles into a `TransformEvaluated` at composition time T. Callers
- * that ignore T (e.g. preview-at-t=0 flat static) can pass
- * `me_rational_t{0, 1}`.
- *
- * Stored as std::optional<Transform> on Clip: nullopt = "JSON clip has
- * no `transform` key" (vs Transform{} = "transform key present with
- * all identity defaults"). The distinction lets downstream code
- * fast-path clips that truly omit transforms. */
-struct Transform {
-    AnimatedNumber translate_x  = AnimatedNumber::from_static(0.0);
-    AnimatedNumber translate_y  = AnimatedNumber::from_static(0.0);
-    AnimatedNumber scale_x      = AnimatedNumber::from_static(1.0);
-    AnimatedNumber scale_y      = AnimatedNumber::from_static(1.0);
-    AnimatedNumber rotation_deg = AnimatedNumber::from_static(0.0);
-    AnimatedNumber opacity      = AnimatedNumber::from_static(1.0);
-    AnimatedNumber anchor_x     = AnimatedNumber::from_static(0.5);
-    AnimatedNumber anchor_y     = AnimatedNumber::from_static(0.5);
-
-    TransformEvaluated evaluate_at(me_rational_t t) const {
-        return TransformEvaluated{
-            translate_x.evaluate_at(t),
-            translate_y.evaluate_at(t),
-            scale_x.evaluate_at(t),
-            scale_y.evaluate_at(t),
-            rotation_deg.evaluate_at(t),
-            opacity.evaluate_at(t),
-            anchor_x.evaluate_at(t),
-            anchor_y.evaluate_at(t),
-        };
-    }
-};
-
-/* Media kind of a clip. Mirrors TIMELINE_SCHEMA.md §Clip `"type"` enum
- * values "video" / "audio" / "text" / "subtitle". Loader enforces
- * that a clip's type matches its parent track's kind (no cross-kind
- * mixing). Enum values are ABI-stable once shipped — append new
- * kinds, never reorder. */
-enum class ClipType : uint8_t {
-    Video    = 0,
-    Audio    = 1,
-    Text     = 2,
-    Subtitle = 3,
-};
-
-/* Synthetic text-clip parameters — used when ClipType::Text. Has no
- * source asset (no decoder, no demux); the renderer draws directly
- * from these fields per output frame.
- *
- * `content` is the UTF-8 string to render. Empty is valid (renders
- * nothing but still takes space on the timeline).
- *
- * `font_size`, `x`, `y` are AnimatedNumbers so each can keyframe
- * independently (size pulse, position tween). Defaults are
- * reasonable static values — 48 pixel font at (0, 0).
- *
- * `color` is a CSS-like hex string ("#RRGGBB" / "#RRGGBBAA"). Loader
- * validates the string shape; the renderer converts to float-RGBA
- * at draw time. Static string (not AnimatedString) — color
- * animation would use a typed animated-color primitive if / when a
- * consumer needs it.
- *
- * `font_family` is an optional font family name ("Helvetica",
- * "Noto Sans SC", "Apple Color Emoji"). Empty = platform default.
- * Renderer's font resolver (future: CoreText on macOS, fontconfig
- * on Linux) walks fallbacks for characters the primary font lacks.
- */
-struct TextClipParams {
-    std::string    content;
-    std::string    color      = "#FFFFFFFF";
-    std::string    font_family;
-    AnimatedNumber font_size  = AnimatedNumber::from_static(48.0);
-    AnimatedNumber x          = AnimatedNumber::from_static(0.0);
-    AnimatedNumber y          = AnimatedNumber::from_static(0.0);
-};
-
-/* Synthetic subtitle-clip parameters — used when ClipType::Subtitle.
- * Has no source asset; the SubtitleRenderer parses the inline
- * `content` string (UTF-8 .ass / .ssa / .srt) once at clip entry
- * and rasterizes per-frame glyphs via libass.
- *
- * Phase-1 is inline-content only (subtitleParams.content). A future
- * extension can add `file_uri` for large subtitle files once the
- * host asset resolver proves worth the I/O path; today, bundling
- * the track inline keeps the timeline JSON self-contained. */
-struct SubtitleClipParams {
-    std::string content;    /* inline .ass / .srt text */
-    std::string codepage;   /* optional: passed to libass for non-UTF-8 */
-};
-
-/* Typed effect parameter tagged union.
- *
- * VISION §3.2 forbids `Map<String, Float>`-shaped effect parameter
- * APIs. Each EffectKind has its own POD parameter struct; EffectSpec
- * holds a std::variant over them so add-a-new-kind is a variant
- * extension + a parse branch, not a map entry.
- *
- * Params are plain numbers (not AnimatedNumber) today — keyframed
- * effect params arrive with the `effect-param-animated` cycle once
- * GPU effects actually consume them. Schema doc lists all three
- * kinds' param names (TIMELINE_SCHEMA.md §Effect "Core kinds").
- *
- * Ranges documented here are *semantic* and not loader-enforced —
- * downstream GPU effects clamp to their shader's valid domain.
- * Loader only enforces "required params present, types correct". */
-struct ColorEffectParams {
-    double brightness = 0.0;   /* ~[-1, +1]; 0 = identity */
-    double contrast   = 1.0;   /* ~[0, 2];   1 = identity */
-    double saturation = 1.0;   /* ~[0, 2];   1 = identity */
-};
-
-struct BlurEffectParams {
-    double radius = 0.0;       /* pixels; 0 = identity */
-};
-
-struct LutEffectParams {
-    std::string path;          /* .cube file path / URI; asset_ref
-                                * resolution deferred to LUT effect */
-};
-
-/* EffectKind enum. Stable once shipped — appending new kinds is ABI-
- * safe (new enum value + new variant alternative); reordering /
- * removing kinds is not. JSON tags ("color", "blur", "lut") live in
- * loader_helpers.cpp's dispatch; add entries in lock-step. */
-enum class EffectKind : uint8_t {
-    Color = 0,
-    Blur  = 1,
-    Lut   = 2,
-};
-
-struct EffectSpec {
-    /* Optional JSON "id" for addressable effect updates (future M3+
-     * scrub-time parameter tweaks). Empty when JSON omits "id". */
-    std::string    id;
-
-    EffectKind     kind{EffectKind::Color};
-
-    /* `enabled` defaults true per TIMELINE_SCHEMA.md §Effect. Consumer
-     * skips disabled effects entirely — cheaper than running through
-     * `mix=0`. */
-    bool           enabled{true};
-
-    /* Blend factor between input and effect output. AnimatedNumber so
-     * keyframed fades work on the same `{"static": v}` / `{"keyframes":
-     * [...]}` shape as Transform fields. Default = full effect. */
-    AnimatedNumber mix = AnimatedNumber::from_static(1.0);
-
-    /* Typed params by EffectKind. The variant's index must match the
-     * kind enum's underlying value (Color → 0, Blur → 1, Lut → 2) so
-     * consumers can `std::get_if<ColorEffectParams>(&spec.params)`
-     * without re-checking kind. Loader enforces the invariant. */
-    std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams>
-        params{ColorEffectParams{}};
 };
 
 struct Clip {
@@ -332,9 +123,10 @@ struct Clip {
 };
 
 /* Kind of a compositing track. Mirrors TIMELINE_SCHEMA.md's `kind`
- * enum: "video" / "audio" / "text". The loader enforces per-track
- * clip-type match. Text tracks carry synthetic clips (no source
- * asset); video / audio tracks carry clips referencing assets. */
+ * enum: "video" / "audio" / "text" / "subtitle". The loader enforces
+ * per-track clip-type match. Text / subtitle tracks carry synthetic
+ * clips (no source asset); video / audio tracks carry clips
+ * referencing assets. */
 enum class TrackKind : uint8_t {
     Video    = 0,
     Audio    = 1,
