@@ -187,4 +187,4 @@ Do **not** pixel-compare decoded frames — `sws_scale` filter defaults drift be
 
 **Why `ME_BUILD_TESTS=OFF` default?** The engine is a library; hosts building against it shouldn't pay for our test infra. CI / dev both flip it ON.
 
-**Can I add a test without a matching decision in `docs/decisions/`?** Yes — decisions cover architecture / contract changes. Pure coverage additions can land as part of a `docs/decisions/<date>-debt-test-...` entry but the decision body is brief ("filled an observability gap").
+**Does every test need an architectural rationale in the commit body?** No — for pure coverage additions a one-line "filled an observability gap" in the commit body is enough. Commit bodies carry richer rationale (see `.claude/skills/iterate-gap/SKILL.md` §7) only when the change touches architecture / contracts / public API.

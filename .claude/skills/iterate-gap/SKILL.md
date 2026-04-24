@@ -1,11 +1,11 @@
 ---
 name: iterate-gap
-description: 从 docs/BACKLOG.md 挑当前 milestone 最高优先级任务，plan → 实现 → 归档决策 → 推 main。backlog 空了再按 rubric + milestone 一次性补 15 条。参数 "<count> [parallel]"，例：/iterate-gap、/iterate-gap 3、/iterate-gap 3 parallel。执行期间零提问。
+description: 从 docs/BACKLOG.md 挑当前 milestone 最高优先级任务，plan → 实现 → commit（理由写进 commit body）→ 推 main。backlog 空了再按 rubric + milestone 一次性补 15 条。参数 "<count> [parallel]"，例：/iterate-gap、/iterate-gap 3、/iterate-gap 3 parallel。执行期间零提问。
 ---
 
 # iterate-gap — milestone-aware backlog-driven 补齐愿景 gap 的循环
 
-挑当前仓库与北极星之间**当前 milestone 内**优先级最高的 gap，plan → 在 `main` 上实现 → 归档决策 → 推送。**执行期间不向用户提任何问题**——每一个决策都按 `docs/VISION.md` + `docs/MILESTONES.md` + 业界共识自主做出，理由作为**一个新文件**落到 `docs/decisions/`（一次 iteration 一个文件，绝不 append 到其它文件），由用户事后异步审阅。
+挑当前仓库与北极星之间**当前 milestone 内**优先级最高的 gap，plan → 在 `main` 上实现 → commit → 推送。**执行期间不向用户提任何问题**——每一个决策都按 `docs/VISION.md` + `docs/MILESTONES.md` + 业界共识自主做出，理由写进 commit message body（见 §7），由用户事后通过 `git log` 异步审阅。
 
 **任务源是 `docs/BACKLOG.md`**（P0 → P1 → P2，同档内按出现顺序取第一个）。只有当 backlog 被清空时，才 fallback 到 rubric + milestone 分析，一次性生成 15 条新任务写回 backlog，并在同一 cycle 里继续挑新生成的第 1 条动手。
 
@@ -22,11 +22,11 @@ description: 从 docs/BACKLOG.md 挑当前 milestone 最高优先级任务，pla
 ## 操作约束（两种模式都适用）
 
 - **分支目标**：`main`。不开 feature branch，不开 PR。（并行模式内部用临时 worktree 分支，但本次调用内部必须通过 merge+push 落回 `main`。）
-- **提问**：零次。遇到决策点按 VISION + MILESTONES + 业界共识自行决定，理由写成 `docs/decisions/<yyyy-mm-dd>-<slug>.md` 新文件。真卡在只有用户能回答的问题（付费授权、私钥、产品偏好）→ **换一个 gap**（从 backlog 下一条取），不干等，也不问。
+- **提问**：零次。遇到决策点按 VISION + MILESTONES + 业界共识自行决定，理由写进 commit message body（见 §7）。真卡在只有用户能回答的问题（付费授权、私钥、产品偏好）→ **换一个 gap**（从 backlog 下一条取），不干等，也不问。
 - **Backlog 是唯一任务源**：不凭空脑补"临时 gap"绕过 backlog。空 backlog → 先 rubric-repopulate（见 §R），再继续。
 - **Milestone 硬闸**：当前 milestone（`docs/MILESTONES.md` 顶部 "Current: " 指针）的 exit criteria 未全打勾时，不处理下一个 milestone 的 gap——除非所有当前 milestone 的 backlog 项都被跳过（踩红线 / 缺用户输入）。**milestone 推进由本 skill 在每个 cycle 的 step 7 后自动处理**（见 §M "Milestone sync"）：evidence-complete 的 exit criterion 自动打勾（独立 `docs(milestone):` commit），全部打勾后自动推进 "Current:" 指针到下一 milestone 并 seed bootstrap backlog。evidence 不足的 criterion 不动，下 cycle 再审。
 - **先 plan 再实现**：每个 gap 必须有独立 plan 步骤之后再动代码。
-- **决策强制归档**：每轮**一个** `feat(...)` commit（或 `fix` / `refactor`）同时包含：代码改动 + 新建的 `docs/decisions/<yyyy-mm-dd>-<slug>.md` + `docs/BACKLOG.md` 对应 bullet 的删除。决策文件**只新建不编辑已有**，**不记 commit 号**（`git log` 按文件名查即可，归档里写 hash 会过时）。
+- **决策理由落在 commit body**：每轮**一个** `feat(...)` commit（或 `fix` / `refactor`）同时包含：代码改动 + `docs/BACKLOG.md` 对应 bullet 的删除；**决策理由写进 commit message body**（context / decision / alternatives / coverage / license / §3a self-check / registration / §M 影响，见 §7）。`git log` 即归档。
 
 ---
 
@@ -67,7 +67,7 @@ git pull --rebase origin main
 1. `docs/VISION.md` §5 的 7 条 rubric 轴（5.1–5.7）。
 2. `docs/MILESTONES.md` 顶部的 current milestone 及其未打勾的 exit criteria。
 3. `CLAUDE.md` 的 "Architecture invariants" + "Anti-requirements" + "Known incomplete"——已承认的非回归项别当缺口重复报。
-4. `docs/decisions/` 最近 ~15 个文件（`ls docs/decisions | sort -r | head -15`）——近期已做决策约束了不该再做一遍的内容。
+4. 最近 ~30 个 commit 的 message body（`git log -30 --format='%h %s%n%b%n---'`）——近期决策理由已约束了不该再做一遍的内容。
 5. `git log --oneline -30`——看最近落地了什么。
 
 走读 `include/media_engine/`、`src/timeline/`、`src/api/`、`src/io/`、`src/render/`（将来）、`src/audio/`（将来），对每条 rubric 轴打分（有 / 部分 / 无），**以当前 milestone 的 exit criteria 为优先补口**。
@@ -122,7 +122,7 @@ grep -rn '<relevant_symbol>' src tests include docs
    ```
    grep -rnE 'TODO|FIXME|HACK|XXX' src include cmake | wc -l
    ```
-   净增长 > 0 出一条 `debt-clean-todos`，decision 里列新增行号。
+   净增长 > 0 出一条 `debt-clean-todos`，commit body 里列新增行号。
 
 4. **被跳过或禁用的测试** —
    ```
@@ -168,7 +168,7 @@ grep -rn '<relevant_symbol>' src tests include docs
 - **<slug>** — <Gap：现状 / 痛点>。**方向：** <期望动的东西>。Milestone §M<x>，Rubric §5.<y>。
 ```
 
-**Repopulate 本身是独立 commit**（只动 `docs/BACKLOG.md`，不带 decision / 代码）：
+**Repopulate 本身是独立 commit**（只动 `docs/BACKLOG.md`，不带代码）：
 
 ```
 docs(backlog): repopulate 15 tasks from rubric + milestone analysis
@@ -181,7 +181,7 @@ Metrics vs previous snapshot:
 ...
 ```
 
-只改 `docs/BACKLOG.md` 一个文件。push 之后**不把 repopulate 本身算作本轮 "1 个 gap"**，继续回到第 2 步挑新列表第 1 条，走完整 plan → 实现 → 归档 → 删 bullet → 推送的 cycle。
+只改 `docs/BACKLOG.md` 一个文件。push 之后**不把 repopulate 本身算作本轮 "1 个 gap"**，继续回到第 2 步挑新列表第 1 条，走完整 plan → 实现 → 删 bullet → 推送的 cycle。
 
 ### 3. Plan
 
@@ -210,15 +210,15 @@ Metrics vs previous snapshot:
 
 5. **GPL 不混入** — 本轮 CMake 是否新增 `FetchContent_Declare` / `find_package`？license 是否在 ARCHITECTURE.md 白名单里？libx264 / libx265 / Rubberband-GPL / Movit 直接阻断。
 
-6. **确定性不破坏** — 本轮引入了：parallelism？SIMD FMA？`std::unordered_map`（iteration order 不定）？`rand()`？时间戳入日志路径但也入输出？任何一条 → 在 decision 里显式说明是否破坏软件路径 byte-identical，或者如何证明没破坏。
+6. **确定性不破坏** — 本轮引入了：parallelism？SIMD FMA？`std::unordered_map`（iteration order 不定）？`rand()`？时间戳入日志路径但也入输出？任何一条 → 在 commit body 里显式说明是否破坏软件路径 byte-identical，或者如何证明没破坏。
 
 7. **Stub 不净增** — 本轮添加新的 `ME_E_UNSUPPORTED` 返回点吗？只允许两种情况：(a) 新加的 API 函数暂时 stub 但必须同 commit 在 BACKLOG 里加对应 `*-impl` bullet；(b) 实装的新路径把**更多**旧 stub 消除掉。净 +1 stub 不带 backlog bullet → 红线。
 
 8. **OpenGL 不进主路径** — 本轮引入 GL API 吗？必须明确标注 fallback 路径（文件名 `*_gl_fallback.*` / namespace / CMake option 守护）。bgfx 不算（它是抽象层）。
 
-9. **Schema 向后兼容** — 改动 JSON schema 吗？新字段必须有默认值（旧 JSON 能解）。删字段前 `grep docs/decisions/` 看是否有依赖。破坏性变动 → 必须 bump `schemaVersion`。
+9. **Schema 向后兼容** — 改动 JSON schema 吗？新字段必须有默认值（旧 JSON 能解）。删字段前 `git log --all -p -- 'docs/**.md' 'src/timeline/**'` 或 `git log -S '<field>'` 看是否有依赖。破坏性变动 → 必须 bump `schemaVersion`。
 
-10. **ABI 不破坏** — 改动 `include/media_engine/*.h`？开过的 enum 值不改、开过的 struct 不往中间插字段（只允许末尾 append）、开过的函数签名不动（需要时加 `me_foo2`）。ABI 破坏性变动 → 必须在 decision 里说明为什么接受 + 更新 `docs/ARCHITECTURE.md` 的当前实现状态表。
+10. **ABI 不破坏** — 改动 `include/media_engine/*.h`？开过的 enum 值不改、开过的 struct 不往中间插字段（只允许末尾 append）、开过的函数签名不动（需要时加 `me_foo2`）。ABI 破坏性变动 → 必须在 commit body 里说明为什么接受 + 更新 `docs/ARCHITECTURE.md` 的当前实现状态表。
 
 **命中任何一条不是"想办法绕过"的信号，是"换下一条 backlog"的信号**。
 
@@ -245,15 +245,9 @@ Metrics vs previous snapshot:
 
 **必跑**：完整 `cmake --build build --target 01_passthrough` 后生成的 binary 能跑通现有 sample timeline，ffprobe 产物合法。**红色不准 commit**。
 
-### 6. 归档决策 + 删 backlog bullet
+### 6. 删 backlog bullet（+ 可选：顺手记 debt）
 
-在 `docs/decisions/` 下**新建**文件：`docs/decisions/<YYYY-MM-DD>-<slug>.md`。**不要** append 到已有文件。
-
-- 日期用当天。
-- `<slug>` 复用 backlog bullet 的 slug。
-- 冲突（同日同 slug）→ 后缀 `-2`、`-3`。
-
-同一步把本轮处理的 bullet 从 `docs/BACKLOG.md` 删掉：
+把本轮处理的 bullet 从 `docs/BACKLOG.md` 删掉：
 
 - 只删这一条 bullet（整行含前导 `- `），**不**重写整个文件、不动顶部说明、不 reorder 剩余 bullet。
 - 被跳过的 bullet 保留不动（plan 阶段判定踩红线 / 缺用户输入的那种）。
@@ -268,7 +262,7 @@ Metrics vs previous snapshot:
 规则：
 - 只能 append 到 P2 末尾，不能插 P0 / P1，不 reorder。
 - 一次 cycle 最多 append 2 条（更多说明跑偏了）。
-- 和本轮处理的 bullet 删除 + decision 文件 + 代码改动一起进同一条 `feat(...)` commit，不单独 commit。
+- 和本轮处理的 bullet 删除 + 代码改动一起进同一条 `feat(...)` commit，不单独 commit。
 - **只记不修**——"观察笔记"，下次 repopulate 或专门调度时处理。
 
 **观察分流（BACKLOG 还是 PAIN_POINTS）**：上面的 debt append 是**默认路径**，几乎所有 cycle 级偶然发现都走这条——代码异味、重复模式、某个文件变长、helper 抽取时机未到，都记 BACKLOG。唯一例外是观察同时满足 `docs/PAIN_POINTS.md` 头部三条准入门槛：
@@ -279,19 +273,29 @@ Metrics vs previous snapshot:
 
 三条全中 → append 到 `docs/PAIN_POINTS.md` 末尾（格式见该文件 header），**不走 BACKLOG**。任意一条不确定 → 默认 BACKLOG。一个 cycle 通常 PAIN_POINTS 条目 = 0，最多 1；如果一周内 ≥ 2 条往这边走，说明分流标准放松了，下个 cycle 先审视。PAIN_POINTS 条目和 debt bullet 一样进同一条 `feat(...)` commit，不单独 commit。
 
-Decision 文件格式见 `docs/decisions/README.md` 的模板。
-
 ### 7. Commit + push
 
 - 按具体文件名 stage（严禁 `git add -A`，CLAUDE.md 硬规则）。
-- 一条 commit：`feat(<area>): <内容>`（或 `fix` / `refactor`），包含以下三件事**一起**提交：
-  1. 代码改动
-  2. 新建的 `docs/decisions/<yyyy-mm-dd>-<slug>.md`（**不记 commit 号**）
-  3. `docs/BACKLOG.md` 里对应 bullet 的删除
+- 一条 commit：`feat(<area>): <短标题>`（或 `fix` / `refactor`），包含两件事**一起**提交：
+  1. 代码 / 测试改动。
+  2. `docs/BACKLOG.md` 里对应 bullet 的删除（+ 可选 debt append 或 PAIN_POINTS 条目）。
+- **决策理由写进 commit message body**（以前是 `docs/decisions/<date>-<slug>.md` 单独文件，现在并入 commit body；`git log` 即归档，`git log -S '<symbol>'` / `git log --grep=<slug>` 查旧决策）。body 至少包含以下段落（用 `HEREDOC` 传入避免手写换行出错，参考 CLAUDE.md 里的示例）：
+
+  - **Context.** 本轮处理的 backlog bullet（slug + 一句话 gap 复述 + milestone §Mx + rubric §5.y）。grep 证据为 `path:line` 引用上游 gap。
+  - **Decision.** 落地了什么。关键类 / 函数 / 文件名。
+  - **Alternatives considered.** 至少 2 条被拒的方案 + 为什么拒。业界共识论据（FFmpeg / libav / bgfx / OCIO 等常见做法）要具体到名字。
+  - **Coverage.** 哪些 test / example 覆盖了本轮改动。命中的 ctest suite + 新增 TEST_CASE 数。
+  - **License impact.** 新依赖？在 ARCHITECTURE.md 白名单里？纯代码改动写 "无新依赖"。
+  - **§3a self-check.** 10 条命中情况。全绿简记 "全绿"；任意一条有命中必须标出并说明为什么能例外（或为什么不是真命中）。
+  - **Registration.** 改了哪些注册点 / 入口（TaskKindId / CodecPool / Orchestrator factory / C API 函数 / CMake / JSON schema 字段），或写 "无注册点变更"。
+  - **§M 自动化影响.** 本 cycle 是否 tick 某个 milestone exit criterion？推进了 milestone？或者 "M3 exit criteria 不变"。
+
+  Body 长度按需——简单 bug fix 半屏足够；重大架构改动可多屏。**不写 commit hash**（自引用；`git log` 本身就是 canonical）。
+
 - `git push origin main`。
 - 推送被拒（有人同时推过）→ `git pull --rebase origin main` → rebase 动了文件就再跑一遍验证 → 再推。rebase 冲突解不开 → **停下报告**。绝不 `--force`，绝不对已推送 commit `--amend`。
 
-Backlog repopulate 是例外：独立一条 `docs(backlog): …` commit（见 §R），只改 `docs/BACKLOG.md`，不涉及 decision / 代码。
+Backlog repopulate 是例外：独立一条 `docs(backlog): …` commit（见 §R），只改 `docs/BACKLOG.md`，不涉及代码；body 只需列 debt 扫描指标对比（前→现数字）。
 
 ### M. Milestone sync（step 7 之后、step 8 之前必跑）
 
@@ -322,11 +326,8 @@ M.1 之后若 current milestone 所有 exit criteria 都已打勾：
 3. Seed bootstrap backlog bullets（写回 `docs/BACKLOG.md`）：
    - 已存在于 P2 档且 `Milestone §M<new>` 标签的项 → 整条**移动**到 P1 档末尾（保留 slug / Gap / 方向文字，只改档位）。
    - 若新 milestone 的 exit criteria 里有**任何一条**目前没有任何 BACKLOG bullet 对应 → 写 ≥ 1、≤ 5 条新 P1 bullet 覆盖这些缺口。每条按 BACKLOG 标准格式 `- **<slug>** — <Gap>。**方向：** ...`，**Gap 部分必须引用 grep 到的 path:line 证据**（SKILL §R 硬规矩）。
-4. 写 `docs/decisions/<YYYY-MM-DD>-milestone-advance-<new-milestone-slug>.md`（如 `milestone-advance-m2.md`），内容：
-   - 上 milestone 所有 exit criterion 的 landing commit hash + 测试覆盖清单
-   - 下 milestone bootstrap bullet 选择理由
-   - 若仓库有 `docs/M<prev>_AUDIT.md`（一次性 evidence snapshot）→ 同 commit 删除，`git log --follow` 已保留历史
-5. 单一 `docs(milestone): advance Current to <new-milestone-slug> — all <prev> exit criteria landed` commit，包含 MILESTONES.md + BACKLOG.md + decision 新建 + audit 文件删除（若有）。push。
+4. 如仓库有 `docs/M<prev>_AUDIT.md`（一次性 evidence snapshot）→ 同 commit 删除，`git log --follow` 已保留历史。
+5. 单一 `docs(milestone): advance Current to <new-milestone-slug> — all <prev> exit criteria landed` commit，包含 MILESTONES.md + BACKLOG.md + audit 文件删除（若有）。**Commit body 承载 milestone-advance 决策**：上 milestone 所有 exit criterion 的 landing commit hash（`git log --oneline` 摘一下）+ 测试覆盖清单 + 下 milestone bootstrap bullet 选择理由。push。
 
 推进后，**本 cycle 就此结束**（不再挑新 backlog 任务，milestone-advance 本身就是本 cycle 的产出）。报告里明标 "milestone advanced to <new>"。下次 `/iterate-gap` 正常 pick top P1 就自动是新 milestone 的工作。
 
@@ -379,12 +380,11 @@ M.2 之后常见情况：P2 里已存在的下一 milestone 储备项被 promote
 每个 sub-agent 的 prompt 自包含。必须包含：
 
 1. 分配给它的具体 backlog bullet（完整原文：slug / Gap / 方向 / milestone / rubric 轴）+ P1 plan 里给出的预期改动文件清单 + 当前 MILESTONES 里该 milestone 的 exit criteria 原文。
-2. 复制顺序模式第 3–7 步（plan → 实现 → 验证 → 归档决策 + 删 bullet → commit），仅一处调整：
+2. 复制顺序模式第 3–7 步（plan → 实现 → 验证 → 删 bullet → commit，决策理由写进 commit body），仅一处调整：
    - **分支**：在 worktree 自动创建的分支上 commit——不改名、不 checkout `main`、**不要 push**。分支保持未推送状态，由主调度器合。
-   - 决策文件照常写进 `docs/decisions/<yyyy-mm-dd>-<slug>.md`（**新文件**）。
    - `docs/BACKLOG.md` 只删**自己这条** bullet。各 sub-agent 删的是不同行，git merge 会当独立 hunk 合并，不冲突；但**不得** reorder 剩余 bullet。
 3. 它必须跑的验证（第 5 步的表）。
-4. 输出契约：最终消息必须包含 commit SHA、决策文件名、删除的 bullet slug、一句话结果摘要、验证是否绿。失败不 commit，把错误返回。
+4. 输出契约：最终消息必须包含 commit SHA、删除的 bullet slug、一句话结果摘要、验证是否绿。失败不 commit，把错误返回。
 
 并行度上限 3。N > 3 静默 clamp。
 
@@ -403,11 +403,10 @@ M.2 之后常见情况：P2 里已存在的下一 milestone 储备项被 promote
 
 1. `git checkout main`
 2. `git pull --rebase origin main`
-3. `git rebase main <branch>` —— 代码冲突在这里解决。`docs/decisions/*.md` 不会冲突（各自新文件）。
+3. `git rebase main <branch>` —— 代码冲突在这里解决。
 4. Fast-forward 合入 main：`git checkout main && git merge --ff-only <branch>`。
 5. **立刻 `git push origin main`**。
 6. 冲突处理：
-   - `docs/decisions/*.md`：预期不冲突，真冲突（同日同 slug）→ 加 `-2` 后缀再合。
    - `docs/BACKLOG.md`：预期不冲突（每个 sub-agent 删不同行）。真冲突 → 基于 `main` 当前状态重建"只删这一条 bullet"的 diff 再 merge。不能丢别的 sub-agent 的删除。
    - 代码冲突 → **停下报告**，剩余分支保留原状让用户检查。
 7. 推送被拒 → `git pull --rebase origin main` → 再推。解不开 → **停下报告**。
@@ -426,7 +425,7 @@ M.2 之后常见情况：P2 里已存在的下一 milestone 储备项被 promote
 1. **一个 cycle 内零提问**。卡住 → 换 backlog 下一条或停。
 2. 最终状态落在 `main`。并行模式的中间分支要么合入、要么作为遗留项报告，绝不静默丢弃。
 3. **Commit → push 永远配对**。本地 `main` 一出现新 commit → **立刻** `git push origin main` 再开下一个 cycle / 合并。绝不让本次调用结束时本地 `main` 有未推送 commit。
-4. 一条 `feat(...)` commit 同时包含代码 + decision 文件（新建，不 append / 编辑，不记 commit 号）+ BACKLOG bullet 删除（允许末尾 append 最多 2 条 `debt-*`，或 ≤ 1 条 `PAIN_POINTS.md` 条目，见 §6 "观察分流"）。repopulate 的 `docs(backlog)` commit 例外（只改 BACKLOG，不带 decision / 代码）。
+4. 一条 `feat(...)` commit 同时包含代码 + BACKLOG bullet 删除（允许末尾 append 最多 2 条 `debt-*`，或 ≤ 1 条 `PAIN_POINTS.md` 条目，见 §6 "观察分流"）。**决策理由写进 commit message body**（见 §7 的 body 段落约定）。repopulate 的 `docs(backlog)` commit 例外（只改 BACKLOG，不带代码）。
 5. 绝不 `--no-verify`、绝不 `--force`、已推送 commit 绝不 `--amend`、绝不 `git add -A`。
 6. 绝不绕过 CLAUDE.md 架构规则或反需求清单。bullet 必须绕才能做 → **跳过它取下一条**（bullet 原样保留给用户裁决）。
 7. **设计约束 §3a 10 条是硬性否决**。任意一条命中"是 / 可能"→ 换 backlog 下一条。不允许"这次就例外一下"。
@@ -434,4 +433,4 @@ M.2 之后常见情况：P2 里已存在的下一 milestone 储备项被 promote
 9. **Milestone 推进由本 skill 自动处理**——每个 cycle 的 step 7 之后必跑 §M "Milestone sync"：evidence-complete 的 exit criterion 自动打勾（独立 `docs(milestone):` commit）；全绿后自动推进 "Current:" 指针并 seed 下一 milestone bootstrap backlog。Evidence 不足 → 不打勾，保留原状下次 cycle 再审。本 skill 仍然在偏置任务时优先挑当前 milestone 的 backlog 项。
 10. **Repopulate 必须 ≥ 30% debt 任务**（详见 §R.5）。跳过 debt 扫描 / debt 占比不足的 repopulate commit 不合法，下一 cycle 发现立刻回滚该 repopulate 并重做。
 11. 并行模式并发度 ≤ 3。超了静默 clamp。只选**互不重叠**的 bullet。
-12. **C 公共头不含非白名单依赖**。任何往 `include/media_engine/*.h` 加 `#include` 的改动必须在 decision 里显式论证。
+12. **C 公共头不含非白名单依赖**。任何往 `include/media_engine/*.h` 加 `#include` 的改动必须在 commit body 里显式论证。

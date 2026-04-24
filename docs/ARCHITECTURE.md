@@ -28,7 +28,7 @@ src/                            Internal C++20 implementation (private)
                                 CompositionThumbnailer (M6 stub; C API asset thumbnail lives in api/)
 
 docs/                           Design docs — VISION, this file, API.md, TIMELINE_SCHEMA.md,
-                                ARCHITECTURE_GRAPH.md, decisions/, PAIN_POINTS.md
+                                ARCHITECTURE_GRAPH.md, PAIN_POINTS.md
 cmake/                          Build helpers — FindFFMPEG.cmake
 examples/                       End-to-end smoke samples (01_passthrough, 04_probe,
                                 05_reencode, 06_thumbnail, 02_graph_smoke, 03_timeline_segments)

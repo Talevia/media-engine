@@ -1,6 +1,6 @@
 # Architecture pain points — running log
 
-Observations about where a **hard rule** (VISION axiom, CLAUDE.md anti-requirement / architecture invariant, ARCHITECTURE.md ABI commitment) caused recurring friction during `iterate-gap` cycles. Purpose: collect evidence for periodic rule review. Not a todo list (that's `docs/BACKLOG.md`), not a decision record (`docs/decisions/`).
+Observations about where a **hard rule** (VISION axiom, CLAUDE.md anti-requirement / architecture invariant, ARCHITECTURE.md ABI commitment) caused recurring friction during `iterate-gap` cycles. Purpose: collect evidence for periodic rule review. Not a todo list (that's `docs/BACKLOG.md`); decision rationale per cycle lives in commit bodies, not a separate file.
 
 **Admission bar** (all three must hold — miss any → write a `debt-*` bullet in `BACKLOG.md` instead):
 

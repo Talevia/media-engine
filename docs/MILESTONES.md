@@ -6,7 +6,7 @@
 
 `iterate-gap` skill 在 repopulate backlog 时按「当前 milestone」偏置挑选候选——当前 milestone 未达到 exit criteria 前，跨 milestone 的 gap 进 P2 或被放回"等合适时机"，不抢当前任务资源。
 
-推进 milestone 的条件：**全部 exit criteria 打勾**后，修改本文件顶部的 "Current: " 指针指向下一个 milestone，同 commit 里把新 milestone 的起步任务 seed 进 BACKLOG。milestone 推进本身也是一次 `docs/decisions/` 记录。
+推进 milestone 的条件：**全部 exit criteria 打勾**后，修改本文件顶部的 "Current: " 指针指向下一个 milestone，同 commit 里把新 milestone 的起步任务 seed 进 BACKLOG。milestone 推进决策理由写在 `docs(milestone):` commit 的 message body。
 
 ---
 

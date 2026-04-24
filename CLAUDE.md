@@ -80,15 +80,17 @@ Touching any of these → expect to wire it up rather than work around it.
 
 Follow `git log --oneline` to match style. Current prefixes:
 
-- `feat(<area>):` — user-visible capability (iterate-gap uses this for every backlog task, including the embedded decision file + bullet removal)
+- `feat(<area>):` — user-visible capability (iterate-gap uses this for every backlog task, combining code + bullet removal)
 - `docs:` — standalone documentation (VISION, ARCHITECTURE, etc.)
 - `docs(backlog):` — standalone backlog repopulate (iterate-gap §R)
+- `docs(milestone):` — milestone exit-criteria tick / Current pointer advance (iterate-gap §M)
 - `fix:` / `refactor:` / `chore:` — as usual
 
-iterate-gap produces **one** commit per cycle: `feat(<area>): <description>` containing all of:
+iterate-gap produces **one** commit per cycle: `feat(<area>): <short title>` containing:
   1. The code / test changes
-  2. A new file at `docs/decisions/<yyyy-mm-dd>-<slug>.md` (never append to or edit existing decision files; do NOT reference the commit hash inside the doc — `git log` suffices)
-  3. The corresponding bullet removed from `docs/BACKLOG.md`
+  2. The corresponding bullet removed from `docs/BACKLOG.md`
+
+Decision rationale (context / alternatives / coverage / license impact / §3a self-check / registration / milestone impact) lives in the **commit message body**, not in a separate file. `git log` is the archive; `git log -S '<symbol>'` / `git log --grep=<slug>` find old decisions. Pass the body via HEREDOC to avoid quoting bugs.
 
 Backlog repopulate is the exception: a standalone `docs(backlog): …` commit that only touches `docs/BACKLOG.md`.
 
