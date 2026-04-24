@@ -58,6 +58,7 @@ set(_test_suites
   test_animated_number_loader
   test_compose_sink_gpu_detect
   test_render_thread
+  test_lut_parser
 )
 
 foreach(_suite ${_test_suites})
@@ -356,6 +357,21 @@ if(ME_WITH_GPU)
   add_test(NAME test_blur_effect COMMAND test_blur_effect)
 endif()
 
+# test_lut_effect pins 3D-LUT sampling (identity + inversion cubes)
+# via pixel readback. ME_WITH_GPU-only; skips on non-Metal or on
+# drivers without BGFX_CAPS_TEXTURE_3D.
+if(ME_WITH_GPU)
+  add_executable(test_lut_effect test_main.cpp test_lut_effect.cpp)
+  target_link_libraries(test_lut_effect PRIVATE
+    media_engine::media_engine
+    doctest::doctest
+    bgfx
+    bx)
+  target_include_directories(test_lut_effect PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(test_lut_effect PRIVATE ME_HAS_GPU=1)
+  add_test(NAME test_lut_effect COMMAND test_lut_effect)
+endif()
+
 # test_animated_number_loader exercises the JSON → me::AnimatedNumber
 # parse helper (layer 2 of transform-animated-support). Pure C++;
 # pulls in nlohmann/json via loader_helpers.hpp.
@@ -373,6 +389,10 @@ target_include_directories(test_compose_sink_gpu_detect PRIVATE ${CMAKE_SOURCE_D
 # bgfx's API thread. Pure C++20 (std::thread + std::mutex + cv),
 # no bgfx link — platform-agnostic, runs in every build.
 target_include_directories(test_render_thread PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_lut_parser exercises the .cube file parser. Pure C++; no
+# GPU dependency — runs in every build.
+target_include_directories(test_lut_parser PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
