@@ -57,6 +57,7 @@ set(_test_suites
   test_compose_sink_e2e_audio
   test_compose_sink_e2e_text
   test_compose_sink_e2e_subtitle
+  test_frame_server_concurrent
   test_compose_affine_blit
   test_audio_track_feed
   test_audio_mixer
@@ -541,6 +542,14 @@ target_include_directories(test_disk_cache PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
+
+# test_frame_server_concurrent hammers me_render_frame from 4
+# threads × 20 fetches on a shared engine + timeline to pin
+# thread safety of the scrubbing path. Uses the determinism
+# fixture (no audio needed).
+add_dependencies(test_frame_server_concurrent determinism_fixture)
+target_compile_definitions(test_frame_server_concurrent PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
 # test_compose_sink_e2e* — video core + audio + text + subtitle
 # shards of the original 1136-line suite (split per

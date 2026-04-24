@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **test-render-frame-concurrent-scrub** — `grep -rn 'me_render_frame.*thread\|concurrent.*render_frame' tests` 空。`me_render_frame` 创建 fresh Previewer 每次调用 (`src/api/render.cpp:95`)，理论上线程安全（DiskCache 有 mutex），但无 test 证实 UI-thread scrub 场景下并发 calls 行为。**方向：** 新 `tests/test_frame_server_concurrent.cpp` — spawn 4 线程，每线程 100 次 `me_render_frame` at 不同 time；assert all return ME_OK + frames non-null + DiskCache counters 增加。Milestone §M7-debt (cross)，Rubric §5.3。
 - **bench-thumbnail-png-perf** — `grep -rn 'bench_thumbnail\|me_thumbnail_png' bench` 空。`me_thumbnail_png` 是 M1 最早实装的 C API 之一，没 regression 信号。Host use case（timeline scrubbing 列表生成缩略图）对延迟敏感。**方向：** 新 `bench/bench_thumbnail_png.cpp` — 用 determinism fixture，测 `me_thumbnail_png(uri, t=0.5s, 160x120)` 每次调用延迟；阈值：avg < 50 ms / thumbnail on dev box。Milestone §M7-debt (cross)，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
