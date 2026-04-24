@@ -60,7 +60,7 @@ git pull --rebase origin main
 
 ### R. Backlog repopulate（只在 backlog 空时执行）
 
-触发：第 2 步发现 BACKLOG 三档全空或文件不存在。
+触发：第 2 步命中 "**P0 / P1 都空**" 分支（或 `docs/BACKLOG.md` 文件不存在）。**P2 的存在性不影响触发**——P2 是下一 milestone 的储备区 + 未来 milestone feature 起步项，不充当当前 milestone 的 fallback。P0/P1 都空意味着"当前 milestone 没待办活儿了"，此时要么用 rubric 找补、要么准备 milestone advance（§M.2 全绿情况下会在上一 cycle 触发）。
 
 依次读：
 
@@ -74,7 +74,11 @@ git pull --rebase origin main
 
 产出**恰好 15 条**新任务，硬性排档规则：
 
-1. **Milestone 优先级** —— 当前 milestone 未打勾的 exit criteria 全部进入 P0 / P1。下一个 milestone 的起步项只在 P2。
+1. **Milestone 优先级**：
+   - 当前 milestone 未打勾的 exit criteria → **P0 / P1**（按 severity）。
+   - 跨 milestone debt（上一 milestone leftover polish、跨多 milestone 的文件级 debt、`debt-*` 类观察）→ **P1 可接受**；severity 低的归 P2。这对应 Step 2 的"跨 milestone 的 debt 优先于 P2 的未来 milestone 项"——repopulate 时保留这类 bullet 在 P1 是合法的。
+   - 下一个 milestone（§M<current+1>）的 feature 起步项 → **P2**。
+   - 再下一个 milestone（§M<current+2>）及以后 → **不 seed**，真到那时再说。
 2. **一等抽象 > patch** —— 可复用抽象（新 effect 注册 API、新 I/O 抽象层）归 P0 / P1；单一用途的 patch 归 P2 或删。
 3. **短周期能闭环** —— 同档内能一个 cycle 内闭环的排前面。
 
@@ -326,9 +330,13 @@ M.1 之后若 current milestone 所有 exit criteria 都已打勾：
 
 推进后，**本 cycle 就此结束**（不再挑新 backlog 任务，milestone-advance 本身就是本 cycle 的产出）。报告里明标 "milestone advanced to <new>"。下次 `/iterate-gap` 正常 pick top P1 就自动是新 milestone 的工作。
 
-#### M.3 推进导致 backlog 当前 milestone 项不够
+#### M.3 推进后 new milestone 的 backlog 稀薄
 
-M.2 之后若 new milestone 的 P0 + P1 bullet 数 < 3 → **不**在本 cycle 里立刻 repopulate（避免同 cycle 三连 commit 过长）。下次 /iterate-gap 第 2 步会检测到"current milestone 下有效任务 < 3"→ 走完整 §R repopulate。
+M.2 之后常见情况：P2 里已存在的下一 milestone 储备项被 promote 到 P1 + 新 seed 1–5 条覆盖未覆盖的 exit criteria，total ~3–6 bullet。少于 3 条也不强制同 cycle 补仓：
+
+- **M.2 本 cycle 不另触发 §R repopulate**（避免 milestone-advance 变三连 commit）。
+- 后续 `/iterate-gap` 按 Step 2 正常挑 P1。每挑一个，剩余 P1 变少。等某次挑完**最后一个 P1** 时 P0/P1 都空——Step 2 **自然**命中 §R 触发条件 → 那 cycle 走 repopulate。
+- Step 2 **不**检测 "P0+P1 < 3"；只检测"空"。M.3 的实际含义是"放心让 backlog 自然耗尽到空再补"，不是"提前触发"。
 
 #### M.4 何时可以跳过整个 §M
 
