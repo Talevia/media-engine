@@ -56,3 +56,20 @@ if(ME_BUILD_TESTS)
   # in a few seconds; the cap catches a hang, not a slow machine.
   set_tests_properties(bench_vfr_av_sync PROPERTIES TIMEOUT 60)
 endif()
+
+# bench_text_paragraph — SkiaBackend::draw_paragraph throughput.
+# Times a ~1000-codepoint CJK + emoji + Latin string rendered
+# under max_width, reports avg fps, exits non-zero on budget miss
+# (< 60 fps). Skips when ME_WITH_SKIA=OFF.
+add_executable(bench_text_paragraph bench_text_paragraph.cpp)
+target_link_libraries(bench_text_paragraph PRIVATE
+  media_engine::media_engine)
+target_include_directories(bench_text_paragraph PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_SKIA)
+  target_compile_definitions(bench_text_paragraph PRIVATE ME_HAS_SKIA=1)
+endif()
+
+if(ME_BUILD_TESTS)
+  add_test(NAME bench_text_paragraph COMMAND bench_text_paragraph)
+  set_tests_properties(bench_text_paragraph PROPERTIES TIMEOUT 30)
+endif()
