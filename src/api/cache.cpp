@@ -6,35 +6,8 @@
 #include "resource/frame_pool.hpp"
 
 #include <cstring>
-#include <filesystem>
 #include <string>
 #include <string_view>
-#include <system_error>
-
-namespace {
-
-/* Sum the byte sizes of every `.bin` file under `dir`. Used to
- * populate me_cache_stats_t.disk_bytes_used. Scans the directory
- * per call — cheap for tens-of-thousands of entries; if cache grows
- * beyond that scale, cache the total in DiskCache itself. */
-int64_t dir_used_bytes(const std::string& dir) {
-    if (dir.empty()) return 0;
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    fs::directory_iterator it(dir, ec);
-    if (ec) return 0;
-    int64_t total = 0;
-    for (const auto& entry : it) {
-        std::error_code check_ec;
-        if (!entry.is_regular_file(check_ec)) continue;
-        if (entry.path().extension() != ".bin") continue;
-        const auto sz = entry.file_size(check_ec);
-        if (!check_ec) total += static_cast<int64_t>(sz);
-    }
-    return total;
-}
-
-}  // namespace
 
 extern "C" me_status_t me_cache_stats(me_engine_t* engine, me_cache_stats_t* out) {
     if (!engine || !out) return ME_E_INVALID_ARG;
@@ -61,18 +34,28 @@ extern "C" me_status_t me_cache_stats(me_engine_t* engine, me_cache_stats_t* out
         hits   += engine->disk_cache->hit_count();
         misses += engine->disk_cache->miss_count();
 
-        /* Disk bytes usage = sum of all .bin file sizes. Only
-         * surface this when the cache is enabled; otherwise
-         * report 0 / unlimited (-1). */
+        /* Disk usage comes from DiskCache's running counter (seeded
+         * at ctor from the existing .bin footprint, updated per
+         * put / invalidate / clear / LRU evict). Previously this
+         * was a per-call directory scan — the debt-dual-disk-counter
+         * cycle unified the two sources so stats can't drift from
+         * the enforcement path. */
         if (engine->disk_cache->enabled()) {
-            out->disk_bytes_used = dir_used_bytes(engine->disk_cache->dir());
+            out->disk_bytes_used = engine->disk_cache->disk_bytes_used();
         }
     }
     out->hit_count  = hits;
     out->miss_count = misses;
-    /* disk_bytes_limit: -1 = unlimited. Phase-1 has no size cap; a
-     * future LRU bullet can populate this from config. */
-    out->disk_bytes_limit = -1;
+
+    /* disk_bytes_limit contract: -1 = unlimited; positive = cap.
+     * DiskCache stores 0 for "unlimited"; map to -1 for the C
+     * API's sentinel. */
+    if (engine->disk_cache && engine->disk_cache->enabled()) {
+        const int64_t limit = engine->disk_cache->disk_bytes_limit();
+        out->disk_bytes_limit = (limit > 0) ? limit : -1;
+    } else {
+        out->disk_bytes_limit = -1;
+    }
 
     if (engine->codecs) {
         out->codec_ctx_count = engine->codecs->live_count();
