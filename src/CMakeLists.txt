@@ -268,6 +268,7 @@ add_library(media_engine STATIC
   $<$<BOOL:${ME_WITH_SOUNDTOUCH}>:${CMAKE_CURRENT_SOURCE_DIR}/audio/tempo.cpp>
   $<$<BOOL:${ME_WITH_LIBASS}>:${CMAKE_CURRENT_SOURCE_DIR}/text/subtitle_renderer.cpp>
   $<$<BOOL:${ME_WITH_SKIA}>:${CMAKE_CURRENT_SOURCE_DIR}/text/skia_backend.cpp>
+  $<$<BOOL:${ME_WITH_SKIA}>:${CMAKE_CURRENT_SOURCE_DIR}/text/text_renderer.cpp>
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp

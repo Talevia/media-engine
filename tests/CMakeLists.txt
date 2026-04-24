@@ -64,6 +64,7 @@ set(_test_suites
   test_reencode_pts_remap
   test_subtitle_renderer
   test_skia_backend
+  test_text_renderer
 )
 
 foreach(_suite ${_test_suites})
@@ -465,6 +466,14 @@ endif()
 target_include_directories(test_skia_backend PRIVATE ${CMAKE_SOURCE_DIR}/src)
 if(ME_WITH_SKIA)
   target_compile_definitions(test_skia_backend PRIVATE ME_HAS_SKIA=1)
+endif()
+
+# test_text_renderer exercises me::text::TextRenderer
+# (TextClipParams → canvas via SkiaBackend). Same ME_HAS_SKIA
+# gate.
+target_include_directories(test_text_renderer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_SKIA)
+  target_compile_definitions(test_text_renderer PRIVATE ME_HAS_SKIA=1)
 endif()
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
