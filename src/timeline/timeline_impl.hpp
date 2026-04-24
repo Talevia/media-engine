@@ -99,6 +99,12 @@ enum class ClipType : uint8_t {
 };
 
 struct Clip {
+    /* JSON clip id (from `{"id": ...}` in the timeline JSON). Unique
+     * within a track (loader enforces). Used by transitions
+     * (Transition::from_clip_id / to_clip_id reference this) and by
+     * future effect/keyframe addressing. Non-empty after load. */
+    std::string   id;
+
     /* Reference into Timeline::assets. Guaranteed non-empty after load;
      * loader rejects clips with unknown asset_id. */
     std::string   asset_id;

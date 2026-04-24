@@ -65,4 +65,53 @@ std::vector<TrackActive> active_clips_at(const me::Timeline& tl,
     return out;
 }
 
+std::optional<ActiveTransition> active_transition_at(
+    const me::Timeline& tl,
+    std::size_t         track_idx,
+    me_rational_t       time) {
+
+    if (track_idx >= tl.tracks.size()) return std::nullopt;
+    const std::string& tid = tl.tracks[track_idx].id;
+
+    /* Find a transition on this track whose window covers `time`.
+     * Window: [from.time_end - dur/2, from.time_end + dur/2).
+     * `time` in that half-open interval → return it.
+     * At most one transition per boundary (loader adjacency
+     * enforcement) and no overlapping boundaries on a contiguous
+     * track, so linear scan is unambiguous. */
+    for (std::size_t ti = 0; ti < tl.transitions.size(); ++ti) {
+        const me::Transition& tr = tl.transitions[ti];
+        if (tr.track_id != tid) continue;
+
+        /* Find the from_clip on this track. */
+        me_rational_t from_end{0, 1};
+        bool from_found = false;
+        for (const me::Clip& c : tl.clips) {
+            if (c.track_id == tid && c.id == tr.from_clip_id) {
+                from_end = r_add(c.time_start, c.time_duration);
+                from_found = true;
+                break;
+            }
+        }
+        if (!from_found) continue;
+
+        /* half_dur = duration / 2. Keep in rational form:
+         *   half = {num, den*2}. */
+        const me_rational_t half_dur{tr.duration.num, tr.duration.den * 2};
+        const me_rational_t window_start = r_sub(from_end, half_dur);
+        const me_rational_t window_end   = r_add(from_end, half_dur);
+
+        if (r_le(window_start, time) && r_lt(time, window_end)) {
+            /* t = (time - window_start) / duration.
+             * All in rational: numerator cross-multiply, then float-
+             * divide at the end since t is a float in the kernel. */
+            const me_rational_t dt = r_sub(time, window_start);
+            const float t = static_cast<float>(dt.num) * static_cast<float>(tr.duration.den) /
+                            (static_cast<float>(dt.den) * static_cast<float>(tr.duration.num));
+            return ActiveTransition{ti, t};
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace me::compose

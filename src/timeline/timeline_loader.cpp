@@ -358,14 +358,14 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                     c.gain_db = parse_animated_static_number(
                         clip["gainDb"], where + ".gainDb");
                 }
-                tl.clips.push_back(std::move(c));
-
                 const std::string clip_id = clip.at("id").get<std::string>();
                 require(!clip_id.empty(), ME_E_PARSE, where + ".id must be non-empty");
                 require(clip_dur_by_id.emplace(clip_id, t_dur).second, ME_E_PARSE,
                         where + ".id: duplicate clip id '" + clip_id +
                         "' within this track");
                 track_clip_ids.push_back(clip_id);
+                c.id = clip_id;
+                tl.clips.push_back(std::move(c));
 
                 /* running += t_dur in rational: a/b + c/d = (a*d + c*b) / (b*d). */
                 running = me_rational_t{

@@ -34,6 +34,7 @@
 #include "media_engine/types.h"
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace me {
@@ -50,5 +51,27 @@ struct TrackActive {
 
 std::vector<TrackActive> active_clips_at(const me::Timeline& tl,
                                           me_rational_t      time);
+
+/* Cross-dissolve transition active on a specific track at time T.
+ * `t` is the normalized [0, 1] ramp across the transition window. */
+struct ActiveTransition {
+    std::size_t transition_idx;   /* index into Timeline::transitions */
+    float       t;                /* [0, 1] lerp parameter */
+};
+
+/* Return the transition on `track_idx` that's active at `time`, or
+ * nullopt if none. Semantic: the transition window is symmetric
+ * around the from-clip's time_end boundary, spanning
+ * `[from_clip.time_end - duration/2, from_clip.time_end + duration/2)`.
+ * Within that window, `t` goes linearly from 0 (window start) to 1
+ * (window end).
+ *
+ * Track may have at most one transition active at any T — loader
+ * enforces adjacency (each transition between two consecutive clips)
+ * and non-overlapping clip time ranges. */
+std::optional<ActiveTransition> active_transition_at(
+    const me::Timeline& tl,
+    std::size_t         track_idx,
+    me_rational_t       time);
 
 }  // namespace me::compose

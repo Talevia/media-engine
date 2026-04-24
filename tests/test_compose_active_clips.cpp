@@ -169,6 +169,83 @@ TEST_CASE("active_clips_at: source_start offset threaded into source_time") {
     CHECK(act[0].source_time.num * 30 == 50 * act[0].source_time.den);
 }
 
+TEST_CASE("active_transition_at: transition window maps to [-dur/2, +dur/2) around boundary") {
+    /* 2-clip single-track timeline with a 1-second cross-dissolve.
+     * clip A: time 0..2s, clip B: time 2..4s. Transition duration
+     * 30/30 = 1s. Window: [1.5s, 2.5s). */
+    me::Timeline tl;
+    tl.frame_rate = me_rational_t{30, 1};
+    tl.duration   = me_rational_t{120, 30};
+    tl.assets.emplace("a1", me::Asset{});
+    tl.tracks.push_back(me::Track{"v0", me::TrackKind::Video, true});
+    /* Clip A */
+    {
+        me::Clip c;
+        c.id = "cA"; c.asset_id = "a1"; c.track_id = "v0";
+        c.time_start    = me_rational_t{0, 30};
+        c.time_duration = me_rational_t{60, 30};
+        c.source_start  = me_rational_t{0, 30};
+        tl.clips.push_back(std::move(c));
+    }
+    /* Clip B */
+    {
+        me::Clip c;
+        c.id = "cB"; c.asset_id = "a1"; c.track_id = "v0";
+        c.time_start    = me_rational_t{60, 30};
+        c.time_duration = me_rational_t{60, 30};
+        c.source_start  = me_rational_t{0, 30};
+        tl.clips.push_back(std::move(c));
+    }
+    /* Transition */
+    tl.transitions.push_back(me::Transition{
+        me::TransitionKind::CrossDissolve, "v0", "cA", "cB",
+        me_rational_t{30, 30},
+    });
+
+    /* T = 45/30 = 1.5s — start of window. */
+    auto at_start = me::compose::active_transition_at(tl, 0, me_rational_t{45, 30});
+    REQUIRE(at_start.has_value());
+    CHECK(at_start->transition_idx == 0);
+    CHECK(at_start->t == doctest::Approx(0.0f));
+
+    /* T = 60/30 = 2s — midpoint of window. */
+    auto at_mid = me::compose::active_transition_at(tl, 0, me_rational_t{60, 30});
+    REQUIRE(at_mid.has_value());
+    CHECK(at_mid->t == doctest::Approx(0.5f));
+
+    /* T = 74/30 ≈ 2.467s — near end of window. */
+    auto at_near_end = me::compose::active_transition_at(tl, 0, me_rational_t{74, 30});
+    REQUIRE(at_near_end.has_value());
+    CHECK(at_near_end->t == doctest::Approx((74.0f - 45.0f) / 30.0f));
+
+    /* T = 40/30 = 1.333s — before window. */
+    CHECK_FALSE(me::compose::active_transition_at(tl, 0, me_rational_t{40, 30}).has_value());
+
+    /* T = 75/30 = 2.5s — exactly at window end (half-open → NOT in). */
+    CHECK_FALSE(me::compose::active_transition_at(tl, 0, me_rational_t{75, 30}).has_value());
+
+    /* T = 90/30 = 3s — past window. */
+    CHECK_FALSE(me::compose::active_transition_at(tl, 0, me_rational_t{90, 30}).has_value());
+}
+
+TEST_CASE("active_transition_at: track without transitions returns nullopt") {
+    me::Timeline tl;
+    tl.tracks.push_back(me::Track{"v0", me::TrackKind::Video, true});
+    me::Clip c; c.id = "cA"; c.track_id = "v0";
+    c.time_start = me_rational_t{0, 30};
+    c.time_duration = me_rational_t{60, 30};
+    tl.clips.push_back(std::move(c));
+
+    CHECK_FALSE(me::compose::active_transition_at(tl, 0, me_rational_t{30, 30}).has_value());
+}
+
+TEST_CASE("active_transition_at: invalid track_idx returns nullopt") {
+    me::Timeline tl;
+    CHECK_FALSE(me::compose::active_transition_at(tl, 0, me_rational_t{0, 1}).has_value());
+    tl.tracks.push_back(me::Track{"v0", me::TrackKind::Video, true});
+    CHECK_FALSE(me::compose::active_transition_at(tl, 99, me_rational_t{0, 1}).has_value());
+}
+
 TEST_CASE("active_clips_at: output order mirrors Timeline::tracks declaration order") {
     /* Swap track declaration order: v1 first, v0 second.  Both cover T.
      * active_clips_at[0] must be v1 (tracks[0]), [1] must be v0.
