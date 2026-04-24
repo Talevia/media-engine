@@ -19,6 +19,7 @@
 #include "resource/disk_cache.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -146,6 +147,111 @@ TEST_CASE("DiskCache: clear removes all .bin files") {
     CHECK_FALSE(c.get("b").has_value());
     CHECK_FALSE(c.get("c").has_value());
     CHECK(fs::exists(stray));  /* stray preserved */
+}
+
+TEST_CASE("DiskCache: limit=0 (unlimited) never evicts") {
+    ScratchDir d;
+    me::resource::DiskCache c(d.path.string(), /*limit_bytes=*/0);
+
+    const auto rgba = make_rgba(16, 16);
+    for (int i = 0; i < 20; ++i) {
+        const std::string key = "k" + std::to_string(i);
+        REQUIRE(c.put(key, rgba.data(), 16, 16, 64));
+    }
+    /* All 20 entries persist. */
+    for (int i = 0; i < 20; ++i) {
+        const std::string key = "k" + std::to_string(i);
+        REQUIRE(c.get(key).has_value());
+    }
+    CHECK(c.disk_bytes_limit() == 0);
+    CHECK(c.disk_bytes_used() > 0);
+}
+
+TEST_CASE("DiskCache: bounded limit evicts oldest on put overflow") {
+    ScratchDir d;
+    /* Each 16×16 RGBA frame = 16 header + 16×16×4 body = 1040
+     * bytes.  Cap at 3 frames worth (3120 bytes). */
+    constexpr int64_t kFrameBytes = 16 + 16 * 16 * 4;
+    me::resource::DiskCache c(d.path.string(), /*limit_bytes=*/kFrameBytes * 3);
+
+    const auto rgba = make_rgba(16, 16);
+
+    /* Fill to 3 / 3. */
+    REQUIRE(c.put("k0", rgba.data(), 16, 16, 64));
+    /* filesystem mtime resolution is ~1s on APFS / ext4; sleep a
+     * beat between puts so eviction order is deterministic. */
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    REQUIRE(c.put("k1", rgba.data(), 16, 16, 64));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    REQUIRE(c.put("k2", rgba.data(), 16, 16, 64));
+
+    CHECK(c.disk_bytes_used() == kFrameBytes * 3);
+    REQUIRE(c.get("k0").has_value());
+    REQUIRE(c.get("k1").has_value());
+    REQUIRE(c.get("k2").has_value());
+
+    /* 4th put triggers eviction of the oldest (k0). */
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    REQUIRE(c.put("k3", rgba.data(), 16, 16, 64));
+
+    CHECK_FALSE(c.get("k0").has_value());    /* k0 evicted */
+    CHECK(c.get("k1").has_value());           /* k1..k3 survive */
+    CHECK(c.get("k2").has_value());
+    CHECK(c.get("k3").has_value());
+    CHECK(c.disk_bytes_used() == kFrameBytes * 3);
+}
+
+TEST_CASE("DiskCache: oversized put rejected without evicting") {
+    ScratchDir d;
+    constexpr int64_t kSmallCap = 1024;  /* under one 16×16 frame */
+    me::resource::DiskCache c(d.path.string(), kSmallCap);
+
+    const auto small = make_rgba(4, 4);  /* 16 + 4×4×4 = 80 bytes */
+    REQUIRE(c.put("small", small.data(), 4, 4, 16));
+    const int64_t before = c.disk_bytes_used();
+    REQUIRE(before > 0);
+
+    /* 16×16 = 1040 > 1024 → rejected; the existing "small" entry
+     * must NOT have been evicted as a side effect. */
+    const auto big = make_rgba(16, 16);
+    CHECK_FALSE(c.put("big", big.data(), 16, 16, 64));
+    CHECK(c.get("small").has_value());
+    CHECK(c.disk_bytes_used() == before);
+}
+
+TEST_CASE("DiskCache: invalidate / clear update disk_bytes_used") {
+    ScratchDir d;
+    me::resource::DiskCache c(d.path.string(), /*limit=*/0);
+
+    const auto rgba = make_rgba(8, 8);
+    REQUIRE(c.put("a", rgba.data(), 8, 8, 32));
+    REQUIRE(c.put("b", rgba.data(), 8, 8, 32));
+    const int64_t after_2 = c.disk_bytes_used();
+    CHECK(after_2 > 0);
+
+    c.invalidate("a");
+    const int64_t after_inv = c.disk_bytes_used();
+    CHECK(after_inv > 0);
+    CHECK(after_inv < after_2);
+
+    c.clear();
+    CHECK(c.disk_bytes_used() == 0);
+}
+
+TEST_CASE("DiskCache: ctor seeds disk_bytes_used from existing files") {
+    ScratchDir d;
+    {
+        me::resource::DiskCache c(d.path.string(), /*limit=*/0);
+        const auto rgba = make_rgba(8, 8);
+        REQUIRE(c.put("x", rgba.data(), 8, 8, 32));
+        REQUIRE(c.put("y", rgba.data(), 8, 8, 32));
+    }
+    /* Re-open the same directory: bytes-used must reflect the two
+     * surviving .bin entries from the prior DiskCache instance. */
+    me::resource::DiskCache c2(d.path.string(), /*limit=*/0);
+    CHECK(c2.disk_bytes_used() > 0);
+    CHECK(c2.get("x").has_value());
+    CHECK(c2.get("y").has_value());
 }
 
 TEST_CASE("DiskCache: concurrent puts from multiple threads don't corrupt") {

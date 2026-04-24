@@ -67,9 +67,15 @@ struct CachedFrame {
 
 class DiskCache {
 public:
-    /* Construct with a directory path. Empty / null path →
-     * instance is permanently disabled (put/get no-op). */
-    explicit DiskCache(std::string cache_dir);
+    /* Construct with a directory path and optional size cap.
+     * Empty / null path → instance is permanently disabled
+     * (put/get no-op). `limit_bytes == 0` disables eviction
+     * (unlimited cache, original phase-1 behaviour). When
+     * positive, the ctor scans `cache_dir` for existing `.bin`
+     * entries and initialises the running `disk_bytes_` total;
+     * subsequent `put`s evict oldest-by-mtime entries if a new
+     * write would push the total over the cap. */
+    explicit DiskCache(std::string cache_dir, int64_t limit_bytes = 0);
 
     DiskCache(const DiskCache&)            = delete;
     DiskCache& operator=(const DiskCache&) = delete;
@@ -120,11 +126,28 @@ public:
      * reports the configuration-time gate, not runtime status. */
     bool enabled() const noexcept { return !dir_.empty(); }
 
+    /* Current disk footprint in bytes (sum of `.bin` file sizes
+     * managed by this instance). Reads the running counter — no
+     * filesystem scan. Matches `me_cache_stats.disk_bytes_used`
+     * semantics. */
+    std::int64_t disk_bytes_used() const noexcept { return disk_bytes_.load(); }
+
+    /* Configured size limit. 0 = unlimited. */
+    std::int64_t disk_bytes_limit() const noexcept { return limit_bytes_; }
+
 private:
-    std::string                dir_;   /* empty = disabled */
-    std::mutex                 mu_;    /* guards put/get/invalidate */
+    /* Evict the single oldest-by-mtime `.bin` entry that isn't
+     * named `<skip_hash>.bin`. Returns true iff an entry was
+     * removed (updates `disk_bytes_` accordingly). Must be called
+     * with `mu_` held. */
+    bool evict_one_oldest(const std::string& skip_hash);
+
+    std::string                dir_;           /* empty = disabled */
+    std::int64_t               limit_bytes_;   /* 0 = unlimited */
+    std::mutex                 mu_;            /* guards put/get/invalidate */
     std::atomic<std::int64_t>  hits_{0};
     std::atomic<std::int64_t>  misses_{0};
+    std::atomic<std::int64_t>  disk_bytes_{0};  /* running total of .bin bytes */
 };
 
 }  // namespace me::resource

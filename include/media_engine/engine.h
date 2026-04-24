@@ -37,6 +37,15 @@ typedef struct me_engine_config {
 
     /* In-memory frame cache cap, bytes. 0 = engine default. */
     int64_t memory_cache_bytes;
+
+    /* Disk cache cap, bytes. Applies only when `cache_dir` is set.
+     * 0 = unlimited (no eviction; the cache directory grows until
+     * the user clears it or the filesystem fills). When positive,
+     * `put` evicts oldest-by-mtime `.bin` entries to keep the
+     * on-disk footprint under the cap. Appended to the struct in
+     * 0.0.2 — zero-init existing callers get unlimited behaviour,
+     * matching the pre-cap contract. */
+    int64_t disk_cache_bytes;
 } me_engine_config_t;
 
 /* Create an engine. Pass NULL config for defaults. */

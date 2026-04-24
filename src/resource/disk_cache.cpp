@@ -40,8 +40,59 @@ std::uint32_t read_u32_le(const uint8_t* src) {
 
 }  // namespace
 
-DiskCache::DiskCache(std::string cache_dir)
-    : dir_(std::move(cache_dir)) {}
+DiskCache::DiskCache(std::string cache_dir, int64_t limit_bytes)
+    : dir_(std::move(cache_dir)), limit_bytes_(limit_bytes) {
+    /* Seed `disk_bytes_` from the current on-disk footprint so
+     * cross-process / cross-restart caches start with accurate
+     * accounting. Skip when the cache is disabled or the directory
+     * doesn't yet exist (ctor doesn't create it; first `put` does). */
+    if (dir_.empty()) return;
+    std::error_code ec;
+    if (!fs::is_directory(dir_, ec)) return;
+    fs::directory_iterator it(dir_, ec);
+    if (ec) return;
+    int64_t total = 0;
+    for (const auto& entry : it) {
+        std::error_code ec_check;
+        if (!entry.is_regular_file(ec_check)) continue;
+        if (entry.path().extension() != ".bin") continue;
+        const auto sz = entry.file_size(ec_check);
+        if (!ec_check) total += static_cast<int64_t>(sz);
+    }
+    disk_bytes_.store(total);
+}
+
+bool DiskCache::evict_one_oldest(const std::string& skip_hash) {
+    std::error_code ec;
+    fs::directory_iterator it(dir_, ec);
+    if (ec) return false;
+
+    fs::path           oldest_path;
+    fs::file_time_type oldest_mtime = fs::file_time_type::max();
+
+    for (const auto& entry : it) {
+        std::error_code ec_f;
+        if (!entry.is_regular_file(ec_f)) continue;
+        if (entry.path().extension() != ".bin") continue;
+        const std::string stem = entry.path().stem().string();
+        if (stem == skip_hash) continue;
+        const auto mtime = entry.last_write_time(ec_f);
+        if (ec_f) continue;
+        if (mtime < oldest_mtime) {
+            oldest_mtime = mtime;
+            oldest_path  = entry.path();
+        }
+    }
+    if (oldest_path.empty()) return false;
+
+    std::error_code sz_ec;
+    const auto sz = fs::file_size(oldest_path, sz_ec);
+    std::error_code rm_ec;
+    if (!fs::remove(oldest_path, rm_ec)) return false;
+    if (!sz_ec) disk_bytes_.fetch_sub(static_cast<int64_t>(sz),
+                                       std::memory_order_release);
+    return true;
+}
 
 bool DiskCache::put(const std::string& hash,
                      const uint8_t*     rgba,
@@ -57,10 +108,52 @@ bool DiskCache::put(const std::string& hash,
     fs::create_directories(dir_, ec);
     if (ec) return false;  /* mkdir failed (permissions, full disk, …) */
 
+    /* Total bytes this write will consume (header + body). */
+    const std::size_t body_bytes =
+        static_cast<std::size_t>(stride) * static_cast<std::size_t>(height);
+    const int64_t total_file_bytes =
+        static_cast<int64_t>(kHeaderBytes + body_bytes);
+
+    /* Reject oversized writes outright — a single entry bigger than
+     * the cap can never fit even after clearing the whole cache. */
+    if (limit_bytes_ > 0 && total_file_bytes > limit_bytes_) {
+        return false;
+    }
+
+    /* If this hash already exists, its current on-disk bytes will
+     * be replaced by the rename — deduct from the projection to
+     * avoid counting it twice during eviction planning. */
+    const std::string final_path = entry_path(dir_, hash);
+    int64_t existing_bytes = 0;
+    {
+        std::error_code sz_ec;
+        const auto sz = fs::file_size(final_path, sz_ec);
+        if (!sz_ec) existing_bytes = static_cast<int64_t>(sz);
+    }
+
+    /* LRU evict (oldest mtime first) until the projected total fits
+     * within limit_bytes_. Safety: `evict_one_oldest` skips the
+     * about-to-be-overwritten entry for this hash so we don't
+     * pre-destroy what we're replacing. */
+    if (limit_bytes_ > 0) {
+        int64_t projected = disk_bytes_.load(std::memory_order_acquire)
+                             - existing_bytes + total_file_bytes;
+        while (projected > limit_bytes_) {
+            if (!evict_one_oldest(hash)) {
+                /* Nothing else to evict — the cap is configured
+                 * below the working-set size even after clearing
+                 * everything evictable. Bail; caller treats false
+                 * as "could not cache". */
+                return false;
+            }
+            projected = disk_bytes_.load(std::memory_order_acquire)
+                         - existing_bytes + total_file_bytes;
+        }
+    }
+
     /* Write to a temp name + rename, so concurrent readers never
      * see a partial file. rename() is atomic on same-fs POSIX. */
-    const std::string final_path = entry_path(dir_, hash);
-    const std::string tmp_path   = final_path + ".tmp";
+    const std::string tmp_path = final_path + ".tmp";
 
     std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
     if (!out) return false;
@@ -75,8 +168,6 @@ bool DiskCache::put(const std::string& hash,
     if (!out) { fs::remove(tmp_path, ec); return false; }
 
     /* Body: row-major stride * height bytes. */
-    const std::size_t body_bytes =
-        static_cast<std::size_t>(stride) * static_cast<std::size_t>(height);
     out.write(reinterpret_cast<const char*>(rgba),
               static_cast<std::streamsize>(body_bytes));
     if (!out) { fs::remove(tmp_path, ec); return false; }
@@ -89,6 +180,10 @@ bool DiskCache::put(const std::string& hash,
         fs::remove(tmp_path, remove_ec);
         return false;
     }
+
+    /* Update disk_bytes_: new - old (deduct overwrite if any). */
+    disk_bytes_.fetch_add(total_file_bytes - existing_bytes,
+                           std::memory_order_release);
     return true;
 }
 
@@ -153,8 +248,16 @@ std::size_t DiskCache::invalidate_by_prefix(const std::string& prefix) {
         const std::string stem = entry.path().stem().string();
         if (stem.size() >= prefix.size() &&
             stem.compare(0, prefix.size(), prefix) == 0) {
+            std::error_code sz_ec;
+            const auto sz = fs::file_size(entry.path(), sz_ec);
             std::error_code rm_ec;
-            if (fs::remove(entry.path(), rm_ec)) ++removed;
+            if (fs::remove(entry.path(), rm_ec)) {
+                ++removed;
+                if (!sz_ec) {
+                    disk_bytes_.fetch_sub(static_cast<int64_t>(sz),
+                                           std::memory_order_release);
+                }
+            }
         }
     }
     return removed;
@@ -163,24 +266,38 @@ std::size_t DiskCache::invalidate_by_prefix(const std::string& prefix) {
 void DiskCache::invalidate(const std::string& hash) {
     if (dir_.empty() || hash.empty()) return;
     std::lock_guard<std::mutex> lk(mu_);
+    const std::string p = entry_path(dir_, hash);
+    std::error_code sz_ec;
+    const auto sz = fs::file_size(p, sz_ec);
     std::error_code ec;
-    fs::remove(entry_path(dir_, hash), ec);
+    if (fs::remove(p, ec) && !sz_ec) {
+        disk_bytes_.fetch_sub(static_cast<int64_t>(sz),
+                               std::memory_order_release);
+    }
 }
 
 void DiskCache::clear() {
     if (dir_.empty()) return;
     std::lock_guard<std::mutex> lk(mu_);
     std::error_code ec;
-    /* Iterate the directory, remove `.bin` files only. */
+    /* Iterate the directory, remove `.bin` files only. Track
+     * removed bytes so `disk_bytes_` stays consistent with the
+     * on-disk state after the pass. */
     fs::directory_iterator it(dir_, ec);
     if (ec) return;
+    int64_t removed_bytes = 0;
     for (const auto& entry : it) {
         std::error_code remove_ec;
         if (entry.is_regular_file(remove_ec) &&
             entry.path().extension() == ".bin") {
-            fs::remove(entry.path(), remove_ec);
+            std::error_code sz_ec;
+            const auto sz = fs::file_size(entry.path(), sz_ec);
+            if (fs::remove(entry.path(), remove_ec) && !sz_ec) {
+                removed_bytes += static_cast<int64_t>(sz);
+            }
         }
     }
+    disk_bytes_.fetch_sub(removed_bytes, std::memory_order_release);
 }
 
 }  // namespace me::resource

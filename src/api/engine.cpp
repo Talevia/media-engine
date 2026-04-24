@@ -34,11 +34,14 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         e->codecs       = std::make_unique<me::resource::CodecPool>();
         e->asset_hashes = std::make_unique<me::resource::AssetHashCache>();
         /* DiskCache takes cache_dir from config (empty string =
-         * disabled). Ctor doesn't touch the filesystem; first
-         * put() does the mkdir lazily. */
+         * disabled). Size cap comes from disk_cache_bytes (0 =
+         * unlimited). Ctor scans the existing directory (if any)
+         * to seed the on-disk-bytes running total but doesn't
+         * create it — first put() does the mkdir lazily. */
         e->disk_cache   = std::make_unique<me::resource::DiskCache>(
                               e->config.cache_dir ? std::string(e->config.cache_dir)
-                                                  : std::string{});
+                                                  : std::string{},
+                              e->config.disk_cache_bytes);
         e->scheduler    = std::make_unique<me::sched::Scheduler>(
                               me::sched::Config{.cpu_threads = e->config.num_worker_threads},
                               *e->frames, *e->codecs);
