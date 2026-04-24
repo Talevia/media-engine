@@ -53,6 +53,7 @@ set(_test_suites
   test_audio_track_feed
   test_audio_mixer
   test_effect_chain
+  test_animated_number
 )
 
 foreach(_suite ${_test_suites})
@@ -269,6 +270,10 @@ target_link_libraries(test_audio_mixer PRIVATE
 # test_effect_chain exercises me::effect::EffectChain + IdentityEffect
 # via the headers in src/effect/. Pure C++ (no libav, no filesystem).
 target_include_directories(test_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_animated_number exercises me::AnimatedNumber (M3 keyframe
+# interpolation primitive). Pure C++ (no libav).
+target_include_directories(test_animated_number PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
