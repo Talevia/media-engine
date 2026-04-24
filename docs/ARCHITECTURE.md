@@ -86,7 +86,7 @@ VISION §3.4 locks the supply chain at LGPL-clean. Enforcement happens here:
 | OpenColorIO (and its transitive deps: Imath / yaml-cpp / pystring / expat / minizip-ng / zlib / sse2neon) | BSD-3 (OCIO, Imath, pystring, sse2neon), MIT (yaml-cpp, expat), Zlib (zlib, minizip-ng) — all LGPL-clean | Phase 2 (color mgmt) — CMake opt-in behind `ME_WITH_OCIO` (ON default as of 2026-04-23 `ocio-pipeline-enable` cycle). Upstream v2.5.1 passes `CMAKE_POLICY_VERSION_MINIMUM=3.5` into its `yaml-cpp_install` ExternalProject, which fixed the nested CMake-4.x floor issue that blocked 2.3.2. `me::color::OcioPipeline` is the current return of `make_pipeline()`; bt709 ↔ sRGB ↔ linear conversion math lands with `ocio-colorspace-conversions`. |
 | libass   | ISC    | Phase 5 (subtitles) |
 | miniaudio | MIT / public domain | Phase 4 (audio I/O) |
-| SoundTouch | LGPL-2.1 | Phase 4 (time-stretch) |
+| SoundTouch (pin `2.4.0`) | LGPL-2.1 | Phase 4 (time-stretch) — CMake opt-in behind `ME_WITH_SOUNDTOUCH` (ON default as of 2026-04-24 `soundtouch-integration` cycle). `me::audio::TempoStretcher` (`src/audio/tempo.{hpp,cpp}`) wraps SoundTouch's `SoundTouch::setTempo` + `putSamples` / `receiveSamples`. LGPL-2.1 dynamic-link clean; SoundTouch-side `-Werror` is scoped off for 3rd-party code via `target_compile_options(SoundTouch PRIVATE -Wno-error)` — upstream PeakFinder.cpp:139 trips `-Wunused-but-set-variable`. |
 | spdlog   | MIT    | any time logging is wired |
 | nlohmann::json | MIT | Phase 1 (JSON) |
 | doctest  | MIT    | when tests are enabled |

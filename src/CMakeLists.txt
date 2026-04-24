@@ -77,6 +77,36 @@ endif()
 # `ME_HAS_GPU=1` compile def gates the BgfxGpuBackend codepath in
 # `src/gpu/gpu_backend.cpp`; tests use the same define to guard
 # ME_WITH_GPU-only assertions.
+# SoundTouch — opt-in (ON by default; see ME_WITH_SOUNDTOUCH in
+# top-level CMakeLists.txt). Fetched from codeberg at tag 2.4.0
+# (verified 2026-04-24 via `git ls-remote --tags`). Disable
+# SoundTouch-side options that don't serve our use case: the
+# SoundStretch CLI, OpenMP (we run in a single-audio-thread
+# model per-AudioMixer path), extra build warnings, install
+# target. Consumer is `me::audio::TempoStretcher`.
+if(ME_WITH_SOUNDTOUCH)
+  FetchContent_Declare(
+    soundtouch
+    GIT_REPOSITORY https://codeberg.org/soundtouch/soundtouch.git
+    GIT_TAG        2.4.0
+    GIT_SHALLOW    TRUE
+  )
+  set(SOUNDSTRETCH        OFF CACHE INTERNAL "")
+  set(OPENMP              OFF CACHE INTERNAL "")
+  set(INTEGER_SAMPLES     OFF CACHE INTERNAL "")
+  include(fetchcontent_policy)
+  FetchContent_MakeAvailable(soundtouch)
+
+  # SoundTouch 2.4.0's PeakFinder.cpp trips
+  # -Wunused-but-set-variable on clang — upstream 3rd-party code we
+  # can't patch. Scope -Werror off for the SoundTouch target so
+  # ME_WERROR=ON + ME_WITH_SOUNDTOUCH=ON is buildable. Our own
+  # src/ / tests/ TUs keep -Werror.
+  if(TARGET SoundTouch)
+    target_compile_options(SoundTouch PRIVATE -Wno-error)
+  endif()
+endif()
+
 if(ME_WITH_GPU)
   FetchContent_Declare(
     bgfx_cmake
@@ -168,6 +198,7 @@ add_library(media_engine STATIC
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/fused_color_correct_effect.cpp>
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/gpu_effect_chain.cpp>
   effect/lut.cpp
+  $<$<BOOL:${ME_WITH_SOUNDTOUCH}>:${CMAKE_CURRENT_SOURCE_DIR}/audio/tempo.cpp>
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp
@@ -253,6 +284,14 @@ endif()
 if(ME_WITH_GPU)
   target_link_libraries(media_engine PRIVATE bgfx bx bimg)
   target_compile_definitions(media_engine PRIVATE ME_HAS_GPU=1)
+endif()
+
+# SoundTouch link — `me::audio::TempoStretcher` wraps SoundTouch's
+# C++ API. ME_HAS_SOUNDTOUCH compile def mirrors the ME_HAS_OCIO /
+# ME_HAS_GPU pattern.
+if(ME_WITH_SOUNDTOUCH)
+  target_link_libraries(media_engine PRIVATE SoundTouch)
+  target_compile_definitions(media_engine PRIVATE ME_HAS_SOUNDTOUCH=1)
 endif()
 
 target_compile_features(media_engine PUBLIC cxx_std_20)

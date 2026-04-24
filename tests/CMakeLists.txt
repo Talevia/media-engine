@@ -59,6 +59,7 @@ set(_test_suites
   test_compose_sink_gpu_detect
   test_render_thread
   test_lut_parser
+  test_tempo
 )
 
 foreach(_suite ${_test_suites})
@@ -408,6 +409,15 @@ target_include_directories(test_render_thread PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_lut_parser exercises the .cube file parser. Pure C++; no
 # GPU dependency — runs in every build.
 target_include_directories(test_lut_parser PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_tempo exercises me::audio::TempoStretcher (SoundTouch
+# wrapping). ME_HAS_SOUNDTOUCH compile def gates the real test
+# body; without it the TU is empty and the binary runs as a
+# 0-case doctest.
+target_include_directories(test_tempo PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_SOUNDTOUCH)
+  target_compile_definitions(test_tempo PRIVATE ME_HAS_SOUNDTOUCH=1)
+endif()
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

@@ -35,6 +35,13 @@ option(ME_WERROR         "Treat warnings as errors" OFF)
 # `IdentityPipeline`).
 option(ME_WITH_OCIO      "Fetch and link OpenColorIO (M2 color pipeline)" ON)
 
+# M4 audio time-stretch. When ON, fetches SoundTouch 2.4.0 and
+# links `me::audio::TempoStretcher` (src/audio/tempo.{hpp,cpp})
+# against it. Default ON — SoundTouch is LGPL-2.1 (white-listed
+# in ARCHITECTURE.md) and compiles in seconds; non-audio-heavy
+# workflows can flip OFF to skip the fetch.
+option(ME_WITH_SOUNDTOUCH "Fetch and link SoundTouch (M4 tempo)"          ON)
+
 # M3 GPU render benchmarks (bench/). OFF by default — benches are
 # run ad-hoc by dev machines + CI perf gates, not on every build.
 # Requires ME_WITH_GPU=ON to do anything useful; the bench/
