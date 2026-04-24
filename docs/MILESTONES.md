@@ -60,7 +60,7 @@
 ## M5 — Text + subtitles
 
 ### Exit criteria
-- [ ] Skia 集成
+- [x] Skia 集成
 - [ ] Text clip（静态 + 动画字号 / 颜色 / 位置）
 - [ ] libass 字幕 track
 - [ ] CJK + emoji + 字体 fallback 正确
