@@ -4,6 +4,18 @@ How to write tests in this repo. Written after 12 doctest suites + 1 fixture gen
 
 This is **how**. For *why* the project has tests at all, read `docs/VISION.md` §5.2 ("Engineering hygiene") and `docs/MILESTONES.md`'s M1 exit criterion on regression tripwires.
 
+**CI scope.** This repository **does not** ship a CI configuration
+(`.github/workflows/`, `.gitlab-ci.yml`, etc.). All `ctest` runs below
+assume a dev-box invocation. Host repositories that consume media-
+engine (notably `talevia`) are responsible for their own cross-platform
+gates — they pin a media-engine revision, rebuild + ctest it in their
+own CI matrix, and ship when green. References below to "CI host" or
+"Linux CI" describe what a downstream host's CI would observe on a
+Linux runner; they are **not** promises that this repo gates those
+platforms itself. If you need a local probe of what a Linux consumer
+would see, spin up a Docker image with LGPL FFmpeg + libass and run
+`ctest` there manually.
+
 ## Building + running
 
 Tests are off by default. Turn them on at configure time:
