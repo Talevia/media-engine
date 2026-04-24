@@ -145,13 +145,15 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
             me::TrackKind track_kind;
             if      (track_kind_str == "video") track_kind = me::TrackKind::Video;
             else if (track_kind_str == "audio") track_kind = me::TrackKind::Audio;
+            else if (track_kind_str == "text")  track_kind = me::TrackKind::Text;
             else {
                 throw LoadError{ME_E_UNSUPPORTED,
-                    track_where + ".kind: only 'video' and 'audio' supported (got '" +
+                    track_where + ".kind: only 'video', 'audio', 'text' supported (got '" +
                     track_kind_str + "')"};
             }
             const char* expected_clip_type =
-                (track_kind == me::TrackKind::Video) ? "video" : "audio";
+                (track_kind == me::TrackKind::Video) ? "video" :
+                (track_kind == me::TrackKind::Audio) ? "audio" : "text";
 
             const bool track_enabled =
                 track.contains("enabled") ? track.at("enabled").get<bool>() : true;
@@ -182,17 +184,44 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                         where + ".type: must match parent track.kind (expected '" +
                         expected_clip_type + "', got '" + clip_type + "')");
 
-                const std::string asset_id = clip.at("assetId").get<std::string>();
-                require(tl.assets.find(asset_id) != tl.assets.end(), ME_E_PARSE,
-                        where + ".assetId refers to unknown asset");
+                /* Text clips have no source asset — assetId is
+                 * optional. Video / audio clips still require it. */
+                std::string asset_id;
+                if (clip.contains("assetId")) {
+                    asset_id = clip.at("assetId").get<std::string>();
+                }
+                if (track_kind == me::TrackKind::Text) {
+                    /* Text clip: if assetId provided, it can still
+                     * refer to a font-file asset (future extension),
+                     * but unknown-id is tolerated as empty. */
+                    if (!asset_id.empty() && tl.assets.find(asset_id) == tl.assets.end()) {
+                        asset_id.clear();  // silently drop unknown text-clip asset
+                    }
+                } else {
+                    require(!asset_id.empty(), ME_E_PARSE,
+                            where + ": '" + clip_type + "' clip requires 'assetId'");
+                    require(tl.assets.find(asset_id) != tl.assets.end(), ME_E_PARSE,
+                            where + ".assetId refers to unknown asset");
+                }
 
                 const auto& tr = clip.at("timeRange");
                 me_rational_t t_start = as_rational(tr.at("start"),    where + ".timeRange.start");
                 me_rational_t t_dur   = as_rational(tr.at("duration"), where + ".timeRange.duration");
 
-                const auto& sr = clip.at("sourceRange");
-                me_rational_t s_start = as_rational(sr.at("start"),    where + ".sourceRange.start");
-                me_rational_t s_dur   = as_rational(sr.at("duration"), where + ".sourceRange.duration");
+                /* sourceRange is required for video / audio (driven by
+                 * source media bounds); optional for text clips (no
+                 * source media — default to [0, timeRange.duration]
+                 * so downstream code can still uniformly query it). */
+                me_rational_t s_start{0, 1};
+                me_rational_t s_dur   = t_dur;
+                if (clip.contains("sourceRange")) {
+                    const auto& sr = clip.at("sourceRange");
+                    s_start = as_rational(sr.at("start"),    where + ".sourceRange.start");
+                    s_dur   = as_rational(sr.at("duration"), where + ".sourceRange.duration");
+                } else {
+                    require(track_kind == me::TrackKind::Text, ME_E_PARSE,
+                            where + ": 'sourceRange' is required on non-text clips");
+                }
 
                 require(rational_eq(t_start, running), ME_E_UNSUPPORTED,
                         where + ".timeRange.start must equal cumulative prior clip duration "
@@ -205,8 +234,9 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 me::Clip c;
                 c.asset_id       = asset_id;
                 c.track_id       = track_id;
-                c.type           = (track_kind == me::TrackKind::Video)
-                                       ? me::ClipType::Video : me::ClipType::Audio;
+                c.type           = (track_kind == me::TrackKind::Video) ? me::ClipType::Video :
+                                   (track_kind == me::TrackKind::Audio) ? me::ClipType::Audio :
+                                                                           me::ClipType::Text;
                 c.time_start     = t_start;
                 c.time_duration  = t_dur;
                 c.source_start   = s_start;
@@ -235,6 +265,15 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                             eff_arr[ei],
                             where + ".effects[" + std::to_string(ei) + "]"));
                     }
+                }
+                if (track_kind == me::TrackKind::Text) {
+                    require(clip.contains("textParams"), ME_E_PARSE,
+                            where + ": text clip requires 'textParams'");
+                    c.text_params = parse_text_clip_params(
+                        clip["textParams"], where + ".textParams");
+                } else {
+                    require(!clip.contains("textParams"), ME_E_PARSE,
+                            where + ".textParams: only valid on text clips");
                 }
                 const std::string clip_id = clip.at("id").get<std::string>();
                 require(!clip_id.empty(), ME_E_PARSE, where + ".id must be non-empty");

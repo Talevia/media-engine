@@ -80,4 +80,20 @@ me::ColorSpace  parse_color_space (const nlohmann::json& j, const std::string& w
  * per kind → ME_E_PARSE. */
 me::EffectSpec  parse_effect_spec (const nlohmann::json& j, const std::string& where);
 
+/* Parse a `textParams` object (present on text-kind clips) into
+ * `me::TextClipParams`. Shape:
+ *
+ *   { "content":    "Hello",          (required, UTF-8 string)
+ *     "color":      "#FFFFFFFF",      (optional, CSS-like hex; default white)
+ *     "fontFamily": "Noto Sans SC",   (optional; default = platform default)
+ *     "fontSize":   { "static": 48 }, (optional AnimatedNumber; default 48)
+ *     "x":          { "static":  0 }, (optional AnimatedNumber; default 0)
+ *     "y":          { "static":  0 }  (optional AnimatedNumber; default 0) }
+ *
+ * Color string validation: must start with '#' + 6 or 8 hex digits.
+ * Other shapes → ME_E_PARSE. Unknown fields are ignored for forward
+ * compatibility. */
+me::TextClipParams parse_text_clip_params(const nlohmann::json& j,
+                                           const std::string& where);
+
 }  // namespace me::timeline_loader_detail

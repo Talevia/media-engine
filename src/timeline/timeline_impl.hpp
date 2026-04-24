@@ -132,12 +132,43 @@ struct Transform {
 };
 
 /* Media kind of a clip. Mirrors TIMELINE_SCHEMA.md §Clip `"type"` enum
- * values "video" and "audio". Text clips (M5) will extend this enum.
- * Loader enforces that a clip's type matches its parent track's kind
- * (no audio clips on a video track or vice versa). */
+ * values "video" / "audio" / "text". Loader enforces that a clip's
+ * type matches its parent track's kind (no cross-kind mixing). */
 enum class ClipType : uint8_t {
     Video = 0,
     Audio = 1,
+    Text  = 2,
+};
+
+/* Synthetic text-clip parameters — used when ClipType::Text. Has no
+ * source asset (no decoder, no demux); the renderer draws directly
+ * from these fields per output frame.
+ *
+ * `content` is the UTF-8 string to render. Empty is valid (renders
+ * nothing but still takes space on the timeline).
+ *
+ * `font_size`, `x`, `y` are AnimatedNumbers so each can keyframe
+ * independently (size pulse, position tween). Defaults are
+ * reasonable static values — 48 pixel font at (0, 0).
+ *
+ * `color` is a CSS-like hex string ("#RRGGBB" / "#RRGGBBAA"). Loader
+ * validates the string shape; the renderer converts to float-RGBA
+ * at draw time. Static string (not AnimatedString) — color
+ * animation would use a typed animated-color primitive if / when a
+ * consumer needs it.
+ *
+ * `font_family` is an optional font family name ("Helvetica",
+ * "Noto Sans SC", "Apple Color Emoji"). Empty = platform default.
+ * Renderer's font resolver (future: CoreText on macOS, fontconfig
+ * on Linux) walks fallbacks for characters the primary font lacks.
+ */
+struct TextClipParams {
+    std::string    content;
+    std::string    color      = "#FFFFFFFF";
+    std::string    font_family;
+    AnimatedNumber font_size  = AnimatedNumber::from_static(48.0);
+    AnimatedNumber x          = AnimatedNumber::from_static(0.0);
+    AnimatedNumber y          = AnimatedNumber::from_static(0.0);
 };
 
 /* Typed effect parameter tagged union.
@@ -263,16 +294,25 @@ struct Clip {
      * timeline JSON with effects now round-trips through the IR
      * instead of being rejected. */
     std::vector<EffectSpec> effects;
+
+    /* Populated iff `type == ClipType::Text`. Holds the per-clip
+     * text rendering parameters (content + color + font / size /
+     * position). Loader populates this from the clip JSON's
+     * `textParams` object; absent / nullopt for non-text clips.
+     * Consumer (future text_renderer): draws the text onto the
+     * compose canvas at each output frame's timeline-global T,
+     * evaluating the AnimatedNumber fields per-frame. */
+    std::optional<TextClipParams> text_params;
 };
 
-/* Kind of a compositing track. Audio tracks carry audio clips, video
- * tracks carry video clips; the loader enforces the match. The
- * eventual compose kernel uses Kind to decide whether to route this
- * track's frames through the video blend path (Video) or the audio
- * mix path (Audio). */
+/* Kind of a compositing track. Mirrors TIMELINE_SCHEMA.md's `kind`
+ * enum: "video" / "audio" / "text". The loader enforces per-track
+ * clip-type match. Text tracks carry synthetic clips (no source
+ * asset); video / audio tracks carry clips referencing assets. */
 enum class TrackKind : uint8_t {
     Video = 0,
     Audio = 1,
+    Text  = 2,
 };
 
 /* Kind of a transition between two adjacent clips on the same track.

@@ -1055,7 +1055,7 @@ TEST_CASE("unknown track.kind is rejected as ME_E_UNSUPPORTED") {
     CHECK(tl == nullptr);
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("only 'video' and 'audio'") != std::string::npos);
+    CHECK(std::string{err}.find("only 'video', 'audio', 'text'") != std::string::npos);
 }
 
 /* ========================================================================
@@ -1064,6 +1064,200 @@ TEST_CASE("unknown track.kind is rejected as ME_E_UNSUPPORTED") {
  * Exporter rejects any non-empty transitions until cross-dissolve-kernel
  * lands.
  * ======================================================================== */
+
+/* ========================================================================
+ * Text clips — ClipType::Text + TextClipParams. Text tracks carry
+ * synthetic clips (no source media); loader validates required content
+ * + optional color/fontFamily/fontSize/x/y.
+ * ======================================================================== */
+
+TEST_CASE("text clip: minimal positive path parses with defaults") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [],
+      "compositions": [{
+        "id":"main",
+        "duration":{"num":2,"den":1},
+        "tracks":[{
+          "id":"t0","kind":"text","clips":[
+            {"id":"c0","type":"text",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}},
+             "textParams":{"content":"Hello"}}
+          ]}]
+      }],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    REQUIRE(tl != nullptr);
+    REQUIRE(tl->tl.clips.size() == 1);
+    const auto& c = tl->tl.clips[0];
+    CHECK(c.type == me::ClipType::Text);
+    REQUIRE(c.text_params.has_value());
+    CHECK(c.text_params->content == "Hello");
+    CHECK(c.text_params->color == "#FFFFFFFF");  // default
+    CHECK(c.text_params->font_family.empty());
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("text clip: full fields round-trip") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [],
+      "compositions": [{
+        "id":"main",
+        "duration":{"num":2,"den":1},
+        "tracks":[{
+          "id":"t0","kind":"text","clips":[
+            {"id":"c0","type":"text",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}},
+             "textParams":{
+               "content":"你好 👋",
+               "color":"#FF8800",
+               "fontFamily":"Noto Sans SC",
+               "fontSize":{"static":72},
+               "x":{"static":100},
+               "y":{"static":200}
+             }}
+          ]}]
+      }],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    const auto& tp = tl->tl.clips[0].text_params;
+    REQUIRE(tp.has_value());
+    CHECK(tp->content == "你好 👋");
+    CHECK(tp->color == "#FF8800");
+    CHECK(tp->font_family == "Noto Sans SC");
+    CHECK(tp->font_size.evaluate_at({0, 1}) == doctest::Approx(72.0));
+    CHECK(tp->x.evaluate_at({0, 1}) == doctest::Approx(100.0));
+    CHECK(tp->y.evaluate_at({0, 1}) == doctest::Approx(200.0));
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("text clip: missing content rejected") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [],
+      "compositions": [{
+        "id":"main",
+        "duration":{"num":2,"den":1},
+        "tracks":[{
+          "id":"t0","kind":"text","clips":[
+            {"id":"c0","type":"text",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}},
+             "textParams":{}}
+          ]}]
+      }],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+}
+
+TEST_CASE("text clip: bad color format rejected") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [],
+      "compositions": [{
+        "id":"main",
+        "duration":{"num":2,"den":1},
+        "tracks":[{
+          "id":"t0","kind":"text","clips":[
+            {"id":"c0","type":"text",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}},
+             "textParams":{"content":"hi","color":"orange"}}
+          ]}]
+      }],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+}
+
+TEST_CASE("text clip: textParams on non-text clip is rejected") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("textParams":{"content":"nope"},)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+}
+
+TEST_CASE("text clip: missing textParams on text clip rejected") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [],
+      "compositions": [{
+        "id":"main",
+        "duration":{"num":2,"den":1},
+        "tracks":[{
+          "id":"t0","kind":"text","clips":[
+            {"id":"c0","type":"text",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}}}
+          ]}]
+      }],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+}
+
+TEST_CASE("text clip: animated fontSize keyframes round-trip") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [],
+      "compositions": [{
+        "id":"main",
+        "duration":{"num":2,"den":1},
+        "tracks":[{
+          "id":"t0","kind":"text","clips":[
+            {"id":"c0","type":"text",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}},
+             "textParams":{
+               "content":"pulse",
+               "fontSize":{"keyframes":[
+                 {"t":{"num":0,"den":1},"v":24,"interp":"linear"},
+                 {"t":{"num":1,"den":1},"v":96,"interp":"linear"}
+               ]}
+             }}
+          ]}]
+      }],
+      "output": {"compositionId":"main"}
+    })";
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    const auto& fs = tl->tl.clips[0].text_params->font_size;
+    /* Midpoint linear interp: (24 + 96) / 2 = 60. */
+    CHECK(fs.evaluate_at({1, 2}) == doctest::Approx(60.0));
+    me_timeline_destroy(tl);
+}
 
 TEST_CASE("track.transitions with crossDissolve between adjacent clips loads into IR") {
     EngineFixture f;

@@ -144,18 +144,37 @@ All time, duration, and frame-rate values use `{num: int64, den: int64}`:
 {
   "type": "text",
   "id": "c3",
-  "text": "hello",
-  "timeRange": { ... },
-  "transform": { ... },
-  "style": {
-    "fontFamily": "Inter",
+  "timeRange": { "start": {"num":0,"den":1}, "duration": {"num":2,"den":1} },
+  "textParams": {
+    "content":    "Hello",
+    "color":      "#FFFFFFFF",
+    "fontFamily": "Noto Sans SC",
     "fontSize":   { "static": 48 },
-    "color":      { "static": "#FFFFFF" },
-    "bold":       false,
-    "italic":     false
+    "x":          { "static": 0 },
+    "y":          { "static": 0 }
   }
 }
 ```
+
+Text clips live on tracks with `kind: "text"`. Unlike video / audio
+clips, `assetId` and `sourceRange` are optional — text is rendered
+from the `textParams` object directly with no source media to seek.
+
+- `textParams.content` (string, required) — UTF-8 text.
+- `textParams.color` (string, optional, default `#FFFFFFFF`) — CSS-like
+  `#RRGGBB` or `#RRGGBBAA`. Named colors + 3-digit shorthand are not
+  accepted.
+- `textParams.fontFamily` (string, optional) — platform default when
+  absent. Renderer falls back across available faces for glyphs the
+  primary family lacks (CJK, emoji).
+- `textParams.fontSize` / `x` / `y` (animated number, optional) — each
+  keyframeable independently. Defaults: 48 / 0 / 0.
+
+Loaded as of `text-clip-ir` (2026-04-24) — see
+`src/timeline/timeline_impl.hpp`'s `TextClipParams` + loader dispatch
+in `loader_helpers.cpp::parse_text_clip_params`. Rendering integration
+(text → canvas pixels) lands with follow-up `text-clip-render-skia`
+bullet once Skia is wired.
 
 ## Transform
 
