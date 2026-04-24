@@ -53,7 +53,7 @@
 ## M4 — Audio polish + A/V sync
 
 ### Exit criteria
-- [ ] SoundTouch 集成，支持变速不变调
+- [x] SoundTouch 集成，支持变速不变调
 - [ ] VFR 输入 + 分数帧率输出下 A/V 漂移 < 1 ms / 小时
 - [ ] Audio effect chain（gain / pan / 基础 EQ）
 
