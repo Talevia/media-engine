@@ -328,6 +328,22 @@ if(ME_WITH_GPU)
   add_test(NAME test_gpu_effect_chain COMMAND test_gpu_effect_chain)
 endif()
 
+# test_bgfx_noop_fallback exercises the `ME_GPU_FORCE_NOOP` env-var
+# hook that forces BgfxGpuBackend into the Noop renderer branch —
+# the branch CI otherwise can't reach on dev macOS where Metal
+# auto-pick always succeeds.
+if(ME_WITH_GPU)
+  add_executable(test_bgfx_noop_fallback test_main.cpp test_bgfx_noop_fallback.cpp)
+  target_link_libraries(test_bgfx_noop_fallback PRIVATE
+    media_engine::media_engine
+    doctest::doctest
+    bgfx
+    bx)
+  target_include_directories(test_bgfx_noop_fallback PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(test_bgfx_noop_fallback PRIVATE ME_HAS_GPU=1)
+  add_test(NAME test_bgfx_noop_fallback COMMAND test_bgfx_noop_fallback)
+endif()
+
 # test_color_correct_effect verifies the first real GpuEffect's
 # fragment-shader math (brightness / contrast / saturation) via
 # pixel readback. ME_WITH_GPU-only; skips on non-Metal at runtime

@@ -4,10 +4,36 @@
 #include <bgfx/platform.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
 namespace me::gpu {
+
+namespace {
+
+/* Check `ME_GPU_FORCE_NOOP` env var for a truthy value ("1", "true",
+ * "yes", "on"). Case-insensitive. Returns false when unset / empty
+ * / explicitly falsy. Used by BgfxGpuBackend ctor to bypass the
+ * auto-pick renderer and go straight to Noop — primary consumer is
+ * the debt-gpu-backend-noop-fallback-test CI gate so the Noop path
+ * gets exercised without needing a driver that actually refuses
+ * headless init. */
+bool env_force_noop() {
+    const char* s = std::getenv("ME_GPU_FORCE_NOOP");
+    if (!s || !*s) return false;
+    /* Tiny case-insensitive match loop — no locale concerns. */
+    auto lc = [](char c) { return (c >= 'A' && c <= 'Z') ? char(c + 32) : c; };
+    const char* truthy[] = { "1", "true", "yes", "on" };
+    for (const char* t : truthy) {
+        std::size_t i = 0;
+        while (t[i] && s[i] && lc(s[i]) == t[i]) ++i;
+        if (t[i] == '\0' && (s[i] == '\0' || s[i] == ' ')) return true;
+    }
+    return false;
+}
+
+}  // namespace
 
 BgfxGpuBackend::BgfxGpuBackend() {
     render_thread_ = std::make_unique<RenderThread>();
@@ -20,17 +46,25 @@ BgfxGpuBackend::BgfxGpuBackend() {
      * early-returns if headless && resolution > 0×0; bgfx.cpp:2121).
      * RendererType::Count auto-picks — Metal on macOS, Vulkan on
      * Linux, D3D12 on Windows. Noop retry covers drivers that
-     * refuse headless init. */
-    render_thread_->submit_sync([this] {
+     * refuse headless init.
+     *
+     * Test hook: `ME_GPU_FORCE_NOOP=1` skips auto-pick entirely +
+     * uses Noop directly. Lets CI exercise the Noop branch on
+     * machines where auto-pick succeeds (post-5566bea dev macOS).
+     * Production callers never set it. */
+    const bool force_noop = env_force_noop();
+    render_thread_->submit_sync([this, force_noop] {
         bgfx::Init init;
-        init.type                = bgfx::RendererType::Count;
+        init.type                = force_noop
+                                    ? bgfx::RendererType::Noop
+                                    : bgfx::RendererType::Count;
         init.platformData.nwh    = nullptr;
         init.resolution.width    = 0;
         init.resolution.height   = 0;
         init.resolution.reset    = BGFX_RESET_NONE;
 
         init_ok_ = bgfx::init(init);
-        if (!init_ok_) {
+        if (!init_ok_ && !force_noop) {
             init.type = bgfx::RendererType::Noop;
             init_ok_  = bgfx::init(init);
         }
