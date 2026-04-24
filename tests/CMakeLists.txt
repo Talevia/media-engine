@@ -306,6 +306,22 @@ if(ME_WITH_GPU)
   add_test(NAME test_bgfx_metal_render COMMAND test_bgfx_metal_render)
 endif()
 
+# test_gpu_effect_chain exercises me::effect::GpuEffect +
+# GpuEffectChain plumbing (ping-pong scratch dispatch, view-id
+# allocation, Noop effect smoke). Same ME_WITH_GPU gate + bgfx link
+# pattern as test_bgfx_metal_render.
+if(ME_WITH_GPU)
+  add_executable(test_gpu_effect_chain test_main.cpp test_gpu_effect_chain.cpp)
+  target_link_libraries(test_gpu_effect_chain PRIVATE
+    media_engine::media_engine
+    doctest::doctest
+    bgfx
+    bx)
+  target_include_directories(test_gpu_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(test_gpu_effect_chain PRIVATE ME_HAS_GPU=1)
+  add_test(NAME test_gpu_effect_chain COMMAND test_gpu_effect_chain)
+endif()
+
 # test_animated_number_loader exercises the JSON → me::AnimatedNumber
 # parse helper (layer 2 of transform-animated-support). Pure C++;
 # pulls in nlohmann/json via loader_helpers.hpp.
