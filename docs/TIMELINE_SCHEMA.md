@@ -220,14 +220,35 @@ text clips w.r.t. `assetId` / `sourceRange` being optional — the
 renderer draws from `subtitleParams` directly via libass without
 seeking source media.
 
-- `subtitleParams.content` (string, required) — inline .ass / .ssa /
-  .srt markup. Newlines embedded in JSON via the `\n` escape. libass
-  parses the content once at clip entry and rasterises per-frame
-  glyphs onto the composite canvas.
+`subtitleParams` must carry **exactly one** of `content` or
+`fileUri` — neither or both → `ME_E_PARSE` at load.
+
+- `subtitleParams.content` (string, one-of-required) — inline .ass
+  / .ssa / .srt markup. Newlines embedded in JSON via the `\n`
+  escape. libass parses the content once at clip entry and
+  rasterises per-frame glyphs onto the composite canvas.
+- `subtitleParams.fileUri` (string, one-of-required) — `file://`
+  URI pointing at an external .ass / .srt file (or a bare path;
+  the compose loop strips an optional `file://` scheme prefix
+  with the same semantics as `Asset.uri`). Used when the
+  subtitle track is large enough that inlining would bloat the
+  timeline JSON. I/O failure (path missing, permission denied)
+  degrades to a silent no-op render on that track; a follow-up
+  cycle surfaces the error via `me_engine_last_error`.
 - `subtitleParams.codepage` (string, optional, default empty =
   UTF-8) — iconv codepage name for legacy .srt files whose bytes
-  aren't UTF-8 (e.g. `cp1251`, `gbk`). Passed to libass's
-  `ass_read_memory` codepage param. Empty / absent = UTF-8 assumed.
+  aren't UTF-8 (e.g. `cp1251`, `gbk`). Applies equally to inline
+  `content` and file-sourced bytes. Passed to libass's
+  `ass_read_memory` codepage param. Empty / absent = UTF-8
+  assumed.
+
+`fileUri` example:
+```json
+"subtitleParams": {
+  "fileUri": "file:///assets/captions/episode42.srt",
+  "codepage": "cp1251"
+}
+```
 
 Loaded as of `compose-sink-subtitle-track-wire` (2026-04-24) — see
 `src/timeline/timeline_ir_params.hpp`'s `SubtitleClipParams` + loader
