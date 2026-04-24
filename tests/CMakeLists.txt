@@ -55,6 +55,7 @@ set(_test_suites
   test_effect_chain
   test_animated_number
   test_gpu_backend
+  test_animated_number_loader
 )
 
 foreach(_suite ${_test_suites})
@@ -279,6 +280,12 @@ target_include_directories(test_animated_number PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_gpu_backend exercises the phase-1 NullGpuBackend factory. Pure
 # C++. When ME_WITH_GPU + bgfx lands, add BgfxGpuBackend-path cases.
 target_include_directories(test_gpu_backend PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_animated_number_loader exercises the JSON → me::AnimatedNumber
+# parse helper (layer 2 of transform-animated-support). Pure C++;
+# pulls in nlohmann/json via loader_helpers.hpp.
+target_include_directories(test_animated_number_loader PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_animated_number_loader PRIVATE nlohmann_json::nlohmann_json)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

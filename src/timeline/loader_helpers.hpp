@@ -18,6 +18,7 @@
 #pragma once
 
 #include "media_engine/types.h"
+#include "timeline/animated_number.hpp"
 #include "timeline/timeline_impl.hpp"
 
 #include <nlohmann/json.hpp>
@@ -47,6 +48,19 @@ me::ColorSpace::Range     to_range    (const std::string& s);
  * form when lifted to AnimatedNumber. */
 double          parse_animated_static_number(const nlohmann::json& prop,
                                               const std::string& where);
+
+/* Parse a `{"static": <number>}` OR `{"keyframes": [...]}` wrapper
+ * into `me::AnimatedNumber`. Full schema per TIMELINE_SCHEMA.md
+ * §Animated Properties: keyframes sorted by t, no duplicates,
+ * interp ∈ {linear, bezier, hold, stepped}, bezier requires `cp`
+ * (4-float array with x1/x2 ∈ [0,1]).
+ *
+ * Currently **unused** by parse_transform / Clip::gain_db
+ * (those call the static-only variant). Layer 3 of
+ * `transform-animated-support` migrates callers once Transform
+ * fields and Clip::gain_db become AnimatedNumber. */
+me::AnimatedNumber parse_animated_number(const nlohmann::json& prop,
+                                          const std::string& where);
 
 me::Transform   parse_transform   (const nlohmann::json& j, const std::string& where);
 me::ColorSpace  parse_color_space (const nlohmann::json& j, const std::string& where);
