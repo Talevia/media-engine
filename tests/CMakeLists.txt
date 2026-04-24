@@ -54,6 +54,9 @@ set(_test_suites
   test_audio_resample
   test_frame_puller
   test_compose_sink_e2e
+  test_compose_sink_e2e_audio
+  test_compose_sink_e2e_text
+  test_compose_sink_e2e_subtitle
   test_compose_affine_blit
   test_audio_track_feed
   test_audio_mixer
@@ -539,15 +542,22 @@ add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 
-# test_compose_sink_e2e builds a 2-track timeline using the shared
-# fixture twice (both tracks reference the same asset; loader creates
-# independent DemuxContexts per clip so the compose loop sees two
-# real decoded streams). The video+audio-mixer case also wants the
-# with-audio variant so the audio-track clip has real AAC samples.
-add_dependencies(test_compose_sink_e2e determinism_fixture determinism_fixture_with_audio)
-target_compile_definitions(test_compose_sink_e2e PRIVATE
-  ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
-  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
+# test_compose_sink_e2e* — video core + audio + text + subtitle
+# shards of the original 1136-line suite (split per
+# debt-split-test-compose-sink-e2e-cpp). All four share fixtures
+# via tests/compose_sink_e2e_fixtures.hpp and use the shared
+# determinism fixture (audio shard additionally needs the
+# with-audio variant for real AAC samples).
+foreach(tgt
+    test_compose_sink_e2e
+    test_compose_sink_e2e_audio
+    test_compose_sink_e2e_text
+    test_compose_sink_e2e_subtitle)
+  add_dependencies(${tgt} determinism_fixture determinism_fixture_with_audio)
+  target_compile_definitions(${tgt} PRIVATE
+    ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+    ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
+endforeach()
 
 # test_render_progress exercises the me_progress_event_t ordering contract
 # (STARTED first / terminal last / ratio monotonic) — uses the shared
