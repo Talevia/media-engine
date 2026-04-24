@@ -52,6 +52,7 @@ set(_test_suites
   test_compose_affine_blit
   test_audio_track_feed
   test_audio_mixer
+  test_effect_chain
 )
 
 foreach(_suite ${_test_suites})
@@ -264,6 +265,10 @@ target_compile_definitions(test_audio_track_feed PRIVATE
 target_include_directories(test_audio_mixer PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_audio_mixer PRIVATE
   FFMPEG::avformat FFMPEG::avcodec FFMPEG::avutil)
+
+# test_effect_chain exercises me::effect::EffectChain + IdentityEffect
+# via the headers in src/effect/. Pure C++ (no libav, no filesystem).
+target_include_directories(test_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
