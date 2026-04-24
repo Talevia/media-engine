@@ -103,4 +103,99 @@ bool SkiaBackend::read_pixels(std::uint8_t* dst_rgba, std::size_t stride_bytes) 
     return impl_->surface->readPixels(info, dst_rgba, stride_bytes, 0, 0);
 }
 
+namespace {
+
+/* Decode one UTF-8 codepoint from `p` (up to `end`). Return the
+ * decoded SkUnichar (int32 Unicode scalar) and advance `p` past
+ * the consumed bytes. On malformed input, emits U+FFFD
+ * REPLACEMENT CHARACTER + advances one byte to make forward
+ * progress. Used by draw_string_with_fallback to walk codepoints
+ * for per-cp typeface selection. */
+SkUnichar utf8_decode(const char*& p, const char* end) {
+    if (p >= end) return 0;
+    const unsigned char b0 = static_cast<unsigned char>(*p);
+    int extra = 0;
+    SkUnichar cp = 0;
+    if      ((b0 & 0x80) == 0x00) { cp = b0;         extra = 0; }
+    else if ((b0 & 0xE0) == 0xC0) { cp = b0 & 0x1F;  extra = 1; }
+    else if ((b0 & 0xF0) == 0xE0) { cp = b0 & 0x0F;  extra = 2; }
+    else if ((b0 & 0xF8) == 0xF0) { cp = b0 & 0x07;  extra = 3; }
+    else { ++p; return 0xFFFD; }
+
+    ++p;
+    for (int i = 0; i < extra; ++i) {
+        if (p >= end) return 0xFFFD;
+        const unsigned char bn = static_cast<unsigned char>(*p);
+        if ((bn & 0xC0) != 0x80) return 0xFFFD;
+        cp = (cp << 6) | (bn & 0x3F);
+        ++p;
+    }
+    return cp;
+}
+
+}  // namespace
+
+void SkiaBackend::draw_string_with_fallback(std::string_view text,
+                                              float x, float y, float font_size,
+                                              std::uint8_t r, std::uint8_t g,
+                                              std::uint8_t b, std::uint8_t a) {
+    if (!valid_ || text.empty()) return;
+    if (!impl_->default_face || !impl_->font_mgr) return;
+
+    SkCanvas* canvas = impl_->surface->getCanvas();
+    SkPaint paint;
+    paint.setColor(SkColorSetARGB(a, r, g, b));
+    paint.setAntiAlias(true);
+
+    const char* p   = text.data();
+    const char* end = p + text.size();
+
+    sk_sp<SkTypeface> run_face;
+    std::string       run_text;
+    float             cursor_x = x;
+
+    auto flush_run = [&]() {
+        if (run_text.empty() || !run_face) return;
+        SkFont run_font(run_face, font_size);
+        canvas->drawSimpleText(run_text.data(), run_text.size(),
+                               SkTextEncoding::kUTF8,
+                               cursor_x, y, run_font, paint);
+        const SkScalar width = run_font.measureText(
+            run_text.data(), run_text.size(),
+            SkTextEncoding::kUTF8);
+        cursor_x += width;
+        run_text.clear();
+    };
+
+    while (p < end) {
+        const char* cp_start = p;
+        const SkUnichar cp = utf8_decode(p, end);
+        if (cp == 0) break;
+
+        /* Pick a typeface for this codepoint. Start with the
+         * default face; if it lacks the glyph, use
+         * matchFamilyStyleCharacter to find one that has it
+         * (CoreText returns Apple Color Emoji for emoji codepoints
+         * on macOS; the same API works with fontconfig on Linux
+         * via the platform SkFontMgr variant). */
+        sk_sp<SkTypeface> face = impl_->default_face;
+        SkFont probe(face, font_size);
+        if (probe.unicharToGlyph(cp) == 0) {
+            sk_sp<SkTypeface> fallback = impl_->font_mgr->matchFamilyStyleCharacter(
+                /*familyName=*/nullptr,
+                SkFontStyle::Normal(),
+                /*bcp47=*/nullptr, /*count=*/0,
+                cp);
+            if (fallback) face = fallback;
+        }
+
+        if (run_face.get() != face.get()) {
+            flush_run();
+            run_face = face;
+        }
+        run_text.append(cp_start, static_cast<std::size_t>(p - cp_start));
+    }
+    flush_run();
+}
+
 }  // namespace me::text

@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M5 主线 / 跨 milestone debt）
 
-- **font-fallback-cjk-emoji** — M5 exit criterion "CJK + emoji + 字体 fallback 正确". `grep -rn 'fontconfig\|FcPattern\|FcConfig\|CoreText' src include` 空。Skia 集成后，当请求字体没有 CJK 字形或 emoji 时要自动 fallback。**方向：** 新 `src/text/font_resolver.{hpp,cpp}` — 平台分支：macOS 用 CoreText 的 `CTFontCreateForString` 自动 fallback；Linux 用 fontconfig 的 `FcPatternFormat`。Skia 的 `SkFontMgr::matchFamilyStyleCharacter` 是 API 前端。Test: 渲染 "hello 你好 👋" 到画布，assert 三段都有非零像素。Milestone §M5，Rubric §5.3。
 
 ## P2（未来，当前 milestone 不挤占）
 

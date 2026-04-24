@@ -55,7 +55,16 @@ public:
     /* Draw a UTF-8 string at (x, y) with the given font size +
      * solid RGBA fill color. y is the glyph baseline (Skia
      * convention — typical baselines land near the bottom of
-     * a cap-height). Uses the platform's default font. */
+     * a cap-height).
+     *
+     * Uses the platform's default font (auto-fallback by the
+     * platform font-shaper covers most Unicode scripts — CoreText
+     * on macOS handles CJK in the default run). Emoji + other
+     * color-glyph Unicode ranges may render as tofu / blank
+     * since `drawSimpleText` picks one typeface for the whole
+     * string. For robust Unicode coverage use
+     * `draw_string_with_fallback` which splits runs by codepoint
+     * + picks a per-run typeface via matchFamilyStyleCharacter. */
     void draw_string(std::string_view text,
                      float            x,
                      float            y,
@@ -64,6 +73,30 @@ public:
                      std::uint8_t     g,
                      std::uint8_t     b,
                      std::uint8_t     a);
+
+    /* Like `draw_string` but walks codepoints + picks a typeface
+     * for each run via `SkFontMgr::matchFamilyStyleCharacter`.
+     * Handles:
+     *   - CJK: CoreText's default run already covers this on
+     *     macOS; explicit fallback is redundant but harmless.
+     *   - Emoji: requires a color-glyph typeface (Apple Color
+     *     Emoji on macOS / NotoColorEmoji on Linux). The default
+     *     typeface doesn't have emoji glyphs — fallback picks
+     *     the emoji face and renders those runs separately.
+     *
+     * Advances the x cursor by each run's measured width so
+     * subsequent runs land beside the previous — crude but
+     * correct for LTR scripts without bidi / complex shaping.
+     * Full text layout (bidi, positioning, kerning across runs)
+     * is a future SkShaper integration. */
+    void draw_string_with_fallback(std::string_view text,
+                                    float            x,
+                                    float            y,
+                                    float            font_size,
+                                    std::uint8_t     r,
+                                    std::uint8_t     g,
+                                    std::uint8_t     b,
+                                    std::uint8_t     a);
 
     /* Copy current RGBA8 surface contents to the caller's buffer.
      * `dst_rgba` must have at least `width × height × 4` bytes;
