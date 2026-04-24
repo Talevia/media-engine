@@ -23,8 +23,15 @@ fi
 printf '# Debt scan — %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf '_commit: %s_\n\n' "$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 
-# 1. Long files (.cpp / .hpp / .h in src, include)
-printf '## 1. Long files (> 400 lines)\n\n'
+# 1. Long files — production (> 400 lines) and test (> 700 lines).
+#
+# Test files typically accumulate TEST_CASEs at a faster rate than
+# production files accumulate logic (shared fixtures amortise +
+# each case is self-contained). The 400-line rule that works for
+# src / include is too aggressive for tests/; the 700-line floor
+# for tests matches the "hard P0/P1 split" threshold that applies
+# to production files in §R.5.1.
+printf '## 1a. src / include long files (> 400 lines)\n\n'
 long=$(find src include -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null \
   | xargs wc -l 2>/dev/null \
   | awk '$1 > 400 && $2 != "total" { printf "- %s (%d lines)\n", $2, $1 }' \
@@ -33,6 +40,22 @@ if [ -n "$long" ]; then
   echo "$long"
 else
   echo '- _none_'
+fi
+echo
+
+printf '## 1b. tests long files (> 700 lines)\n\n'
+if [ -d tests ]; then
+  long_tests=$(find tests -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null \
+    | xargs wc -l 2>/dev/null \
+    | awk '$1 > 700 && $2 != "total" { printf "- %s (%d lines)\n", $2, $1 }' \
+    | sort -t'(' -k2 -rn)
+  if [ -n "$long_tests" ]; then
+    echo "$long_tests"
+  else
+    echo '- _none_'
+  fi
+else
+  echo '- _no tests/ dir_'
 fi
 echo
 
