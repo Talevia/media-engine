@@ -27,9 +27,13 @@
  *   - No from-side caching: if from-decoder drains mid-window,
  *     output degrades to pure to-clip (equivalent to t=1) for the
  *     remainder of the window.
- *   - Frame-accurate to_clip alignment after the window is NOT
- *     maintained; `transition-to-clip-source-time-align` bullet
- *     tracks the seek fix.
+ *
+ * Post-window to_clip realignment: implemented via the
+ * `TrackDecoderState::used_as_to_in_transition` flag this helper
+ * sets after each successful to_clip pull; compose_sink's
+ * SingleClip branch performs a frame-accurate seek to the
+ * schema-aligned source_time on the first post-window pull. See
+ * `docs/decisions/2026-04-23-transition-to-clip-source-time-align.md`.
  */
 #pragma once
 

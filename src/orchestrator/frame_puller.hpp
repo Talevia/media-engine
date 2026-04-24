@@ -89,6 +89,19 @@ struct TrackDecoderState {
     me::resource::CodecPool::Ptr           dec;
     me::io::AvPacketPtr                    pkt_scratch;
     me::io::AvFramePtr                     frame_scratch;
+
+    /* Set by compose_transition_step after pulling this decoder as
+     * the to_clip endpoint of a cross-dissolve window. The transition
+     * path consumes `duration × fps` frames from to_clip during the
+     * window (sequential pull per emitted frame), leaving the decoder
+     * `duration/2 × fps` frames ahead of the schema-expected source
+     * position at window_end. The next SingleClip pull for this clip
+     * checks the flag, performs a frame-accurate seek to the
+     * schema-aligned source_time, then clears the flag and proceeds
+     * with sequential pulls. Phase-1 convention: "to_clip plays from
+     * frame 0 during window; realign at window end". See
+     * `transition-to-clip-source-time-align` decision. */
+    bool                                   used_as_to_in_transition = false;
 };
 
 /* Open a TrackDecoderState from a DemuxContext + CodecPool. On
@@ -102,5 +115,36 @@ me_status_t open_track_decoder(
     me::resource::CodecPool&               pool,
     TrackDecoderState&                     out,
     std::string*                           err);
+
+/* Frame-accurate seek on an open TrackDecoderState:
+ *
+ *   1. `avformat_seek_file(BACKWARD)` to the keyframe at or before
+ *      the target source_time (converted to AV_TIME_BASE µs).
+ *   2. `avcodec_flush_buffers` to drop stale decoder state.
+ *   3. Decode forward, discarding frames, until the first frame
+ *      whose pts in stream time-base is at or after target.
+ *
+ * On ME_OK: `td.frame_scratch` holds the target frame. Caller
+ * treats this as if `pull_next_video_frame` just returned — run
+ * `frame_to_rgba8` + `av_frame_unref(td.frame_scratch.get())`
+ * as usual, then subsequent pulls go back through
+ * `pull_next_video_frame`.
+ *
+ * Returns:
+ *   - ME_OK: frame_scratch populated with target frame.
+ *   - ME_E_NOT_FOUND: seek OK but decoder drained before reaching
+ *     target (asset shorter than target). `frame_scratch` unref'd.
+ *   - ME_E_IO: av_seek_file failure (when target > 1s; small-offset
+ *     seek failures fall through to "decode from start").
+ *   - ME_E_DECODE: send/receive failure while decoding forward.
+ *   - ME_E_INVALID_ARG: null/unopened td.
+ *
+ * Intended caller: ComposeSink's SingleClip branch when it detects
+ * a to_clip decoder coming out of a cross-dissolve window (see
+ * `used_as_to_in_transition` flag on TrackDecoderState). */
+me_status_t seek_track_decoder_frame_accurate_to(
+    TrackDecoderState& td,
+    me_rational_t      target_source_time,
+    std::string*       err);
 
 }  // namespace me::orchestrator

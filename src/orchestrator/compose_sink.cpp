@@ -297,9 +297,25 @@ public:
                     TrackDecoderState& td = clip_decoders[ta.clip_idx];
                     if (td.video_stream_idx < 0 || !td.dec) continue;
 
-                    me_status_t pull_s = pull_next_video_frame(
-                        td.demux->fmt, td.video_stream_idx, td.dec.get(),
-                        td.pkt_scratch.get(), td.frame_scratch.get(), err);
+                    /* If this clip just came out of a cross-dissolve
+                     * window as the to_clip endpoint, the decoder is
+                     * `duration/2 × fps` frames ahead of schema (the
+                     * transition advanced it once per emitted output
+                     * frame across the whole window). Frame-accurate
+                     * seek to ta.source_time — which is schema-aligned
+                     * for this T — and the returned frame supplies
+                     * this iteration's content; subsequent SingleClip
+                     * pulls continue sequentially. */
+                    me_status_t pull_s = ME_OK;
+                    if (td.used_as_to_in_transition) {
+                        td.used_as_to_in_transition = false;
+                        pull_s = seek_track_decoder_frame_accurate_to(
+                            td, ta.source_time, err);
+                    } else {
+                        pull_s = pull_next_video_frame(
+                            td.demux->fmt, td.video_stream_idx, td.dec.get(),
+                            td.pkt_scratch.get(), td.frame_scratch.get(), err);
+                    }
                     if (pull_s == ME_E_NOT_FOUND) continue;
                     if (pull_s != ME_OK) return pull_s;
 

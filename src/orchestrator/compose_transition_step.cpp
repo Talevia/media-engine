@@ -127,6 +127,13 @@ me_status_t compose_transition_step(
     if (to_pull == ME_E_NOT_FOUND) return ME_E_NOT_FOUND;
     if (to_pull != ME_OK) return to_pull;
 
+    /* Mark the to_clip decoder as having been advanced by the
+     * transition window. The compose loop's SingleClip branch
+     * consumes this flag on the first pull after the window ends
+     * and does a frame-accurate seek to the schema-expected
+     * source_time, realigning the decoder with the timeline. */
+    td_to.used_as_to_in_transition = true;
+
     if (from_valid) {
         transform_to_canvas(from_tr, from_has_transform,
                              from_rgba, from_w, from_h, W, H, from_canvas);

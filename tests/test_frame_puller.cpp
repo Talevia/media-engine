@@ -249,6 +249,100 @@ TEST_CASE("pull_next_audio_frame: drains silent AAC audio from --with-audio fixt
     CHECK(pulled >= 1);
 }
 
+TEST_CASE("seek_track_decoder_frame_accurate_to: lands on target frame after decoder advanced past it") {
+    /* Simulates the cross-dissolve realignment scenario: open a
+     * decoder, advance it past a target source_time, then call the
+     * frame-accurate seek and verify the loaded frame's pts matches
+     * the target (rescaled to stream time base). Fixture is 25 fps,
+     * stream time_base = {1, 25}, so source_time = {10, 25} s maps
+     * to pts 10. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping: fixture not available");
+        return;
+    }
+
+    auto demux = std::make_shared<me::io::DemuxContext>();
+    REQUIRE(avformat_open_input(&demux->fmt, fixture_path.c_str(), nullptr, nullptr) >= 0);
+    REQUIRE(avformat_find_stream_info(demux->fmt, nullptr) >= 0);
+    demux->uri = fixture_path;
+
+    me::resource::CodecPool pool;
+    me::orchestrator::TrackDecoderState td;
+    std::string err;
+    REQUIRE(me::orchestrator::open_track_decoder(demux, pool, td, &err) == ME_OK);
+
+    /* Drive decoder forward past target (pull 15 frames — target is
+     * frame 10). */
+    for (int i = 0; i < 15; ++i) {
+        me_status_t s = me::orchestrator::pull_next_video_frame(
+            td.demux->fmt, td.video_stream_idx, td.dec.get(),
+            td.pkt_scratch.get(), td.frame_scratch.get(), &err);
+        REQUIRE(s == ME_OK);
+        av_frame_unref(td.frame_scratch.get());
+    }
+
+    /* Seek back to source_time = {10, 25} s (400 ms). */
+    const me_rational_t target{10, 25};
+    const me_status_t ss = me::orchestrator::seek_track_decoder_frame_accurate_to(
+        td, target, &err);
+    REQUIRE(ss == ME_OK);
+    REQUIRE(td.frame_scratch->width == 640);
+    REQUIRE(td.frame_scratch->height == 480);
+
+    AVStream* st = td.demux->fmt->streams[td.video_stream_idx];
+    const int64_t expected_pts_stb = av_rescale_q(
+        400000,  /* target_us = 10 * 1_000_000 / 25 */
+        AV_TIME_BASE_Q, st->time_base);
+    const int64_t got_pts = (td.frame_scratch->pts != AV_NOPTS_VALUE)
+        ? td.frame_scratch->pts
+        : td.frame_scratch->best_effort_timestamp;
+    /* Frame-accurate: the returned frame's pts is at-or-after target,
+     * and since MPEG-4 Part 2 without B-frames is strictly sequential
+     * per-frame pts, "at" is the exact match for integer time-base
+     * targets. Allow ±1 pts slack for demuxer quirks but pin to the
+     * narrow window — proves the seek didn't overshoot / undershoot. */
+    CHECK(got_pts >= expected_pts_stb);
+    CHECK(got_pts <= expected_pts_stb + 1);
+    av_frame_unref(td.frame_scratch.get());
+}
+
+TEST_CASE("seek_track_decoder_frame_accurate_to: unopened td returns ME_E_INVALID_ARG") {
+    me::orchestrator::TrackDecoderState td;  /* default: no demux, no dec */
+    std::string err;
+    CHECK(me::orchestrator::seek_track_decoder_frame_accurate_to(
+              td, me_rational_t{1, 1}, &err) == ME_E_INVALID_ARG);
+}
+
+TEST_CASE("seek_track_decoder_frame_accurate_to: negative target clamps to zero") {
+    /* Negative source_time is nonsensical but callers may construct
+     * it via rational arithmetic with undersized numerators. The
+     * helper clamps to 0 and returns the first frame. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+
+    auto demux = std::make_shared<me::io::DemuxContext>();
+    REQUIRE(avformat_open_input(&demux->fmt, fixture_path.c_str(), nullptr, nullptr) >= 0);
+    REQUIRE(avformat_find_stream_info(demux->fmt, nullptr) >= 0);
+    demux->uri = fixture_path;
+
+    me::resource::CodecPool pool;
+    me::orchestrator::TrackDecoderState td;
+    std::string err;
+    REQUIRE(me::orchestrator::open_track_decoder(demux, pool, td, &err) == ME_OK);
+
+    const me_rational_t target{-5, 1};
+    REQUIRE(me::orchestrator::seek_track_decoder_frame_accurate_to(
+                td, target, &err) == ME_OK);
+    /* First decodable frame. MPEG-4 Part 2 with GOP=25 + max_b=0,
+     * the fixture's pts 0 is the first keyframe. */
+    const int64_t got_pts = (td.frame_scratch->pts != AV_NOPTS_VALUE)
+        ? td.frame_scratch->pts
+        : td.frame_scratch->best_effort_timestamp;
+    CHECK(got_pts == 0);
+    av_frame_unref(td.frame_scratch.get());
+}
+
 TEST_CASE("pull_next_video_frame: second call after EOF still returns ME_E_NOT_FOUND (idempotent)") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
     if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }

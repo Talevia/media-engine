@@ -10,7 +10,11 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/mathematics.h>
+#include <libavutil/rational.h>
 }
+
+#include <climits>
 
 namespace me::orchestrator {
 
@@ -201,6 +205,116 @@ me_status_t open_track_decoder(
     out.demux            = std::move(demux);
     out.video_stream_idx = vsi;
     return ME_OK;
+}
+
+me_status_t seek_track_decoder_frame_accurate_to(
+    TrackDecoderState& td,
+    me_rational_t      target_source_time,
+    std::string*       err) {
+
+    if (!td.demux || !td.demux->fmt || !td.dec ||
+        !td.pkt_scratch || !td.frame_scratch ||
+        td.video_stream_idx < 0) {
+        if (err) *err = "seek_track_decoder_frame_accurate_to: unopened td";
+        return ME_E_INVALID_ARG;
+    }
+    AVFormatContext* fmt = td.demux->fmt;
+    AVCodecContext*  dec = td.dec.get();
+
+    /* Clamp negatives to zero — seek targets must be ≥ asset start. */
+    me_rational_t t = target_source_time;
+    if (t.den <= 0) t.den = 1;
+    if (t.num < 0)  t.num = 0;
+
+    const int64_t target_us = av_rescale_q(
+        t.num,
+        AVRational{1, static_cast<int>(t.den)},
+        AV_TIME_BASE_Q);
+
+    int rc = avformat_seek_file(fmt, -1, INT64_MIN, target_us, target_us,
+                                 AVSEEK_FLAG_BACKWARD);
+    if (rc < 0) {
+        /* Small-offset seek failures (near asset start) are tolerable
+         * — some demuxers refuse seek but decode-from-start reaches
+         * target anyway. Matches the pattern in src/api/thumbnail.cpp.
+         * For larger offsets surface the error. */
+        if (target_us > AV_TIME_BASE) {
+            if (err) *err = "seek_track_decoder_frame_accurate_to: "
+                            "avformat_seek_file: " + me::io::av_err_str(rc);
+            return ME_E_IO;
+        }
+    }
+    avcodec_flush_buffers(dec);
+
+    AVStream*     st = fmt->streams[td.video_stream_idx];
+    const int64_t target_pts_stb = av_rescale_q(
+        target_us, AV_TIME_BASE_Q, st->time_base);
+
+    /* Decode forward discarding frames until one with pts >= target
+     * lands in `td.frame_scratch`. On EOF during the drop loop, no
+     * frame is available at the target and the caller should treat
+     * the clip as drained. */
+    av_frame_unref(td.frame_scratch.get());
+    bool draining = false;
+    while (true) {
+        int r = avcodec_receive_frame(dec, td.frame_scratch.get());
+        if (r == 0) {
+            const int64_t pts = (td.frame_scratch->pts != AV_NOPTS_VALUE)
+                ? td.frame_scratch->pts
+                : td.frame_scratch->best_effort_timestamp;
+            if (pts != AV_NOPTS_VALUE && pts < target_pts_stb) {
+                /* Pre-target frame — discard and keep decoding. */
+                av_frame_unref(td.frame_scratch.get());
+                continue;
+            }
+            /* At or past target. */
+            return ME_OK;
+        }
+        if (r == AVERROR_EOF) {
+            av_frame_unref(td.frame_scratch.get());
+            return ME_E_NOT_FOUND;
+        }
+        if (r != AVERROR(EAGAIN)) {
+            if (err) *err = "seek_track_decoder_frame_accurate_to: "
+                            "receive_frame: " + me::io::av_err_str(r);
+            return ME_E_DECODE;
+        }
+
+        if (draining) {
+            /* Drain+EAGAIN sequence — libav will eventually return
+             * EOF. Keep looping. */
+            continue;
+        }
+
+        rc = av_read_frame(fmt, td.pkt_scratch.get());
+        if (rc == AVERROR_EOF) {
+            draining = true;
+            int send_rc = avcodec_send_packet(dec, nullptr);
+            if (send_rc < 0) {
+                if (err) *err = "seek_track_decoder_frame_accurate_to: "
+                                "send_packet(drain): " + me::io::av_err_str(send_rc);
+                return ME_E_DECODE;
+            }
+            continue;
+        }
+        if (rc < 0) {
+            if (err) *err = "seek_track_decoder_frame_accurate_to: "
+                            "av_read_frame: " + me::io::av_err_str(rc);
+            return ME_E_IO;
+        }
+
+        if (td.pkt_scratch->stream_index != td.video_stream_idx) {
+            av_packet_unref(td.pkt_scratch.get());
+            continue;
+        }
+        int send_rc = avcodec_send_packet(dec, td.pkt_scratch.get());
+        av_packet_unref(td.pkt_scratch.get());
+        if (send_rc < 0) {
+            if (err) *err = "seek_track_decoder_frame_accurate_to: "
+                            "send_packet: " + me::io::av_err_str(send_rc);
+            return ME_E_DECODE;
+        }
+    }
 }
 
 }  // namespace me::orchestrator
