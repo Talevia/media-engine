@@ -263,10 +263,12 @@ target_compile_definitions(test_audio_mixer PRIVATE
 # test_compose_sink_e2e builds a 2-track timeline using the shared
 # fixture twice (both tracks reference the same asset; loader creates
 # independent DemuxContexts per clip so the compose loop sees two
-# real decoded streams).
-add_dependencies(test_compose_sink_e2e determinism_fixture)
+# real decoded streams). The video+audio-mixer case also wants the
+# with-audio variant so the audio-track clip has real AAC samples.
+add_dependencies(test_compose_sink_e2e determinism_fixture determinism_fixture_with_audio)
 target_compile_definitions(test_compose_sink_e2e PRIVATE
-  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 
 # test_render_progress exercises the me_progress_event_t ordering contract
 # (STARTED first / terminal last / ratio monotonic) — uses the shared

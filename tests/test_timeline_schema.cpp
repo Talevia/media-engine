@@ -720,7 +720,13 @@ TEST_CASE("audio track without gainDb loads with gain_db == nullopt") {
     me_timeline_destroy(tl);
 }
 
-TEST_CASE("standalone audio track is rejected at render layer by Exporter") {
+TEST_CASE("standalone audio track routes through compose; passthrough codec still rejected") {
+    /* Pre-audio-mix-scheduler-wire this was rejected at Exporter
+     * with "standalone audio tracks not yet implemented". Now the
+     * compose path handles audio tracks via AudioMixer, so the
+     * Exporter gate is gone. Passthrough codec still unsupported
+     * on the compose path — rejection surfaces at the compose
+     * factory level instead. */
     EngineFixture f;
     const std::string j = R"({
       "schemaVersion": 1,
@@ -750,7 +756,8 @@ TEST_CASE("standalone audio track is rejected at render layer by Exporter") {
     CHECK(job == nullptr);
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("standalone audio tracks not yet implemented") != std::string::npos);
+    CHECK(std::string{err}.find("compose path") != std::string::npos);
+    CHECK(std::string{err}.find("h264") != std::string::npos);
     me_timeline_destroy(tl);
 }
 

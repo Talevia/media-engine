@@ -23,6 +23,7 @@
  */
 #include "orchestrator/compose_sink.hpp"
 
+#include "audio/mixer.hpp"
 #include "compose/active_clips.hpp"
 #include "compose/affine_blit.hpp"
 #include "compose/alpha_over.hpp"
@@ -155,6 +156,50 @@ public:
         if (auto s = mux->open_avio(err);    s != ME_OK) return s;
         if (auto s = mux->write_header(err); s != ME_OK) return s;
 
+        /* --- AudioMixer (if timeline has audio tracks) ------------
+         * Explicit audio tracks in the timeline (TrackKind::Audio)
+         * drive audio via the mixer path instead of the legacy
+         * "empty audio stream" behavior. Mixer target params copy
+         * from the AAC encoder that setup_h264_aac_encoder_mux just
+         * configured — this guarantees mixer output can feed the
+         * encoder directly without any format conversion.
+         *
+         * When the timeline has NO audio tracks (video-only case),
+         * mixer stays null; the audio path falls through to the
+         * existing drain_audio_fifo flush (producing an empty but
+         * structurally-valid audio stream in the output MP4 as
+         * documented in the pre-wire behavior). */
+        std::unique_ptr<me::audio::AudioMixer> mixer;
+        bool has_audio_tracks = false;
+        for (const auto& t : tl_.tracks) {
+            if (t.kind == me::TrackKind::Audio) { has_audio_tracks = true; break; }
+        }
+        if (has_audio_tracks && shared.aenc && pool_) {
+            me::audio::AudioMixerConfig mix_cfg;
+            mix_cfg.target_rate = shared.aenc->sample_rate;
+            mix_cfg.target_fmt  = shared.aenc->sample_fmt;
+            if (av_channel_layout_copy(&mix_cfg.target_ch_layout,
+                                        &shared.aenc->ch_layout) < 0) {
+                if (err) *err = "ComposeSink: channel layout copy for mixer config";
+                return ME_E_INTERNAL;
+            }
+            mix_cfg.frame_size = shared.aenc->frame_size > 0
+                ? shared.aenc->frame_size : 1024;
+            mix_cfg.peak_threshold = 0.95f;
+
+            const me_status_t build_s = me::audio::build_audio_mixer_for_timeline(
+                tl_, *pool_, demuxes, mix_cfg, mixer, err);
+            av_channel_layout_uninit(&mix_cfg.target_ch_layout);
+            if (build_s == ME_E_NOT_FOUND) {
+                /* Timeline declared audio tracks but has no audio clips
+                 * (loader shouldn't produce this, but be defensive).
+                 * Reset mixer and fall through to empty-audio flush. */
+                mixer.reset();
+            } else if (build_s != ME_OK) {
+                return build_s;
+            }
+        }
+
         /* --- Per-clip video decoders ----------------------------
          * One TrackDecoderState per Timeline::clips entry, keyed by
          * clip_idx. Prior design opened one decoder per track (first
@@ -249,6 +294,14 @@ public:
             }
 
             for (std::size_t ti = 0; ti < tl_.tracks.size(); ++ti) {
+                /* Skip audio tracks in the video compose loop —
+                 * their per-clip video decoder (if even opened for
+                 * a file that happens to have video) would show
+                 * stray frames during audio-track time ranges. The
+                 * AudioMixer handles the audio-track content
+                 * separately. */
+                if (tl_.tracks[ti].kind == me::TrackKind::Audio) continue;
+
                 const me::compose::FrameSource fs =
                     me::compose::frame_source_at(tl_, ti, T);
 
@@ -490,24 +543,49 @@ public:
             return s;
         }
 
-        /* --- Audio flush ---------------------------------------- */
-        /* Phase-1 audio path: don't attempt to pull audio packets
-         * from the demuxes — multi-clip audio from bottom track via
-         * reencode_segment machinery is complex to integrate inline
-         * and the real multi-track audio solution is
-         * audio-mix-scheduler-wire. For now, drain whatever is
-         * already in the FIFO (zero samples typically) and flush the
-         * encoder. The resulting output has a declared audio stream
-         * with no samples — valid MP4 structurally, though some
-         * players may complain about the empty audio. */
+        /* --- Audio path ----------------------------------------
+         * Two variants, selected by whether the mixer was built:
+         *
+         *   - Mixer active (timeline has audio tracks): drain
+         *     fixed-frame-size mixed frames from the mixer,
+         *     stamping each with a running sample-count PTS, then
+         *     feed directly to the AAC encoder. No FIFO needed —
+         *     mixer already emits frame_size-aligned frames matching
+         *     the encoder's input contract.
+         *
+         *   - Mixer null (video-only timeline): legacy path — the
+         *     FIFO was never fed by the video loop (phase-1
+         *     limitation from before audio-mix-scheduler-wire), so
+         *     this effectively drains an empty FIFO and produces an
+         *     output with declared-but-empty audio stream. Still
+         *     structurally valid MP4; some players warn. */
         if (shared.aenc) {
-            if (auto s = detail::drain_audio_fifo(
-                    shared.afifo, shared.aenc, shared.ofmt,
-                    shared.out_aidx, &shared.next_audio_pts,
-                    /*flush=*/true, err);
-                s != ME_OK) {
-                return s;
+            if (mixer) {
+                while (true) {
+                    AVFrame* mf = nullptr;
+                    const me_status_t ps = mixer->pull_next_mixed_frame(&mf, err);
+                    if (ps == ME_E_NOT_FOUND) break;
+                    if (ps != ME_OK) return ps;
+
+                    mf->pts = shared.next_audio_pts;
+                    shared.next_audio_pts += mf->nb_samples;
+                    const me_status_t es = detail::encode_audio_frame(
+                        mf, shared.aenc, shared.ofmt, shared.out_aidx, err);
+                    av_frame_free(&mf);
+                    if (es != ME_OK) return es;
+                }
+            } else {
+                if (auto s = detail::drain_audio_fifo(
+                        shared.afifo, shared.aenc, shared.ofmt,
+                        shared.out_aidx, &shared.next_audio_pts,
+                        /*flush=*/true, err);
+                    s != ME_OK) {
+                    return s;
+                }
             }
+            /* Encoder flush (null frame). Both variants end with
+             * this — encoder's residual buffered frames get pushed
+             * to the mux before av_write_trailer. */
             if (auto s = detail::encode_audio_frame(
                     nullptr, shared.aenc,
                     shared.ofmt, shared.out_aidx, err);
