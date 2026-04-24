@@ -6,6 +6,7 @@
  * Scope-C2 of debt-split-loader-helpers-cpp.
  */
 #include "timeline/loader_helpers.hpp"
+#include "timeline/loader_helpers_keyframes.hpp"
 
 #include <cstddef>
 #include <string>
@@ -72,21 +73,6 @@ me::Transform parse_transform(const json& j, const std::string& where) {
     return t;
 }
 
-namespace {
-
-me::Interp parse_interp(const json& v, const std::string& where) {
-    require(v.is_string(), ME_E_PARSE, where + ".interp: expected string");
-    const std::string s = v.get<std::string>();
-    if (s == "linear")  return me::Interp::Linear;
-    if (s == "bezier")  return me::Interp::Bezier;
-    if (s == "hold")    return me::Interp::Hold;
-    if (s == "stepped") return me::Interp::Stepped;
-    throw LoadError{ME_E_PARSE,
-        where + ".interp: unknown '" + s + "' (expected linear/bezier/hold/stepped)"};
-}
-
-}  // namespace
-
 me::AnimatedNumber parse_animated_number(const json& prop, const std::string& where) {
     require(prop.is_object(), ME_E_PARSE,
             where + ": expected object with \"static\" or \"keyframes\" key");
@@ -103,72 +89,12 @@ me::AnimatedNumber parse_animated_number(const json& prop, const std::string& wh
         return me::AnimatedNumber::from_static(sv.get<double>());
     }
 
-    /* Keyframed form. */
-    const auto& arr = prop["keyframes"];
-    require(arr.is_array(), ME_E_PARSE,
-            where + ".keyframes: expected array");
-    require(!arr.empty(), ME_E_PARSE,
-            where + ".keyframes: at least one keyframe required");
-
-    std::vector<me::Keyframe> kfs;
-    kfs.reserve(arr.size());
-    for (std::size_t i = 0; i < arr.size(); ++i) {
-        const auto& k = arr[i];
-        const std::string ki = where + ".keyframes[" + std::to_string(i) + "]";
-        require(k.is_object(), ME_E_PARSE, ki + ": expected object");
-        require(k.contains("t"), ME_E_PARSE, ki + ".t: missing");
-        require(k.contains("v"), ME_E_PARSE, ki + ".v: missing");
-        require(k.contains("interp"), ME_E_PARSE, ki + ".interp: missing");
-
-        me::Keyframe kf;
-        kf.t      = as_rational(k["t"], ki + ".t");
-        require(k["v"].is_number(), ME_E_PARSE, ki + ".v: expected number");
-        kf.v      = k["v"].get<double>();
-        kf.interp = parse_interp(k["interp"], ki);
-
-        if (kf.interp == me::Interp::Bezier) {
-            require(k.contains("cp"), ME_E_PARSE,
-                    ki + ".cp: required when interp=bezier");
-            const auto& cp = k["cp"];
-            require(cp.is_array() && cp.size() == 4, ME_E_PARSE,
-                    ki + ".cp: expected 4-element array");
-            for (int j = 0; j < 4; ++j) {
-                require(cp[j].is_number(), ME_E_PARSE,
-                        ki + ".cp[" + std::to_string(j) + "]: expected number");
-                kf.cp[j] = cp[j].get<double>();
-            }
-            /* x1 / x2 (indices 0 and 2) must be in [0, 1] per CSS
-             * cubic-bezier constraints — out-of-range produces
-             * non-monotonic x(s), breaks Newton iteration. */
-            require(kf.cp[0] >= 0.0 && kf.cp[0] <= 1.0, ME_E_PARSE,
-                    ki + ".cp[0] (x1): must be in [0, 1]");
-            require(kf.cp[2] >= 0.0 && kf.cp[2] <= 1.0, ME_E_PARSE,
-                    ki + ".cp[2] (x2): must be in [0, 1]");
-        }
-        /* No extra keys allowed beyond {t, v, interp, cp}. */
-        for (auto it = k.begin(); it != k.end(); ++it) {
-            const std::string& key = it.key();
-            const bool is_known = (key == "t" || key == "v" ||
-                                    key == "interp" || key == "cp");
-            require(is_known, ME_E_PARSE,
-                    ki + ": unknown keyframe key '" + key + "'");
-        }
-
-        kfs.push_back(kf);
-    }
-
-    /* Sorted-by-t + no-dup validation (schema invariant). */
-    for (std::size_t i = 1; i < kfs.size(); ++i) {
-        const me_rational_t prev_t = kfs[i - 1].t;
-        const me_rational_t this_t = kfs[i].t;
-        /* prev.t < this.t strictly (no dup, no inversion). */
-        const int64_t lhs = prev_t.num * this_t.den;
-        const int64_t rhs = this_t.num * prev_t.den;
-        require(lhs < rhs, ME_E_PARSE,
-                where + ".keyframes: must be strictly sorted by t (no duplicates, no inversion); "
-                "issue at index " + std::to_string(i));
-    }
-
+    auto kfs = parse_keyframes_array<me::Keyframe>(
+        prop["keyframes"], where + ".keyframes",
+        [](const json& v_node, const std::string& ki) -> double {
+            require(v_node.is_number(), ME_E_PARSE, ki + ".v: expected number");
+            return v_node.get<double>();
+        });
     return me::AnimatedNumber::from_keyframes(std::move(kfs));
 }
 

@@ -8,6 +8,7 @@
  * (loader_helpers_primitives.cpp).
  */
 #include "timeline/loader_helpers.hpp"
+#include "timeline/loader_helpers_keyframes.hpp"
 
 #include <cstddef>
 #include <string>
@@ -132,15 +133,6 @@ std::array<std::uint8_t, 4> parse_hex_rgba_strict(const std::string& s,
     return out;
 }
 
-me::Interp parse_interp_str(const std::string& s, const std::string& where) {
-    if (s == "linear")  return me::Interp::Linear;
-    if (s == "bezier")  return me::Interp::Bezier;
-    if (s == "hold")    return me::Interp::Hold;
-    if (s == "stepped") return me::Interp::Stepped;
-    throw LoadError{ME_E_PARSE,
-        where + ".interp: unknown '" + s + "' (expected linear/bezier/hold/stepped)"};
-}
-
 }  // namespace
 
 me::AnimatedColor parse_animated_color(const json& prop, const std::string& where) {
@@ -166,69 +158,14 @@ me::AnimatedColor parse_animated_color(const json& prop, const std::string& wher
             parse_hex_rgba_strict(sv.get<std::string>(), where + ".static"));
     }
 
-    /* Keyframed form — mirrors parse_animated_number's keyframe walker
-     * but with hex-string `v`. Adjacent-pair sort-by-t invariant is
-     * the same. */
-    const auto& arr = prop["keyframes"];
-    require(arr.is_array(), ME_E_PARSE, where + ".keyframes: expected array");
-    require(!arr.empty(), ME_E_PARSE,
-            where + ".keyframes: at least one keyframe required");
-
-    std::vector<me::ColorKeyframe> kfs;
-    kfs.reserve(arr.size());
-    for (std::size_t i = 0; i < arr.size(); ++i) {
-        const auto& k  = arr[i];
-        const std::string ki = where + ".keyframes[" + std::to_string(i) + "]";
-        require(k.is_object(), ME_E_PARSE, ki + ": expected object");
-        require(k.contains("t"), ME_E_PARSE, ki + ".t: missing");
-        require(k.contains("v"), ME_E_PARSE, ki + ".v: missing");
-        require(k.contains("interp"), ME_E_PARSE, ki + ".interp: missing");
-
-        me::ColorKeyframe kf;
-        kf.t      = as_rational(k["t"], ki + ".t");
-        require(k["v"].is_string(), ME_E_PARSE, ki + ".v: expected hex string");
-        kf.v      = parse_hex_rgba_strict(k["v"].get<std::string>(), ki + ".v");
-        require(k["interp"].is_string(), ME_E_PARSE, ki + ".interp: expected string");
-        kf.interp = parse_interp_str(k["interp"].get<std::string>(), ki);
-
-        if (kf.interp == me::Interp::Bezier) {
-            require(k.contains("cp"), ME_E_PARSE,
-                    ki + ".cp: required when interp=bezier");
-            const auto& cp = k["cp"];
-            require(cp.is_array() && cp.size() == 4, ME_E_PARSE,
-                    ki + ".cp: expected 4-element array");
-            for (int j = 0; j < 4; ++j) {
-                require(cp[j].is_number(), ME_E_PARSE,
-                        ki + ".cp[" + std::to_string(j) + "]: expected number");
-                kf.cp[j] = cp[j].get<double>();
-            }
-            require(kf.cp[0] >= 0.0 && kf.cp[0] <= 1.0, ME_E_PARSE,
-                    ki + ".cp[0] (x1): must be in [0, 1]");
-            require(kf.cp[2] >= 0.0 && kf.cp[2] <= 1.0, ME_E_PARSE,
-                    ki + ".cp[2] (x2): must be in [0, 1]");
-        }
-        /* No extra keys allowed beyond {t, v, interp, cp}. */
-        for (auto it = k.begin(); it != k.end(); ++it) {
-            const std::string& key = it.key();
-            const bool is_known = (key == "t" || key == "v" ||
-                                    key == "interp" || key == "cp");
-            require(is_known, ME_E_PARSE,
-                    ki + ": unknown keyframe key '" + key + "'");
-        }
-        kfs.push_back(kf);
-    }
-
-    /* Strict sort-by-t (no dup / no inversion). */
-    for (std::size_t i = 1; i < kfs.size(); ++i) {
-        const me_rational_t pt = kfs[i - 1].t;
-        const me_rational_t tt = kfs[i].t;
-        const int64_t lhs = pt.num * tt.den;
-        const int64_t rhs = tt.num * pt.den;
-        require(lhs < rhs, ME_E_PARSE,
-                where + ".keyframes: must be strictly sorted by t (no duplicates, no inversion); "
-                "issue at index " + std::to_string(i));
-    }
-
+    auto kfs = parse_keyframes_array<me::ColorKeyframe>(
+        prop["keyframes"], where + ".keyframes",
+        [](const json& v_node, const std::string& ki)
+            -> std::array<std::uint8_t, 4> {
+            require(v_node.is_string(), ME_E_PARSE,
+                    ki + ".v: expected hex string");
+            return parse_hex_rgba_strict(v_node.get<std::string>(), ki + ".v");
+        });
     return me::AnimatedColor::from_keyframes(std::move(kfs));
 }
 
