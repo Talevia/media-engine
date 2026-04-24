@@ -153,6 +153,7 @@ add_library(media_engine STATIC
   orchestrator/output_sink.cpp
   orchestrator/compose_sink.cpp
   orchestrator/compose_transition_step.cpp
+  orchestrator/compose_audio.cpp
   orchestrator/audio_only_sink.cpp
   orchestrator/encoder_mux_setup.cpp
   orchestrator/frame_puller.cpp
