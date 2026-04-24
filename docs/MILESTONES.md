@@ -69,7 +69,7 @@
 
 ### Exit criteria
 - [x] `me_render_frame` 返回真实帧
-- [ ] disk cache（`cache_dir` 配置生效）
+- [x] disk cache（`cache_dir` 配置生效）
 - [ ] `me_cache_stats` / `me_cache_invalidate_asset` 行为与 VISION §3.3 一致
 - [ ] Scrubbing 场景下同一时刻重复取帧命中缓存
 
