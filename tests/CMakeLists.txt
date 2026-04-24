@@ -60,6 +60,7 @@ set(_test_suites
   test_render_thread
   test_lut_parser
   test_tempo
+  test_audio_effect_chain
 )
 
 foreach(_suite ${_test_suites})
@@ -418,6 +419,11 @@ target_include_directories(test_tempo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 if(ME_WITH_SOUNDTOUCH)
   target_compile_definitions(test_tempo PRIVATE ME_HAS_SOUNDTOUCH=1)
 endif()
+
+# test_audio_effect_chain exercises the AudioEffect + AudioEffectChain
+# + Gain/Pan/Lowpass concrete effects. Pure C++; no bgfx /
+# SoundTouch / libav.
+target_include_directories(test_audio_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
