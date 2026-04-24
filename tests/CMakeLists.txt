@@ -341,6 +341,21 @@ if(ME_WITH_GPU)
   add_test(NAME test_color_correct_effect COMMAND test_color_correct_effect)
 endif()
 
+# test_blur_effect pins the separable 3-tap box-blur math for
+# BlurEffect (H + V directions). Same ME_WITH_GPU + Metal gating
+# as test_color_correct_effect.
+if(ME_WITH_GPU)
+  add_executable(test_blur_effect test_main.cpp test_blur_effect.cpp)
+  target_link_libraries(test_blur_effect PRIVATE
+    media_engine::media_engine
+    doctest::doctest
+    bgfx
+    bx)
+  target_include_directories(test_blur_effect PRIVATE ${CMAKE_SOURCE_DIR}/src)
+  target_compile_definitions(test_blur_effect PRIVATE ME_HAS_GPU=1)
+  add_test(NAME test_blur_effect COMMAND test_blur_effect)
+endif()
+
 # test_animated_number_loader exercises the JSON → me::AnimatedNumber
 # parse helper (layer 2 of transform-animated-support). Pure C++;
 # pulls in nlohmann/json via loader_helpers.hpp.
