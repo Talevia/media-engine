@@ -161,14 +161,34 @@ clips, `assetId` and `sourceRange` are optional — text is rendered
 from the `textParams` object directly with no source media to seek.
 
 - `textParams.content` (string, required) — UTF-8 text.
-- `textParams.color` (string, optional, default `#FFFFFFFF`) — CSS-like
-  `#RRGGBB` or `#RRGGBBAA`. Named colors + 3-digit shorthand are not
-  accepted.
+- `textParams.color` (animated color, optional, default `#FFFFFFFF`) —
+  accepts three JSON shapes:
+    - Plain string `#RRGGBB` / `#RRGGBBAA` (shorthand for the static
+      form; kept for backward compatibility).
+    - `{ "static": "#RRGGBBAA" }` — explicit static.
+    - `{ "keyframes": [ { "t": {"num":…,"den":…}, "v":
+      "#RRGGBBAA", "interp": "linear"|"bezier"|"hold"|"stepped",
+      "cp"?: [x1,y1,x2,y2] } , … ] }` — keyframed RGBA. Each
+      keyframe interpolates per channel in uint8 space with the
+      `interp` mode from the earlier keyframe (same semantics as
+      animated number). Bezier requires `cp` with `x1, x2` in
+      `[0, 1]`. Keyframes must be strictly sorted by `t`.
+  Named colors + 3-digit shorthand remain rejected.
 - `textParams.fontFamily` (string, optional) — platform default when
   absent. Renderer falls back across available faces for glyphs the
   primary family lacks (CJK, emoji).
 - `textParams.fontSize` / `x` / `y` (animated number, optional) — each
   keyframeable independently. Defaults: 48 / 0 / 0.
+
+Keyframed-color example (red → transparent fade over 1 s):
+```json
+"color": {
+  "keyframes": [
+    { "t": {"num":0,"den":1}, "v": "#FF0000FF", "interp": "linear" },
+    { "t": {"num":1,"den":1}, "v": "#FF000000", "interp": "linear" }
+  ]
+}
+```
 
 Loaded as of `text-clip-ir` (2026-04-24) — see
 `src/timeline/timeline_ir_params.hpp`'s `TextClipParams` + loader
@@ -176,7 +196,10 @@ dispatch in `loader_helpers_clip_params.cpp::parse_text_clip_params`
 (the helper TU was split by parse-shape as part of
 debt-split-loader-helpers-cpp). Rendering integration (text →
 canvas pixels) landed with `text-clip-render-skia` via
-`me::text::TextRenderer`.
+`me::text::TextRenderer`. Animated-color support landed with
+`text-clip-color-animation` — `me::AnimatedColor` in
+`src/timeline/animated_color.hpp` backs the new JSON shapes
+above.
 
 ### Subtitle clip
 
