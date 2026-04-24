@@ -79,3 +79,25 @@ if(ME_BUILD_TESTS)
     TIMEOUT 30
     RUN_SERIAL TRUE)
 endif()
+
+# bench_thumbnail_png — me_thumbnail_png (asset-level) throughput.
+# Times PNG encode of a 160×120 thumbnail against the
+# determinism_fixture MP4, asserts avg < 50 ms / frame.
+add_executable(bench_thumbnail_png bench_thumbnail_png.cpp)
+target_link_libraries(bench_thumbnail_png PRIVATE
+  media_engine::media_engine)
+target_include_directories(bench_thumbnail_png PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+if(ME_BUILD_TESTS)
+  # Fixture path is set by tests/CMakeLists.txt; mirror the
+  # construction rule so bench/ can reference it without
+  # requiring tests/ to export it. The add_dependencies ensures
+  # determinism_fixture runs before the bench.
+  add_dependencies(bench_thumbnail_png determinism_fixture)
+  set(_fixture_mp4 "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4")
+  add_test(NAME bench_thumbnail_png
+           COMMAND bench_thumbnail_png "${_fixture_mp4}")
+  set_tests_properties(bench_thumbnail_png PROPERTIES
+    TIMEOUT 30
+    RUN_SERIAL TRUE)
+endif()

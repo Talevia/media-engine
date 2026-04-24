@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **bench-thumbnail-png-perf** — `grep -rn 'bench_thumbnail\|me_thumbnail_png' bench` 空。`me_thumbnail_png` 是 M1 最早实装的 C API 之一，没 regression 信号。Host use case（timeline scrubbing 列表生成缩略图）对延迟敏感。**方向：** 新 `bench/bench_thumbnail_png.cpp` — 用 determinism fixture，测 `me_thumbnail_png(uri, t=0.5s, 160x120)` 每次调用延迟；阈值：avg < 50 ms / thumbnail on dev box。Milestone §M7-debt (cross)，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 
