@@ -249,6 +249,12 @@ public:
          * existing alpha_over path applies opacity onto dst_rgba). */
         std::vector<uint8_t> from_rgba;
         std::vector<uint8_t> to_rgba;
+        /* Transition-path canvas-sized pre-transform scratches (one
+         * per endpoint). Each clip's Transform is applied here before
+         * cross_dissolve so from_clip.transform and to_clip.transform
+         * both take effect during the blend — not just to_clip's. */
+        std::vector<uint8_t> from_canvas;
+        std::vector<uint8_t> to_canvas;
 
         me::io::AvFramePtr target_yuv(av_frame_alloc());
         if (!target_yuv) {
@@ -315,6 +321,7 @@ public:
                  * Transition path: cross_dissolve(from, to, t) → track_rgba. */
                 int src_w = 0, src_h = 0;
                 std::size_t transform_clip_idx = SIZE_MAX;   /* for per-clip opacity / Transform */
+                bool spatial_already_applied = false;        /* true when transition_step pre-transformed endpoints */
 
                 if (fs.kind == me::compose::FrameSourceKind::SingleClip) {
                     const me::compose::TrackActive& ta = fs.single;
@@ -352,16 +359,26 @@ public:
                     if (td_from.video_stream_idx < 0 || !td_from.dec ||
                         td_to.video_stream_idx   < 0 || !td_to.dec) continue;
 
+                    const me::Clip& from_clip = tl_.clips[from_ci];
+                    const me::Clip& to_clip   = tl_.clips[to_ci];
                     const me_status_t trs = compose_transition_step(
-                        fs, td_from, td_to, W, H,
+                        fs, from_clip, to_clip, td_from, td_to, W, H,
                         track_rgba, from_rgba, to_rgba,
-                        src_w, src_h, transform_clip_idx, err);
+                        from_canvas, to_canvas,
+                        src_w, src_h, transform_clip_idx,
+                        spatial_already_applied, err);
                     if (trs == ME_E_NOT_FOUND) continue;
                     if (trs != ME_OK) return trs;
                 }
 
                 /* Common: apply per-clip opacity + optional affine
-                 * transform, then alpha_over onto dst_rgba. */
+                 * transform, then alpha_over onto dst_rgba. When
+                 * transition_step already pre-transformed both
+                 * endpoints (`spatial_already_applied`), we skip our
+                 * own spatial affine — track_rgba is at W×H with
+                 * both clips' transforms baked in. Opacity still
+                 * applies via alpha_over (cross_dissolve doesn't
+                 * touch alpha). */
                 const me::Clip& clip = tl_.clips[transform_clip_idx];
                 const float opacity =
                     clip.transform.has_value()
@@ -369,6 +386,7 @@ public:
                         : 1.0f;
 
                 const bool spatial_identity =
+                    spatial_already_applied ||
                     !clip.transform.has_value() ||
                     (clip.transform->translate_x  == 0.0 &&
                      clip.transform->translate_y  == 0.0 &&
