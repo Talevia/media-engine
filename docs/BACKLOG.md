@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **test-subtitle-renderer-codepage** — `src/text/subtitle_renderer.hpp:66` `load_from_memory(content, codepage)` 的 codepage 参数给 libass 处理 non-UTF-8 .srt。`grep -n 'codepage' tests/test_subtitle_renderer.cpp` 只命中结构体字段，没测 non-UTF-8 path。**方向：** 新 TEST_CASE — 用 libiconv 生成一份 cp1251 编码的 .srt 字节序列（或 hand-encode 一个 Кириллица 示例 `\xD1\xE5\xF0\xE3\xE5\xE9` = "Сергей"），verify `load_from_memory` 成功 + render_frame 输出像素非空。Milestone §M5-debt (cross)，Rubric §5.3。
 - **debt-test-scratch-dir-helper** — `tests/test_disk_cache.cpp:42` + `tests/test_frame_server.cpp:65` 各自复制 `reinterpret_cast<uintptr_t>(this)` + `fs::create_directories` + RAII dtor-cleanup 的 scratch-dir pattern；`tests/test_frame_server_concurrent.cpp:78` 用 `reinterpret_cast<uintptr_t>(&fixture_path)` 因为它不是 struct 成员。三个拷贝、两种形态。**方向：** 新 `tests/scratch_dir.hpp` `class ScratchDir { fs::path path; ScratchDir(string_view test_slug); ~ScratchDir(); }` — 构造给 slug；析构 fs::remove_all。三处消费者切换到统一 helper。Milestone §M7-debt (cross)，Rubric §5.3。
 - **debt-bench-harness-dup** — `bench/bench_text_paragraph.cpp:60` + `bench/bench_thumbnail_png.cpp:42` 各自实现同样的 warmup + std::chrono::steady_clock + accumulate + divide + fps-vs-budget 惯例。`bench_vfr_av_sync.cpp` 不计时（它测 drift），其它两个是典型 timed-bench。**方向：** 新 `bench/bench_harness.hpp` 暴露 `template<typename Work> double measure_avg_sec(int iters, int warmup, Work work)`；两个 timed bench 调用。降低新增 bench 的入门门槛。Milestone §M7-debt (cross)，Rubric §5.3。
 
