@@ -57,6 +57,7 @@ set(_test_suites
   test_gpu_backend
   test_animated_number_loader
   test_compose_sink_gpu_detect
+  test_render_thread
 )
 
 foreach(_suite ${_test_suites})
@@ -334,6 +335,12 @@ target_link_libraries(test_animated_number_loader PRIVATE nlohmann_json::nlohman
 # MockGpuBackend subclasses. Pure C++; no libav / bgfx. Needs
 # src/ on the include path for compose_sink.hpp + gpu_backend.hpp.
 target_include_directories(test_compose_sink_gpu_detect PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_render_thread exercises me::gpu::RenderThread — the MPSC-
+# queue single-worker-thread class that BgfxGpuBackend uses to pin
+# bgfx's API thread. Pure C++20 (std::thread + std::mutex + cv),
+# no bgfx link — platform-agnostic, runs in every build.
+target_include_directories(test_render_thread PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

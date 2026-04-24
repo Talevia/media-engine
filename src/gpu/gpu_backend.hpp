@@ -28,7 +28,9 @@
  */
 #pragma once
 
+#include <functional>
 #include <memory>
+#include <utility>
 
 namespace me::gpu {
 
@@ -45,6 +47,21 @@ public:
      * future "bgfx-metal" / "bgfx-vulkan" / "bgfx-dx11" as the
      * bgfx integration lands. */
     virtual const char* name() const noexcept = 0;
+
+    /* Run `work` on the backend's API thread and block until
+     * completion. For `BgfxGpuBackend` this routes through the
+     * dedicated RenderThread so bgfx's single-API-thread contract
+     * holds. For `NullGpuBackend` (and any future backend with no
+     * thread-pinning requirement) the default base implementation
+     * runs `work` inline — same semantics, no worker involved.
+     *
+     * Callers that need to issue backend-native API calls
+     * (bgfx::createTexture2D, etc.) must route them through this
+     * method. Calling the backend API from another thread is
+     * undefined under bgfx. */
+    virtual void submit_on_render_thread(std::function<void()> work) {
+        if (work) work();
+    }
 };
 
 /* Factory. Always returns a non-null backend: `BgfxGpuBackend` under

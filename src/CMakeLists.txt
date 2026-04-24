@@ -160,6 +160,7 @@ add_library(media_engine STATIC
   timeline/animated_number.cpp
   timeline/segmentation.cpp
   gpu/gpu_backend.cpp
+  gpu/render_thread.cpp
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/gpu/bgfx_gpu_backend.cpp>
   color/pipeline.cpp
   audio/mix.cpp
