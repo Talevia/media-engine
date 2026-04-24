@@ -71,5 +71,11 @@ endif()
 
 if(ME_BUILD_TESTS)
   add_test(NAME bench_text_paragraph COMMAND bench_text_paragraph)
-  set_tests_properties(bench_text_paragraph PROPERTIES TIMEOUT 30)
+  # RUN_SERIAL so ctest -jN doesn't co-schedule this perf bench
+  # alongside other CPU-bound tests; shared-cache contention with
+  # test_compose_sink_e2e / test_disk_cache on the same machine
+  # otherwise halves measured fps.
+  set_tests_properties(bench_text_paragraph PROPERTIES
+    TIMEOUT 30
+    RUN_SERIAL TRUE)
 endif()

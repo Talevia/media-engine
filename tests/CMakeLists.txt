@@ -28,6 +28,9 @@ set(_test_suites
   test_status
   test_engine
   test_timeline_schema
+  test_timeline_schema_audio
+  test_timeline_schema_clip_attributes
+  test_timeline_schema_transitions
   test_content_hash
   test_determinism
   test_cache
@@ -86,9 +89,19 @@ endforeach()
 # 02_graph_smoke does for internal validation.
 target_include_directories(test_content_hash PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-# test_timeline_schema verifies loader produces the right IR — reaches
-# into me::Timeline / me::Asset to check parsed Asset::color_space values.
-target_include_directories(test_timeline_schema PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# test_timeline_schema* — core + audio + clip_attributes + transitions
+# shards of the original 1535-line suite (split per
+# debt-split-test-timeline-schema-cpp). All four files share
+# fixtures via tests/timeline_schema_fixtures.hpp and reach into
+# `src/` to check me::Timeline / me::Asset IR directly.
+target_include_directories(test_timeline_schema
+                            PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_timeline_schema_audio
+                            PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_timeline_schema_clip_attributes
+                            PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_timeline_schema_transitions
+                            PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_timeline_segment calls me::timeline::segment() on hand-built
 # Timeline IR — same src/-as-include pattern as test_timeline_schema.
