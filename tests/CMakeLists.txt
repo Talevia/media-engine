@@ -51,6 +51,7 @@ set(_test_suites
   test_compose_sink_e2e
   test_compose_affine_blit
   test_audio_track_feed
+  test_audio_mixer
 )
 
 foreach(_suite ${_test_suites})
@@ -247,6 +248,16 @@ target_compile_definitions(test_frame_puller PRIVATE
 add_dependencies(test_audio_track_feed determinism_fixture determinism_fixture_with_audio)
 target_compile_definitions(test_audio_track_feed PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
+
+# test_audio_mixer drives me::audio::AudioMixer with 1-2 AudioTrackFeed
+# instances off the audio-capable fixture. Needs src/ include +
+# libav link (the test opens demuxes + frees AVFrames).
+target_include_directories(test_audio_mixer PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_audio_mixer PRIVATE
+  FFMPEG::avformat FFMPEG::avcodec FFMPEG::avutil)
+add_dependencies(test_audio_mixer determinism_fixture_with_audio)
+target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 
 # test_compose_sink_e2e builds a 2-track timeline using the shared
