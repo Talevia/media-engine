@@ -256,7 +256,9 @@ add_library(media_engine STATIC
   timeline/timeline_loader_assets.cpp
   timeline/timeline_loader_tracks.cpp
   timeline/timeline_loader_transitions.cpp
-  timeline/loader_helpers.cpp
+  timeline/loader_helpers_primitives.cpp
+  timeline/loader_helpers_animated.cpp
+  timeline/loader_helpers_clip_params.cpp
   timeline/animated_number.cpp
   timeline/segmentation.cpp
   gpu/gpu_backend.cpp
