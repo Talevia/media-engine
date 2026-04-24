@@ -44,7 +44,7 @@
 **目标**：bgfx 接入、EffectChain shader 合并、关键帧动画。
 
 ### Exit criteria
-- [ ] 所有 animated property 类型的插值正确（linear / bezier / hold / stepped）
+- [x] 所有 animated property 类型的插值正确（linear / bezier / hold / stepped）
 - [ ] bgfx 集成，macOS Metal 后端可渲染
 - [ ] EffectChain 能把连续 ≥ 2 个像素级 effect 合并成单 pass
 - [ ] ≥ 3 个 GPU effect（blur / color-correct / LUT）
