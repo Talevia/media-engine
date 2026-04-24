@@ -132,12 +132,15 @@ struct Transform {
 };
 
 /* Media kind of a clip. Mirrors TIMELINE_SCHEMA.md §Clip `"type"` enum
- * values "video" / "audio" / "text". Loader enforces that a clip's
- * type matches its parent track's kind (no cross-kind mixing). */
+ * values "video" / "audio" / "text" / "subtitle". Loader enforces
+ * that a clip's type matches its parent track's kind (no cross-kind
+ * mixing). Enum values are ABI-stable once shipped — append new
+ * kinds, never reorder. */
 enum class ClipType : uint8_t {
-    Video = 0,
-    Audio = 1,
-    Text  = 2,
+    Video    = 0,
+    Audio    = 1,
+    Text     = 2,
+    Subtitle = 3,
 };
 
 /* Synthetic text-clip parameters — used when ClipType::Text. Has no
@@ -169,6 +172,20 @@ struct TextClipParams {
     AnimatedNumber font_size  = AnimatedNumber::from_static(48.0);
     AnimatedNumber x          = AnimatedNumber::from_static(0.0);
     AnimatedNumber y          = AnimatedNumber::from_static(0.0);
+};
+
+/* Synthetic subtitle-clip parameters — used when ClipType::Subtitle.
+ * Has no source asset; the SubtitleRenderer parses the inline
+ * `content` string (UTF-8 .ass / .ssa / .srt) once at clip entry
+ * and rasterizes per-frame glyphs via libass.
+ *
+ * Phase-1 is inline-content only (subtitleParams.content). A future
+ * extension can add `file_uri` for large subtitle files once the
+ * host asset resolver proves worth the I/O path; today, bundling
+ * the track inline keeps the timeline JSON self-contained. */
+struct SubtitleClipParams {
+    std::string content;    /* inline .ass / .srt text */
+    std::string codepage;   /* optional: passed to libass for non-UTF-8 */
 };
 
 /* Typed effect parameter tagged union.
@@ -303,6 +320,15 @@ struct Clip {
      * compose canvas at each output frame's timeline-global T,
      * evaluating the AnimatedNumber fields per-frame. */
     std::optional<TextClipParams> text_params;
+
+    /* Populated iff `type == ClipType::Subtitle`. Carries the inline
+     * subtitle markup (.ass / .srt) that the SubtitleRenderer
+     * consumes at render time. Absent / nullopt for non-subtitle
+     * clips. Consumer: compose_decode_loop's subtitle branch —
+     * lazy-inits a SubtitleRenderer per clip_idx, calls
+     * render_frame(t_ms) onto track_rgba, then the standard
+     * opacity + alpha_over stages composite it on top of video. */
+    std::optional<SubtitleClipParams> subtitle_params;
 };
 
 /* Kind of a compositing track. Mirrors TIMELINE_SCHEMA.md's `kind`
@@ -310,9 +336,10 @@ struct Clip {
  * clip-type match. Text tracks carry synthetic clips (no source
  * asset); video / audio tracks carry clips referencing assets. */
 enum class TrackKind : uint8_t {
-    Video = 0,
-    Audio = 1,
-    Text  = 2,
+    Video    = 0,
+    Audio    = 1,
+    Text     = 2,
+    Subtitle = 3,
 };
 
 /* Kind of a transition between two adjacent clips on the same track.

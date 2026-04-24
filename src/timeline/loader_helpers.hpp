@@ -96,4 +96,16 @@ me::EffectSpec  parse_effect_spec (const nlohmann::json& j, const std::string& w
 me::TextClipParams parse_text_clip_params(const nlohmann::json& j,
                                            const std::string& where);
 
+/* Parse a `subtitleParams` object (present on subtitle-kind clips)
+ * into `me::SubtitleClipParams`. Shape:
+ *
+ *   { "content":  "1\\n00:00:01,000 --> …\\nHello\\n…",  (required, UTF-8)
+ *     "codepage": "cp1251"                                (optional; default empty = UTF-8) }
+ *
+ * `content` is the raw .ass / .ssa / .srt text; libass parses it at
+ * render-time. `codepage` is passed to libass for legacy .srt files
+ * whose bytes aren't UTF-8. */
+me::SubtitleClipParams parse_subtitle_clip_params(const nlohmann::json& j,
+                                                    const std::string& where);
+
 }  // namespace me::timeline_loader_detail

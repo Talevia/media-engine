@@ -97,16 +97,18 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         (is_multi_track || has_transitions || has_audio_tracks);
 
     /* Compile a demux graph + carry a ClipTimeRange per clip.
-     * Text clips are synthetic (no asset / no demux); their ClipPlan
-     * slot carries a null graph + default color space. Downstream
-     * compose paths already tolerate a null demux at the matching
-     * clip_idx (see compose_sink.cpp's `if (!demuxes[ci]) continue`
-     * guard). Keeping the plans vector 1:1 with `tl_->clips` means
-     * TrackActive::clip_idx stays a valid index into both. */
+     * Text / subtitle clips are synthetic (no asset / no demux);
+     * their ClipPlan slot carries a null graph + default color
+     * space. Downstream compose paths already tolerate a null demux
+     * at the matching clip_idx (see compose_sink.cpp's
+     * `if (!demuxes[ci]) continue` guard). Keeping the plans vector
+     * 1:1 with `tl_->clips` means TrackActive::clip_idx stays a
+     * valid index into both. */
     std::vector<ClipPlan> plans;
     plans.reserve(tl_->clips.size());
     for (const auto& clip : tl_->clips) {
-        if (clip.type == me::ClipType::Text) {
+        if (clip.type == me::ClipType::Text ||
+            clip.type == me::ClipType::Subtitle) {
             plans.push_back(ClipPlan{
                 /*graph=*/nullptr, /*term=*/graph::PortRef{},
                 ClipTimeRange{

@@ -670,6 +670,86 @@ TEST_CASE("ComposeSink e2e: video track + text track (text clip wired into compo
     CHECK(fs::file_size(out_path) > 4096);
 }
 
+TEST_CASE("ComposeSink e2e: video track + subtitle track (subtitle clip wired into compose)") {
+    /* Pin compose-sink-subtitle-track-wire: timeline with a video
+     * track + a subtitle track renders end-to-end. Before this
+     * cycle, TrackKind::Subtitle didn't exist — the loader rejected
+     * "subtitle" as an unknown track kind. Now we accept the track,
+     * parse an inline .srt content string into SubtitleClipParams,
+     * and wire compose_decode_loop's subtitle branch through
+     * SubtitleRenderer (libass).
+     *
+     * Inline .srt (1 cue covering the clip's full duration) keeps
+     * the test self-contained. Render just has to succeed + produce
+     * a plausible-sized file — libass actually drawing the glyphs
+     * is covered by test_subtitle_renderer's unit cases. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping: fixture not available");
+        return;
+    }
+
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    const std::string fixture_uri = "file://" + fixture_path;
+    /* Inline .srt content, JSON-escaped (\n as "\\n") so the whole
+     * timeline is a single valid JSON literal. One cue covering
+     * 0 → 1s. */
+    const std::string srt_json_escaped =
+        "1\\n00:00:00,000 --> 00:00:01,000\\nHello subs\\n\\n";
+    const std::string j_final = std::string(R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":25,"den":1},
+      "resolution": {"width":640,"height":480},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":")") + fixture_uri + R"("}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c_v","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ]},
+        {"id":"s0","kind":"subtitle","clips":[
+          {"type":"subtitle","id":"c_s",
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "subtitleParams":{"content":")" + srt_json_escaped + R"("}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    TimelineHandle tl;
+    REQUIRE(me_timeline_load_json(eng.p, j_final.data(), j_final.size(), &tl.p) == ME_OK);
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-compose-sink-e2e";
+    fs::create_directories(tmp_dir);
+    const fs::path out_path = tmp_dir / "video_plus_subtitle.mp4";
+    fs::remove(out_path);
+
+    me_output_spec_t spec{};
+    spec.path        = out_path.c_str();
+    spec.container   = "mp4";
+    spec.video_codec = "h264";
+    spec.audio_codec = "aac";
+
+    JobHandle job;
+    REQUIRE(me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, &job.p) == ME_OK);
+    const me_status_t wait_s = me_render_wait(job.p);
+
+    const char* err_msg = me_engine_last_error(eng.p);
+    const std::string err_str = err_msg ? std::string{err_msg} : std::string{};
+    MESSAGE("video+subtitle e2e: status=" << static_cast<int>(wait_s)
+            << " err='" << err_str << "'");
+
+    if (wait_s == ME_E_UNSUPPORTED || wait_s == ME_E_ENCODE) {
+        return;
+    }
+
+    CHECK(wait_s == ME_OK);
+    CHECK(fs::exists(out_path));
+    CHECK(fs::file_size(out_path) > 4096);
+}
+
 TEST_CASE("AudioOnlySink e2e: audio-only timeline (no video track) renders") {
     /* Pin the audio-only routing path: timeline with only audio
      * tracks routes through make_audio_only_sink instead of the

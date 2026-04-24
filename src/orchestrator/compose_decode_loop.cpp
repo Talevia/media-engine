@@ -11,6 +11,10 @@
 #include "text/text_renderer.hpp"
 #endif
 
+#ifdef ME_HAS_LIBASS
+#include "text/subtitle_renderer.hpp"
+#endif
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/frame.h>
@@ -50,6 +54,15 @@ me_status_t run_compose_video_frame_loop(
      * isn't free — avoid rebuilding per frame). Non-text clips leave
      * their slot null — zero-cost for video-only timelines. */
     std::vector<std::unique_ptr<me::text::TextRenderer>> text_renderers(tl.clips.size());
+#endif
+
+#ifdef ME_HAS_LIBASS
+    /* Per-subtitle-clip lazy-init renderer cache. libass state
+     * (ASS_Library + ASS_Renderer + ASS_Track) is more expensive to
+     * build than Skia's text surface — loading a .ass/.srt track
+     * parses the whole file. Cache per clip_idx + load_from_memory
+     * exactly once on the first frame we enter the clip's range. */
+    std::vector<std::unique_ptr<me::text::SubtitleRenderer>> subtitle_renderers(tl.clips.size());
 #endif
 
     for (int64_t fi = 0; fi < total_frames; ++fi) {
@@ -123,6 +136,40 @@ me_status_t run_compose_video_frame_loop(
                     if (tr->valid()) {
                         tr->render(*cur_clip.text_params, T,
                                     ctx.track_rgba.data(), pitch);
+                    }
+                    src_w = W;
+                    src_h = H;
+                    transform_clip_idx = ta.clip_idx;
+                    text_handled = true;
+                }
+#endif
+
+#ifdef ME_HAS_LIBASS
+                /* Subtitle clip: synthetic, no decoder. Lazy-init
+                 * the SubtitleRenderer + parse inline .ass/.srt on
+                 * first visit; subsequent frames reuse the parsed
+                 * track and only the t_ms → render_frame call runs.
+                 * libass consumes time in milliseconds — convert T
+                 * to integer ms via rational-safe scaling. */
+                if (!text_handled &&
+                    cur_clip.type == me::ClipType::Subtitle &&
+                    cur_clip.subtitle_params.has_value()) {
+                    auto& sr = subtitle_renderers[ta.clip_idx];
+                    if (!sr) {
+                        sr = std::make_unique<me::text::SubtitleRenderer>(W, H);
+                        const auto& sp = *cur_clip.subtitle_params;
+                        sr->load_from_memory(sp.content,
+                            sp.codepage.empty() ? nullptr : sp.codepage.c_str());
+                    }
+                    const std::size_t pitch =
+                        static_cast<std::size_t>(W) * 4;
+                    ctx.track_rgba.assign(pitch * static_cast<std::size_t>(H), 0);
+                    if (sr->valid()) {
+                        /* t_ms = T.num * 1000 / T.den; rational input
+                         * is exact, cast to int64 is the natural
+                         * libass boundary. */
+                        const int64_t t_ms = (T.num * 1000) / T.den;
+                        sr->render_frame(t_ms, ctx.track_rgba.data(), pitch);
                     }
                     src_w = W;
                     src_h = H;

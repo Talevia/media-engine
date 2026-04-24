@@ -377,4 +377,25 @@ me::TextClipParams parse_text_clip_params(const json& j,
     return out;
 }
 
+me::SubtitleClipParams parse_subtitle_clip_params(const json& j,
+                                                    const std::string& where) {
+    require(j.is_object(), ME_E_PARSE, where + ": expected object");
+
+    me::SubtitleClipParams out;
+
+    require(j.contains("content"), ME_E_PARSE,
+            where + ": missing required 'content'");
+    require(j["content"].is_string(), ME_E_PARSE,
+            where + ".content: expected string");
+    out.content = j.at("content").get<std::string>();
+
+    if (j.contains("codepage")) {
+        require(j["codepage"].is_string(), ME_E_PARSE,
+                where + ".codepage: expected string");
+        out.codepage = j.at("codepage").get<std::string>();
+    }
+
+    return out;
+}
+
 }  // namespace me::timeline_loader_detail

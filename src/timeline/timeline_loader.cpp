@@ -143,17 +143,20 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
 
             const std::string track_kind_str = track.at("kind").get<std::string>();
             me::TrackKind track_kind;
-            if      (track_kind_str == "video") track_kind = me::TrackKind::Video;
-            else if (track_kind_str == "audio") track_kind = me::TrackKind::Audio;
-            else if (track_kind_str == "text")  track_kind = me::TrackKind::Text;
+            if      (track_kind_str == "video")    track_kind = me::TrackKind::Video;
+            else if (track_kind_str == "audio")    track_kind = me::TrackKind::Audio;
+            else if (track_kind_str == "text")     track_kind = me::TrackKind::Text;
+            else if (track_kind_str == "subtitle") track_kind = me::TrackKind::Subtitle;
             else {
                 throw LoadError{ME_E_UNSUPPORTED,
-                    track_where + ".kind: only 'video', 'audio', 'text' supported (got '" +
-                    track_kind_str + "')"};
+                    track_where + ".kind: only 'video', 'audio', 'text', 'subtitle' "
+                    "supported (got '" + track_kind_str + "')"};
             }
             const char* expected_clip_type =
-                (track_kind == me::TrackKind::Video) ? "video" :
-                (track_kind == me::TrackKind::Audio) ? "audio" : "text";
+                (track_kind == me::TrackKind::Video)    ? "video" :
+                (track_kind == me::TrackKind::Audio)    ? "audio" :
+                (track_kind == me::TrackKind::Text)     ? "text"  :
+                                                           "subtitle";
 
             const bool track_enabled =
                 track.contains("enabled") ? track.at("enabled").get<bool>() : true;
@@ -184,18 +187,23 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                         where + ".type: must match parent track.kind (expected '" +
                         expected_clip_type + "', got '" + clip_type + "')");
 
-                /* Text clips have no source asset — assetId is
-                 * optional. Video / audio clips still require it. */
+                /* Text / subtitle clips have no source asset —
+                 * assetId is optional. Video / audio clips still
+                 * require it. */
                 std::string asset_id;
                 if (clip.contains("assetId")) {
                     asset_id = clip.at("assetId").get<std::string>();
                 }
-                if (track_kind == me::TrackKind::Text) {
-                    /* Text clip: if assetId provided, it can still
-                     * refer to a font-file asset (future extension),
-                     * but unknown-id is tolerated as empty. */
+                const bool synthetic_clip =
+                    track_kind == me::TrackKind::Text ||
+                    track_kind == me::TrackKind::Subtitle;
+                if (synthetic_clip) {
+                    /* Synthetic clip: if assetId provided, it can
+                     * still refer to a font-file or external
+                     * subtitle asset (future extension), but
+                     * unknown-id is tolerated as empty. */
                     if (!asset_id.empty() && tl.assets.find(asset_id) == tl.assets.end()) {
-                        asset_id.clear();  // silently drop unknown text-clip asset
+                        asset_id.clear();
                     }
                 } else {
                     require(!asset_id.empty(), ME_E_PARSE,
@@ -209,9 +217,10 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 me_rational_t t_dur   = as_rational(tr.at("duration"), where + ".timeRange.duration");
 
                 /* sourceRange is required for video / audio (driven by
-                 * source media bounds); optional for text clips (no
-                 * source media — default to [0, timeRange.duration]
-                 * so downstream code can still uniformly query it). */
+                 * source media bounds); optional for text / subtitle
+                 * clips (no source media — default to [0,
+                 * timeRange.duration] so downstream code can still
+                 * uniformly query it). */
                 me_rational_t s_start{0, 1};
                 me_rational_t s_dur   = t_dur;
                 if (clip.contains("sourceRange")) {
@@ -219,8 +228,9 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                     s_start = as_rational(sr.at("start"),    where + ".sourceRange.start");
                     s_dur   = as_rational(sr.at("duration"), where + ".sourceRange.duration");
                 } else {
-                    require(track_kind == me::TrackKind::Text, ME_E_PARSE,
-                            where + ": 'sourceRange' is required on non-text clips");
+                    require(synthetic_clip, ME_E_PARSE,
+                            where + ": 'sourceRange' is required on non-text / "
+                            "non-subtitle clips");
                 }
 
                 require(rational_eq(t_start, running), ME_E_UNSUPPORTED,
@@ -234,9 +244,10 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 me::Clip c;
                 c.asset_id       = asset_id;
                 c.track_id       = track_id;
-                c.type           = (track_kind == me::TrackKind::Video) ? me::ClipType::Video :
-                                   (track_kind == me::TrackKind::Audio) ? me::ClipType::Audio :
-                                                                           me::ClipType::Text;
+                c.type           = (track_kind == me::TrackKind::Video)    ? me::ClipType::Video    :
+                                   (track_kind == me::TrackKind::Audio)    ? me::ClipType::Audio    :
+                                   (track_kind == me::TrackKind::Text)     ? me::ClipType::Text     :
+                                                                              me::ClipType::Subtitle;
                 c.time_start     = t_start;
                 c.time_duration  = t_dur;
                 c.source_start   = s_start;
@@ -274,6 +285,15 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 } else {
                     require(!clip.contains("textParams"), ME_E_PARSE,
                             where + ".textParams: only valid on text clips");
+                }
+                if (track_kind == me::TrackKind::Subtitle) {
+                    require(clip.contains("subtitleParams"), ME_E_PARSE,
+                            where + ": subtitle clip requires 'subtitleParams'");
+                    c.subtitle_params = parse_subtitle_clip_params(
+                        clip["subtitleParams"], where + ".subtitleParams");
+                } else {
+                    require(!clip.contains("subtitleParams"), ME_E_PARSE,
+                            where + ".subtitleParams: only valid on subtitle clips");
                 }
                 const std::string clip_id = clip.at("id").get<std::string>();
                 require(!clip_id.empty(), ME_E_PARSE, where + ".id must be non-empty");
