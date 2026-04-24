@@ -88,6 +88,14 @@ struct ReencodeOptions {
      * `me::color::Pipeline::apply()`. Default ColorSpace means
      * UNSPECIFIED (identity / no-op on the IdentityPipeline path). */
     me::ColorSpace target_color_space {};
+
+    /* When true, `setup_h264_aac_encoder_mux` creates only an audio
+     * stream + encoder; any video stream present in the sample
+     * demux is ignored and no video encoder is opened. Used by
+     * AudioOnlySink when the timeline has no video tracks but the
+     * sample demux (an audio clip's asset file) happens to also
+     * contain video we don't want in the output. */
+    bool           audio_only = false;
 };
 
 /* Process all segments in order into a single output container. Returns

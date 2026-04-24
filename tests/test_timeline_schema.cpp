@@ -756,8 +756,11 @@ TEST_CASE("standalone audio track routes through compose; passthrough codec stil
     CHECK(job == nullptr);
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("compose path") != std::string::npos);
-    CHECK(std::string{err}.find("h264") != std::string::npos);
+    /* Audio-only timeline routes through AudioOnlySink (landed in
+     * audio-only-timeline-support cycle). Passthrough audio codec
+     * rejected there; h264 video codec unused in audio-only. */
+    CHECK(std::string{err}.find("audio-only path") != std::string::npos);
+    CHECK(std::string{err}.find("aac") != std::string::npos);
     me_timeline_destroy(tl);
 }
 

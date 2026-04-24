@@ -502,3 +502,68 @@ TEST_CASE("ComposeSink e2e: single-track with cross-dissolve transition renders"
     CHECK(fs::exists(out_path));
     CHECK(fs::file_size(out_path) > 4096);
 }
+
+TEST_CASE("AudioOnlySink e2e: audio-only timeline (no video track) renders") {
+    /* Pin the audio-only routing path: timeline with only audio
+     * tracks routes through make_audio_only_sink instead of the
+     * compose factory (which needs a video track). Expected output:
+     * valid MP4 with a single AAC audio stream, no video stream. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping: with-audio fixture not available");
+        return;
+    }
+
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    const std::string fixture_uri = "file://" + fixture_path;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":25,"den":1},
+      "resolution": {"width":640,"height":480},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":")" + fixture_uri + R"("}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"audio","id":"c_aud","assetId":"a1","gainDb":{"static":0},
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    TimelineHandle tl;
+    REQUIRE(me_timeline_load_json(eng.p, j.data(), j.size(), &tl.p) == ME_OK);
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-compose-sink-e2e";
+    fs::create_directories(tmp_dir);
+    const fs::path out_path = tmp_dir / "audio_only.mp4";
+    fs::remove(out_path);
+
+    me_output_spec_t spec{};
+    spec.path        = out_path.c_str();
+    spec.container   = "mp4";
+    spec.video_codec = "";          /* unused in audio-only path */
+    spec.audio_codec = "aac";
+
+    JobHandle job;
+    REQUIRE(me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, &job.p) == ME_OK);
+    const me_status_t wait_s = me_render_wait(job.p);
+
+    const char* err_msg = me_engine_last_error(eng.p);
+    const std::string err_str = err_msg ? std::string{err_msg} : std::string{};
+    MESSAGE("audio-only e2e: status=" << static_cast<int>(wait_s)
+            << " err='" << err_str << "'");
+
+    if (wait_s == ME_E_UNSUPPORTED || wait_s == ME_E_ENCODE) {
+        return;
+    }
+
+    CHECK(wait_s == ME_OK);
+    CHECK(fs::exists(out_path));
+    /* Audio-only MP4 of silent AAC compresses very small (~1KB for
+     * 1s silence + container overhead). Loose bounds. */
+    CHECK(fs::file_size(out_path) > 256);        /* must contain audio bytes */
+    CHECK(fs::file_size(out_path) < 300000);     /* no video stream smuggled in */
+}

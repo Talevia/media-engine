@@ -61,10 +61,20 @@ me_status_t setup_h264_aac_encoder_mux(
     if (!sample_demux) return fail(ME_E_INVALID_ARG, "setup_h264_aac_encoder_mux: sample_demux null");
 
     AVFormatContext* ifmt0 = sample_demux;
-    const int vsi0 = best_stream(ifmt0, AVMEDIA_TYPE_VIDEO);
+    /* When opts.audio_only is true, the sample demux's video stream
+     * (if any) is ignored: the output mux gets only an audio stream
+     * and no video encoder is opened. This is how AudioOnlySink
+     * reuses this setup helper with a sample demux that happens to
+     * contain video (e.g. an audio clip referencing a file that
+     * also has a video track). */
+    const int vsi0 = opts.audio_only ? -1
+                                      : best_stream(ifmt0, AVMEDIA_TYPE_VIDEO);
     const int asi0 = best_stream(ifmt0, AVMEDIA_TYPE_AUDIO);
     if (vsi0 < 0 && asi0 < 0) {
-        return fail(ME_E_INVALID_ARG, "sample_demux has neither video nor audio");
+        return fail(ME_E_INVALID_ARG,
+                    opts.audio_only
+                        ? "sample_demux has no audio (audio_only requested)"
+                        : "sample_demux has neither video nor audio");
     }
 
     /* Open sample decoders for parameter inference. They're reset at

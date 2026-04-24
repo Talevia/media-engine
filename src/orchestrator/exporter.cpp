@@ -6,6 +6,7 @@
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
 #include "io/demux_context.hpp"
+#include "orchestrator/audio_only_sink.hpp"
 #include "orchestrator/compose_sink.hpp"
 #include "orchestrator/output_sink.hpp"
 #include "scheduler/scheduler.hpp"
@@ -82,11 +83,18 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     const bool is_multi_track   = tl_->tracks.size() > 1;
     const bool has_transitions  = !tl_->transitions.empty();
     bool has_audio_tracks = false;
+    bool has_video_tracks = false;
     for (const auto& t : tl_->tracks) {
-        if (t.kind == me::TrackKind::Audio) { has_audio_tracks = true; break; }
+        if (t.kind == me::TrackKind::Audio) has_audio_tracks = true;
+        if (t.kind == me::TrackKind::Video) has_video_tracks = true;
     }
+    /* Audio-only timeline (no video tracks, at least one audio): use
+     * AudioOnlySink. ComposeSink requires a video track for canvas +
+     * video encoder bootstrap, so audio-only would fail its factory. */
+    const bool route_audio_only = has_audio_tracks && !has_video_tracks;
     const bool route_through_compose =
-        is_multi_track || has_transitions || has_audio_tracks;
+        !route_audio_only &&
+        (is_multi_track || has_transitions || has_audio_tracks);
 
     /* Compile a demux graph + carry a ClipTimeRange per clip. */
     std::vector<ClipPlan> plans;
@@ -147,11 +155,17 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
 
     me::resource::CodecPool* const codec_pool =
         engine_ ? engine_->codecs.get() : nullptr;
-    std::unique_ptr<OutputSink> sink = route_through_compose
-        ? make_compose_sink(*tl_, spec, std::move(common), std::move(ranges),
-                             codec_pool, err)
-        : make_output_sink(spec, std::move(common), std::move(ranges),
-                            codec_pool, err);
+    std::unique_ptr<OutputSink> sink;
+    if (route_audio_only) {
+        sink = make_audio_only_sink(*tl_, spec, std::move(common),
+                                     std::move(ranges), codec_pool, err);
+    } else if (route_through_compose) {
+        sink = make_compose_sink(*tl_, spec, std::move(common),
+                                  std::move(ranges), codec_pool, err);
+    } else {
+        sink = make_output_sink(spec, std::move(common),
+                                 std::move(ranges), codec_pool, err);
+    }
     if (!sink) return ME_E_UNSUPPORTED;
 
     me_engine* eng = engine_;
