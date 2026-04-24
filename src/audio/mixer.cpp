@@ -1,6 +1,7 @@
 #include "audio/mixer.hpp"
 
 #include "audio/mix.hpp"
+#include "timeline/timeline_impl.hpp"
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -210,6 +211,81 @@ me_status_t AudioMixer::pull_next_mixed_frame(AVFrame**    out_frame,
     }
 
     *out_frame = out;
+    return ME_OK;
+}
+
+me_status_t build_audio_mixer_for_timeline(
+    const me::Timeline&                                         tl,
+    me::resource::CodecPool&                                    pool,
+    const std::vector<std::shared_ptr<me::io::DemuxContext>>&   demux_by_clip_idx,
+    const AudioMixerConfig&                                     cfg,
+    std::unique_ptr<AudioMixer>&                                out,
+    std::string*                                                err) {
+
+    if (demux_by_clip_idx.size() != tl.clips.size()) {
+        if (err) *err = "build_audio_mixer_for_timeline: demux_by_clip_idx.size() "
+                        "must equal tl.clips.size()";
+        return ME_E_INVALID_ARG;
+    }
+    if (tl.clips.empty() || tl.tracks.empty()) {
+        if (err) *err = "build_audio_mixer_for_timeline: timeline has no clips or tracks";
+        return ME_E_INVALID_ARG;
+    }
+
+    /* Build track-kind lookup once (string → kind). Small N, linear
+     * scan is fine but we'd hit it per-clip otherwise. */
+    auto kind_for_track_id = [&](const std::string& track_id) {
+        for (const auto& t : tl.tracks) {
+            if (t.id == track_id) return t.kind;
+        }
+        return me::TrackKind::Video;   /* default harmless */
+    };
+
+    auto mixer = std::make_unique<AudioMixer>(cfg, err);
+    if (!mixer->ok()) {
+        return ME_E_INVALID_ARG;
+    }
+
+    std::size_t audio_clips_found = 0;
+    for (std::size_t ci = 0; ci < tl.clips.size(); ++ci) {
+        const me::Clip& c = tl.clips[ci];
+        if (kind_for_track_id(c.track_id) != me::TrackKind::Audio) continue;
+        if (!demux_by_clip_idx[ci]) {
+            if (err) *err = "build_audio_mixer_for_timeline: null demux for audio clip idx " +
+                             std::to_string(ci);
+            return ME_E_INVALID_ARG;
+        }
+
+        const float gain_linear = static_cast<float>(
+            db_to_linear(static_cast<float>(c.gain_db.value_or(0.0))));
+
+        AudioTrackFeed feed;
+        const me_status_t s = open_audio_track_feed(
+            demux_by_clip_idx[ci], pool,
+            cfg.target_rate, cfg.target_fmt, cfg.target_ch_layout,
+            gain_linear, feed, err);
+        if (s != ME_OK) {
+            /* Prefix with clip context for easier debugging. */
+            if (err) *err = "build_audio_mixer_for_timeline: clip[" +
+                             std::to_string(ci) + "] " + *err;
+            return s;
+        }
+
+        const me_status_t add_s = mixer->add_track(std::move(feed), err);
+        if (add_s != ME_OK) {
+            if (err) *err = "build_audio_mixer_for_timeline: clip[" +
+                             std::to_string(ci) + "] add_track: " + *err;
+            return add_s;
+        }
+        ++audio_clips_found;
+    }
+
+    if (audio_clips_found == 0) {
+        if (err) *err = "build_audio_mixer_for_timeline: no audio clips in timeline";
+        return ME_E_NOT_FOUND;
+    }
+
+    out = std::move(mixer);
     return ME_OK;
 }
 

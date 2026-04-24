@@ -39,8 +39,13 @@ extern "C" {
 #include <libavutil/samplefmt.h>
 }
 
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace me { struct Timeline; }
+namespace me::io { class DemuxContext; }
+namespace me::resource { class CodecPool; }
 
 struct AVFrame;
 
@@ -128,5 +133,39 @@ private:
     int              num_channels_ = 0;
     std::vector<TrackState> tracks_;
 };
+
+/* Build an AudioMixer from a Timeline + per-clip DemuxContext list.
+ *
+ * Walks `tl.clips`, filters to clips whose track has
+ * `TrackKind::Audio`, opens an `AudioTrackFeed` per such clip using
+ * `demux_by_clip_idx[clip_idx]` as the source demux and applying
+ * the clip's `gain_db` (converted via `db_to_linear`) as the
+ * feed's linear gain (clips without gain_db default to 0 dB = unity).
+ * Each feed is added to the new mixer.
+ *
+ * `demux_by_clip_idx` must be indexed parallel to `tl.clips` —
+ * i.e. `demux_by_clip_idx[ci]` is the opened demux for `tl.clips[ci]`
+ * (same convention as ComposeSink's `demuxes` parameter). Video
+ * clips' slots in this vector are ignored; audio clips' slots must
+ * be non-null.
+ *
+ * Returns:
+ *   - ME_OK + `out` populated on success (at least 1 audio clip found).
+ *   - ME_E_NOT_FOUND if no audio clips in the timeline.
+ *   - ME_E_INVALID_ARG on null args / mismatched vector size / null demux
+ *     for an audio clip / empty `tl.clips` / empty `tl.tracks`.
+ *   - Propagates errors from `AudioMixer` construction or
+ *     `open_audio_track_feed` if decoder setup fails.
+ *
+ * This helper is scope-A-carved for the coming ComposeSink audio
+ * path rewrite: the sink will call this builder to construct the
+ * mix pipeline, then pull mixed frames into the AAC encoder. */
+me_status_t build_audio_mixer_for_timeline(
+    const me::Timeline&                                         tl,
+    me::resource::CodecPool&                                    pool,
+    const std::vector<std::shared_ptr<me::io::DemuxContext>>&   demux_by_clip_idx,
+    const AudioMixerConfig&                                     cfg,
+    std::unique_ptr<AudioMixer>&                                out,
+    std::string*                                                err);
 
 }  // namespace me::audio

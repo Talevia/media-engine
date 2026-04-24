@@ -14,6 +14,7 @@
 #include "audio/track_feed.hpp"
 #include "io/demux_context.hpp"
 #include "resource/codec_pool.hpp"
+#include "timeline/timeline_impl.hpp"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -190,6 +191,110 @@ TEST_CASE("AudioMixer: 2-track silent fixtures mix to silent output") {
     }
     CHECK(frames >= 1);
     CHECK(mixer.eof());
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+TEST_CASE("build_audio_mixer_for_timeline: no audio clips → ME_E_NOT_FOUND") {
+    me::Timeline tl;
+    tl.tracks.push_back(me::Track{"v0", me::TrackKind::Video, true});
+    me::Clip vc;
+    vc.id = "c0"; vc.track_id = "v0"; vc.type = me::ClipType::Video;
+    vc.asset_id = "a1";
+    tl.clips.push_back(std::move(vc));
+
+    me::resource::CodecPool pool;
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+
+    std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes(1);
+    std::unique_ptr<me::audio::AudioMixer> mixer;
+    std::string err;
+    CHECK(me::audio::build_audio_mixer_for_timeline(tl, pool, demuxes, cfg, mixer, &err)
+          == ME_E_NOT_FOUND);
+    CHECK(err.find("no audio clips") != std::string::npos);
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+TEST_CASE("build_audio_mixer_for_timeline: size mismatch between clips and demux list → ME_E_INVALID_ARG") {
+    me::Timeline tl;
+    tl.tracks.push_back(me::Track{"a0", me::TrackKind::Audio, true});
+    me::Clip ac;
+    ac.id = "c0"; ac.track_id = "a0"; ac.type = me::ClipType::Audio;
+    ac.asset_id = "a1";
+    tl.clips.push_back(std::move(ac));
+
+    me::resource::CodecPool pool;
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+
+    std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes;   /* empty, mismatch */
+    std::unique_ptr<me::audio::AudioMixer> mixer;
+    std::string err;
+    CHECK(me::audio::build_audio_mixer_for_timeline(tl, pool, demuxes, cfg, mixer, &err)
+          == ME_E_INVALID_ARG);
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+TEST_CASE("build_audio_mixer_for_timeline: 1 audio clip + fixture demux builds a pullable mixer") {
+    const std::string fixture = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
+    if (fixture.empty() || !fs::exists(fixture)) { return; }
+
+    me::Timeline tl;
+    tl.tracks.push_back(me::Track{"a0", me::TrackKind::Audio, true});
+    me::Clip ac;
+    ac.id = "c0"; ac.track_id = "a0"; ac.type = me::ClipType::Audio;
+    ac.asset_id = "a1";
+    ac.gain_db = -6.0;   /* ~0.501 linear — still silent input * anything = 0 */
+    ac.time_start   = me_rational_t{0, 48000};
+    ac.time_duration = me_rational_t{48000, 48000};
+    ac.source_start = me_rational_t{0, 48000};
+    tl.clips.push_back(std::move(ac));
+
+    auto demux = open_demux(fixture);
+    REQUIRE(demux);
+    std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes{demux};
+
+    me::resource::CodecPool pool;
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+
+    std::unique_ptr<me::audio::AudioMixer> mixer;
+    std::string err;
+    REQUIRE(me::audio::build_audio_mixer_for_timeline(tl, pool, demuxes, cfg, mixer, &err)
+            == ME_OK);
+    REQUIRE(mixer);
+    CHECK(mixer->track_count() == 1);
+
+    /* Pull at least one frame. Silent input × any gain = silent output. */
+    AVFrame* f = nullptr;
+    REQUIRE(mixer->pull_next_mixed_frame(&f, &err) == ME_OK);
+    REQUIRE(f != nullptr);
+    CHECK(f->nb_samples == 1024);
+    CHECK(f->sample_rate == 48000);
+    auto* p = reinterpret_cast<const float*>(f->extended_data[0]);
+    for (int i = 0; i < f->nb_samples; ++i) CHECK(p[i] == 0.0f);
+    av_frame_free(&f);
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+TEST_CASE("build_audio_mixer_for_timeline: null demux for audio clip → ME_E_INVALID_ARG") {
+    me::Timeline tl;
+    tl.tracks.push_back(me::Track{"a0", me::TrackKind::Audio, true});
+    me::Clip ac;
+    ac.id = "c0"; ac.track_id = "a0"; ac.type = me::ClipType::Audio;
+    ac.asset_id = "a1";
+    tl.clips.push_back(std::move(ac));
+
+    me::resource::CodecPool pool;
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+
+    std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes(1);   /* null entry */
+    std::unique_ptr<me::audio::AudioMixer> mixer;
+    std::string err;
+    CHECK(me::audio::build_audio_mixer_for_timeline(tl, pool, demuxes, cfg, mixer, &err)
+          == ME_E_INVALID_ARG);
+    CHECK(err.find("null demux") != std::string::npos);
     av_channel_layout_uninit(&cfg.target_ch_layout);
 }
 
