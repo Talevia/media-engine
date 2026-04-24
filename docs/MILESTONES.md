@@ -2,7 +2,7 @@
 
 当前里程碑（本文件唯一的真理源）：
 
-> **Current: M6 — Frame cache + frame server**
+> **Current: M7 — Host bindings**
 
 `iterate-gap` skill 在 repopulate backlog 时按「当前 milestone」偏置挑选候选——当前 milestone 未达到 exit criteria 前，跨 milestone 的 gap 进 P2 或被放回"等合适时机"，不抢当前任务资源。
 
@@ -70,8 +70,8 @@
 ### Exit criteria
 - [x] `me_render_frame` 返回真实帧
 - [x] disk cache（`cache_dir` 配置生效）
-- [ ] `me_cache_stats` / `me_cache_invalidate_asset` 行为与 VISION §3.3 一致
-- [ ] Scrubbing 场景下同一时刻重复取帧命中缓存
+- [x] `me_cache_stats` / `me_cache_invalidate_asset` 行为与 VISION §3.3 一致
+- [x] Scrubbing 场景下同一时刻重复取帧命中缓存
 
 ## M7 — Host bindings
 
