@@ -552,14 +552,17 @@ TEST_CASE("clip transform empty object → populated with identity defaults") {
     REQUIRE(tl->tl.clips.size() == 1);
     REQUIRE(tl->tl.clips[0].transform.has_value());
     const auto& t = *tl->tl.clips[0].transform;
-    CHECK(t.translate_x  == 0.0);
-    CHECK(t.translate_y  == 0.0);
-    CHECK(t.scale_x      == 1.0);
-    CHECK(t.scale_y      == 1.0);
-    CHECK(t.rotation_deg == 0.0);
-    CHECK(t.opacity      == 1.0);
-    CHECK(t.anchor_x     == 0.5);
-    CHECK(t.anchor_y     == 0.5);
+    /* Fields are AnimatedNumber post-layer-3 migration; evaluate at
+     * any T (identity defaults are static so T is irrelevant). */
+    const auto tv = t.evaluate_at(me_rational_t{0, 1});
+    CHECK(tv.translate_x  == 0.0);
+    CHECK(tv.translate_y  == 0.0);
+    CHECK(tv.scale_x      == 1.0);
+    CHECK(tv.scale_y      == 1.0);
+    CHECK(tv.rotation_deg == 0.0);
+    CHECK(tv.opacity      == 1.0);
+    CHECK(tv.anchor_x     == 0.5);
+    CHECK(tv.anchor_y     == 0.5);
     me_timeline_destroy(tl);
 }
 
@@ -580,30 +583,41 @@ TEST_CASE("clip transform with static translateX / opacity / rotationDeg parses 
     REQUIRE(tl->tl.clips.size() == 1);
     REQUIRE(tl->tl.clips[0].transform.has_value());
     const auto& t = *tl->tl.clips[0].transform;
-    CHECK(t.translate_x  == 100.0);
-    CHECK(t.translate_y  == -50.0);
-    CHECK(t.scale_x      == 2.0);
-    CHECK(t.scale_y      == 1.0);   /* unspecified key → identity default retained */
-    CHECK(t.rotation_deg == 45.0);
-    CHECK(t.opacity      == 0.5);
-    CHECK(t.anchor_x     == 0.5);
+    const auto tv = t.evaluate_at(me_rational_t{0, 1});
+    CHECK(tv.translate_x  == 100.0);
+    CHECK(tv.translate_y  == -50.0);
+    CHECK(tv.scale_x      == 2.0);
+    CHECK(tv.scale_y      == 1.0);   /* unspecified key → identity default retained */
+    CHECK(tv.rotation_deg == 45.0);
+    CHECK(tv.opacity      == 0.5);
+    CHECK(tv.anchor_x     == 0.5);
     me_timeline_destroy(tl);
 }
 
-TEST_CASE("clip transform with keyframes (animated) rejected as ME_E_UNSUPPORTED") {
+TEST_CASE("clip transform with keyframes (animated) now parses and evaluates per-T") {
+    /* Post-layer-3: keyframed transform fields are supported.
+     * translateX ramps from 0 (at t=0) to 200 (at t=30/30). At
+     * midpoint T=15/30 we expect 100. */
     EngineFixture f;
     tb::TimelineBuilder b;
     b.add_asset(tb::AssetSpec{});
     b.add_clip(tb::ClipSpec{.extra =
-        R"("transform":{"translateX":{"keyframes":[{"t":0,"v":0}]}},)"});
+        R"("transform":{"translateX":{"keyframes":[)"
+        R"({"t":{"num":0,"den":30},"v":0.0,"interp":"linear"},)"
+        R"({"t":{"num":30,"den":30},"v":200.0,"interp":"linear"})"
+        R"(]}},)"});
     me_timeline_t* tl = nullptr;
-    CHECK(load(f.eng, b.build(), &tl) == ME_E_UNSUPPORTED);
-    CHECK(tl == nullptr);
-    const char* err = me_engine_last_error(f.eng);
-    REQUIRE(err != nullptr);
-    const std::string_view s{err};
-    CHECK(s.find("animated") != std::string_view::npos);
-    CHECK(s.find("keyframes") != std::string_view::npos);
+    REQUIRE(load(f.eng, b.build(), &tl) == ME_OK);
+    REQUIRE(tl->tl.clips.size() == 1);
+    REQUIRE(tl->tl.clips[0].transform.has_value());
+    const auto& t = *tl->tl.clips[0].transform;
+    /* Static defaults preserved for unspecified fields. */
+    CHECK(t.evaluate_at(me_rational_t{0, 30}).opacity == 1.0);
+    /* Linear interp pinned: at 0 → 0; at 15/30 → 100; at 30/30 → 200. */
+    CHECK(t.evaluate_at(me_rational_t{0, 30}).translate_x  == doctest::Approx(0.0));
+    CHECK(t.evaluate_at(me_rational_t{15, 30}).translate_x == doctest::Approx(100.0));
+    CHECK(t.evaluate_at(me_rational_t{30, 30}).translate_x == doctest::Approx(200.0));
+    me_timeline_destroy(tl);
 }
 
 TEST_CASE("clip transform opacity out of [0,1] rejected as ME_E_PARSE") {

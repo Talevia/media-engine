@@ -42,14 +42,16 @@
 #include <string>
 #include <vector>
 
-namespace me { struct Clip; }
+namespace me { struct TransformEvaluated; }
 
 namespace me::orchestrator {
 
 me_status_t compose_transition_step(
     const me::compose::FrameSource& fs,
-    const me::Clip&                 from_clip,
-    const me::Clip&                 to_clip,
+    const me::TransformEvaluated&   from_tr,     /* evaluated at T */
+    bool                            from_has_transform,
+    const me::TransformEvaluated&   to_tr,       /* evaluated at T */
+    bool                            to_has_transform,
     TrackDecoderState&              td_from,
     TrackDecoderState&              td_to,
     int                             W,

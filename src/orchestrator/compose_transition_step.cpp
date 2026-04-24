@@ -16,18 +16,15 @@ namespace me::orchestrator {
 
 namespace {
 
-bool spatial_identity(const me::Clip& c, int src_w, int src_h, int W, int H) {
-    /* Identity = no Transform OR all-identity fields AND src dims match canvas.
-     * If src dims differ from canvas, even "identity Transform" needs an
-     * affine_blit to resize (technically a scale to W/src_w). */
+/* Identity iff transform is absent OR all spatial fields at default
+ * AND src dims match canvas. Dim-mismatch alone triggers affine_blit
+ * (scale-to-canvas). */
+bool spatial_identity_for(const me::TransformEvaluated& tr,
+                           bool                          has_transform,
+                           int src_w, int src_h, int W, int H) {
     if (src_w != W || src_h != H) return false;
-    if (!c.transform.has_value()) return true;
-    const me::Transform& t = *c.transform;
-    return t.translate_x  == 0.0 &&
-           t.translate_y  == 0.0 &&
-           t.scale_x      == 1.0 &&
-           t.scale_y      == 1.0 &&
-           t.rotation_deg == 0.0;
+    if (!has_transform) return true;
+    return tr.spatial_identity();
 }
 
 me_status_t decode_to_rgba(TrackDecoderState& td,
@@ -59,12 +56,11 @@ me_status_t decode_to_rgba(TrackDecoderState& td,
     return ME_OK;
 }
 
-/* Apply clip.transform to src_rgba → dst_canvas (W×H×4). For
- * identity transform + src dims == W×H, this is a straight copy.
- * For any non-identity case or dim mismatch, affine_blit covers
- * both. dst_canvas is resized + zeroed-then-written by affine_blit;
- * we ensure it has the right size up front. */
-void transform_to_canvas(const me::Clip& c,
+/* Apply (already-evaluated) transform to src_rgba → dst_canvas
+ * (W×H×4). Identity + matching dims = direct memcpy; otherwise
+ * affine_blit handles everything (including pure dim scale). */
+void transform_to_canvas(const me::TransformEvaluated& tr,
+                          bool                          has_transform,
                           const std::vector<std::uint8_t>& src_rgba,
                           int src_w, int src_h,
                           int W, int H,
@@ -72,23 +68,17 @@ void transform_to_canvas(const me::Clip& c,
     const std::size_t bytes = static_cast<std::size_t>(W) * H * 4;
     if (dst_canvas.size() != bytes) dst_canvas.resize(bytes);
 
-    if (spatial_identity(c, src_w, src_h, W, H)) {
-        /* Fast path: direct copy — identity transform + canvas-sized src. */
+    if (spatial_identity_for(tr, has_transform, src_w, src_h, W, H)) {
         std::memcpy(dst_canvas.data(), src_rgba.data(), bytes);
         return;
     }
 
-    /* Either non-identity Transform or src/canvas dim mismatch. Use
-     * affine_blit: identity Transform + non-matching dims maps to
-     * a scale-to-canvas (equivalent to clip-level stretch). */
-    const me::Transform identity{};
-    const me::Transform& t = c.transform.has_value() ? *c.transform : identity;
     const me::compose::AffineMatrix inv =
         me::compose::compose_inverse_affine(
-            t.translate_x, t.translate_y,
-            t.scale_x,     t.scale_y,
-            t.rotation_deg,
-            t.anchor_x,    t.anchor_y,
+            tr.translate_x, tr.translate_y,
+            tr.scale_x,     tr.scale_y,
+            tr.rotation_deg,
+            tr.anchor_x,    tr.anchor_y,
             src_w, src_h);
     me::compose::affine_blit(
         dst_canvas.data(), W, H, static_cast<std::size_t>(W) * 4,
@@ -101,8 +91,10 @@ void transform_to_canvas(const me::Clip& c,
 
 me_status_t compose_transition_step(
     const me::compose::FrameSource& fs,
-    const me::Clip&                 from_clip,
-    const me::Clip&                 to_clip,
+    const me::TransformEvaluated&   from_tr,
+    bool                            from_has_transform,
+    const me::TransformEvaluated&   to_tr,
+    bool                            to_has_transform,
     TrackDecoderState&              td_from,
     TrackDecoderState&              td_to,
     int                             W,
@@ -125,10 +117,9 @@ me_status_t compose_transition_step(
     const me_status_t from_pull = decode_to_rgba(
         td_from, from_rgba, from_w, from_h, from_valid, err);
     if (from_pull != ME_OK && from_pull != ME_E_NOT_FOUND) return from_pull;
-    /* from_valid == false iff from_pull == ME_E_NOT_FOUND. */
 
-    /* Pull to_clip. Both endpoints drained → whole transition
-     * contributes nothing at this T. */
+    /* Pull to_clip. Both endpoints drained → transition contributes
+     * nothing at this T. */
     int to_w = 0, to_h = 0;
     bool to_valid = false;
     const me_status_t to_pull = decode_to_rgba(
@@ -136,13 +127,12 @@ me_status_t compose_transition_step(
     if (to_pull == ME_E_NOT_FOUND) return ME_E_NOT_FOUND;
     if (to_pull != ME_OK) return to_pull;
 
-    /* Pre-transform each endpoint to canvas size. This uniformly
-     * applies per-clip Transform (or acts as copy-to-canvas for
-     * identity + matching dims). */
     if (from_valid) {
-        transform_to_canvas(from_clip, from_rgba, from_w, from_h, W, H, from_canvas);
+        transform_to_canvas(from_tr, from_has_transform,
+                             from_rgba, from_w, from_h, W, H, from_canvas);
     }
-    transform_to_canvas(to_clip, to_rgba, to_w, to_h, W, H, to_canvas);
+    transform_to_canvas(to_tr, to_has_transform,
+                         to_rgba, to_w, to_h, W, H, to_canvas);
 
     const std::size_t bytes = static_cast<std::size_t>(W) * H * 4;
     if (track_rgba.size() != bytes) track_rgba.resize(bytes);
@@ -154,14 +144,13 @@ me_status_t compose_transition_step(
             W, H, static_cast<std::size_t>(W) * 4,
             fs.transition.t);
     } else {
-        /* from exhausted — copy to into track_rgba unblended (t≈1). */
         std::memcpy(track_rgba.data(), to_canvas.data(), bytes);
     }
 
     out_src_w                    = W;
     out_src_h                    = H;
     out_transform_clip_idx       = fs.transition_to_clip_idx;
-    out_spatial_already_applied  = true;   /* pre-transform always runs now */
+    out_spatial_already_applied  = true;
     return ME_OK;
 }
 

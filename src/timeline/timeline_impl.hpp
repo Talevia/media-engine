@@ -13,6 +13,7 @@
 #pragma once
 
 #include "media_engine/types.h"
+#include "timeline/animated_number.hpp"
 
 #include <optional>
 #include <string>
@@ -64,21 +65,10 @@ struct Asset {
     std::optional<ColorSpace> color_space;
 };
 
-/* 2D transform applied when the clip composites onto the output canvas.
- * Phase-1 is static only: every field is a plain double, populated from
- * the `{"static": <number>}` form in JSON. The animated
- * (`{"keyframes": [...]}`) form is deliberately rejected by the loader
- * with ME_E_UNSUPPORTED so that this struct stays a stable shape while
- * animated-parameter support lands with M3. Defaults are identity so
- * `Transform{}` is a valid "no-op" state for code paths that read the
- * transform unconditionally.
- *
- * Stored as std::optional<Transform> on Clip: nullopt = "the JSON clip
- * has no `transform` key at all" (different from Transform{} which means
- * "transform key present but all fields defaulted to identity"). This
- * distinction lets downstream code optionally fast-path clips that truly
- * omit transforms. */
-struct Transform {
+/* Snapshot of a Transform's 8 fields at a specific composition time.
+ * Produced by `Transform::evaluate_at(t)`; consumed by the compose
+ * loop / affine math. Identity defaults match Transform's defaults. */
+struct TransformEvaluated {
     double translate_x  = 0.0;
     double translate_y  = 0.0;
     double scale_x      = 1.0;
@@ -87,6 +77,57 @@ struct Transform {
     double opacity      = 1.0;
     double anchor_x     = 0.5;
     double anchor_y     = 0.5;
+
+    /* Spatial identity ⇔ translate == 0, scale == 1, rotation == 0.
+     * Opacity and anchor don't participate — opacity is applied via
+     * alpha_over (not spatial); anchor only matters when there's
+     * rotation/scale. */
+    bool spatial_identity() const {
+        return translate_x  == 0.0 &&
+               translate_y  == 0.0 &&
+               scale_x      == 1.0 &&
+               scale_y      == 1.0 &&
+               rotation_deg == 0.0;
+    }
+};
+
+/* 2D transform applied when the clip composites onto the output canvas.
+ * Each field is an `AnimatedNumber` — supports `{"static": v}` and
+ * `{"keyframes": [...]}` JSON forms (migrated by the
+ * `transform-animated-support` bullet layer 3). Identity defaults make
+ * `Transform{}` a valid "no-op" state.
+ *
+ * Caller pattern: `auto eval = clip.transform->evaluate_at(T);` — reads
+ * 8 doubles into a `TransformEvaluated` at composition time T. Callers
+ * that ignore T (e.g. preview-at-t=0 flat static) can pass
+ * `me_rational_t{0, 1}`.
+ *
+ * Stored as std::optional<Transform> on Clip: nullopt = "JSON clip has
+ * no `transform` key" (vs Transform{} = "transform key present with
+ * all identity defaults"). The distinction lets downstream code
+ * fast-path clips that truly omit transforms. */
+struct Transform {
+    AnimatedNumber translate_x  = AnimatedNumber::from_static(0.0);
+    AnimatedNumber translate_y  = AnimatedNumber::from_static(0.0);
+    AnimatedNumber scale_x      = AnimatedNumber::from_static(1.0);
+    AnimatedNumber scale_y      = AnimatedNumber::from_static(1.0);
+    AnimatedNumber rotation_deg = AnimatedNumber::from_static(0.0);
+    AnimatedNumber opacity      = AnimatedNumber::from_static(1.0);
+    AnimatedNumber anchor_x     = AnimatedNumber::from_static(0.5);
+    AnimatedNumber anchor_y     = AnimatedNumber::from_static(0.5);
+
+    TransformEvaluated evaluate_at(me_rational_t t) const {
+        return TransformEvaluated{
+            translate_x.evaluate_at(t),
+            translate_y.evaluate_at(t),
+            scale_x.evaluate_at(t),
+            scale_y.evaluate_at(t),
+            rotation_deg.evaluate_at(t),
+            opacity.evaluate_at(t),
+            anchor_x.evaluate_at(t),
+            anchor_y.evaluate_at(t),
+        };
+    }
 };
 
 /* Media kind of a clip. Mirrors TIMELINE_SCHEMA.md §Clip `"type"` enum

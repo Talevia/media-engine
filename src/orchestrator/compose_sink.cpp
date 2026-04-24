@@ -361,8 +361,18 @@ public:
 
                     const me::Clip& from_clip = tl_.clips[from_ci];
                     const me::Clip& to_clip   = tl_.clips[to_ci];
+                    const me::TransformEvaluated from_tr =
+                        from_clip.transform.has_value()
+                            ? from_clip.transform->evaluate_at(T)
+                            : me::TransformEvaluated{};
+                    const me::TransformEvaluated to_tr =
+                        to_clip.transform.has_value()
+                            ? to_clip.transform->evaluate_at(T)
+                            : me::TransformEvaluated{};
                     const me_status_t trs = compose_transition_step(
-                        fs, from_clip, to_clip, td_from, td_to, W, H,
+                        fs, from_tr, from_clip.transform.has_value(),
+                            to_tr,   to_clip.transform.has_value(),
+                        td_from, td_to, W, H,
                         track_rgba, from_rgba, to_rgba,
                         from_canvas, to_canvas,
                         src_w, src_h, transform_clip_idx,
@@ -380,19 +390,16 @@ public:
                  * applies via alpha_over (cross_dissolve doesn't
                  * touch alpha). */
                 const me::Clip& clip = tl_.clips[transform_clip_idx];
-                const float opacity =
+                const me::TransformEvaluated tr_eval =
                     clip.transform.has_value()
-                        ? static_cast<float>(clip.transform->opacity)
-                        : 1.0f;
+                        ? clip.transform->evaluate_at(T)
+                        : me::TransformEvaluated{};
+                const float opacity = static_cast<float>(tr_eval.opacity);
 
                 const bool spatial_identity =
                     spatial_already_applied ||
                     !clip.transform.has_value() ||
-                    (clip.transform->translate_x  == 0.0 &&
-                     clip.transform->translate_y  == 0.0 &&
-                     clip.transform->scale_x      == 1.0 &&
-                     clip.transform->scale_y      == 1.0 &&
-                     clip.transform->rotation_deg == 0.0);
+                    tr_eval.spatial_identity();
 
                 if (spatial_identity) {
                     if (src_w != W || src_h != H) {
@@ -417,13 +424,12 @@ public:
                         opacity,
                         me::compose::BlendMode::Normal);
                 } else {
-                    const me::Transform& tr = *clip.transform;
                     const me::compose::AffineMatrix inv =
                         me::compose::compose_inverse_affine(
-                            tr.translate_x, tr.translate_y,
-                            tr.scale_x,     tr.scale_y,
-                            tr.rotation_deg,
-                            tr.anchor_x,    tr.anchor_y,
+                            tr_eval.translate_x, tr_eval.translate_y,
+                            tr_eval.scale_x,     tr_eval.scale_y,
+                            tr_eval.rotation_deg,
+                            tr_eval.anchor_x,    tr_eval.anchor_y,
                             src_w, src_h);
                     me::compose::affine_blit(
                         track_rgba_xform.data(), W, H,

@@ -97,9 +97,9 @@ me::Transform parse_transform(const json& j, const std::string& where) {
     }
 
     me::Transform t;  /* identity defaults per struct definition */
-    auto read = [&](const char* key, double& target) {
+    auto read = [&](const char* key, me::AnimatedNumber& target) {
         if (j.contains(key)) {
-            target = parse_animated_static_number(j[key], where + "." + key);
+            target = parse_animated_number(j[key], where + "." + key);
         }
     };
     read("translateX",  t.translate_x);
@@ -111,12 +111,22 @@ me::Transform parse_transform(const json& j, const std::string& where) {
     read("anchorX",     t.anchor_x);
     read("anchorY",     t.anchor_y);
 
-    /* Opacity is the only field with an intrinsic range constraint —
-     * out-of-range values would produce undefined alpha blending. Other
-     * fields (scale/rotation/translate) accept any finite double including
-     * negatives (mirror, counter-rotate). */
-    require(t.opacity >= 0.0 && t.opacity <= 1.0, ME_E_PARSE,
-            where + ".opacity: must be in [0, 1]");
+    /* Opacity range validation: every sampled value (static or any
+     * keyframe.v) must fall in [0, 1]. Other fields accept any finite
+     * double (scale = 2 mirror, rotation = 720°, etc.). */
+    auto validate_opacity = [&](const me::AnimatedNumber& an) {
+        auto check_v = [&](double v) {
+            require(v >= 0.0 && v <= 1.0, ME_E_PARSE,
+                    where + ".opacity: value " + std::to_string(v) +
+                    " out of [0, 1]");
+        };
+        if (an.static_value.has_value()) {
+            check_v(*an.static_value);
+        } else {
+            for (const auto& kf : an.keyframes) check_v(kf.v);
+        }
+    };
+    validate_opacity(t.opacity);
 
     return t;
 }
