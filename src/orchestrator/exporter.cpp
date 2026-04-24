@@ -81,17 +81,15 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
      * asynchronously rather than me_render_start. This shifts the
      * rejection to its eventual home — once the frame loop replaces
      * the stub, the exact same call site renders successfully. */
-    const bool is_multi_track = tl_->tracks.size() > 1;
-    /* Transitions (cross-dissolve, etc.) require per-boundary alpha
-     * compositing across two clips' overlapping region. The phase-1
-     * concat path just stitches clips end-to-end, so a timeline
-     * that declares transitions would silently produce unblended
-     * hard cuts. Reject until cross-dissolve-kernel lands. */
-    if (!tl_->transitions.empty()) {
-        if (err) *err = "cross-dissolve / transitions not yet implemented — "
-                        "see cross-dissolve-kernel backlog item";
-        return ME_E_UNSUPPORTED;
-    }
+    /* ComposeSink path covers multi-track AND any single-track
+     * timeline that declares transitions — the latter needs per-frame
+     * compositing across the transition window (cross-dissolve blend),
+     * which the simple passthrough / h264aac sinks can't express.
+     * Compose route handles both cases via frame_source_at precedence
+     * (SingleClip region + Transition window). */
+    const bool is_multi_track   = tl_->tracks.size() > 1;
+    const bool has_transitions  = !tl_->transitions.empty();
+    const bool route_through_compose = is_multi_track || has_transitions;
 
     /* Compile a demux graph + carry a ClipTimeRange per clip. */
     std::vector<ClipPlan> plans;
@@ -152,7 +150,7 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
 
     me::resource::CodecPool* const codec_pool =
         engine_ ? engine_->codecs.get() : nullptr;
-    std::unique_ptr<OutputSink> sink = is_multi_track
+    std::unique_ptr<OutputSink> sink = route_through_compose
         ? make_compose_sink(*tl_, spec, std::move(common), std::move(ranges),
                              codec_pool, err)
         : make_output_sink(spec, std::move(common), std::move(ranges),

@@ -26,6 +26,7 @@
 #include "compose/active_clips.hpp"
 #include "compose/affine_blit.hpp"
 #include "compose/alpha_over.hpp"
+#include "compose/cross_dissolve.hpp"
 #include "compose/frame_convert.hpp"
 #include "io/av_err.hpp"
 #include "io/demux_context.hpp"
@@ -193,6 +194,16 @@ public:
         std::vector<uint8_t> track_rgba_xform(
             static_cast<std::size_t>(W) * H * 4, 0);
 
+        /* Transition working buffers — used only when a track returns
+         * FrameSourceKind::Transition at T (cross-dissolve window
+         * covers T on that track). `from_rgba` and `to_rgba` each
+         * hold the next decoded frame from the from_clip and to_clip
+         * decoders respectively; `track_rgba` is reused for the
+         * blended output (cross_dissolve writes here, then the
+         * existing alpha_over path applies opacity onto dst_rgba). */
+        std::vector<uint8_t> from_rgba;
+        std::vector<uint8_t> to_rgba;
+
         me::io::AvFramePtr target_yuv(av_frame_alloc());
         if (!target_yuv) {
             if (err) *err = "ComposeSink: av_frame_alloc(target_yuv)";
@@ -227,27 +238,32 @@ public:
                 tl_.frame_rate.num,
             };
 
-            const auto active = me::compose::active_clips_at(tl_, T);
-            if (active.empty()) {
-                /* No track has content at this timeline time — this
-                 * can happen if tl.duration overruns the real clips.
-                 * Emit a black frame so the output still has the
-                 * expected frame count. */
-                std::fill(dst_rgba.begin(), dst_rgba.end(), 0);
-                /* Restore full alpha so the YUV conversion doesn't
-                 * interpret RGB as zero-alpha ghosts. */
-                for (std::size_t i = 3; i < dst_rgba.size(); i += 4) {
-                    dst_rgba[i] = 255;
-                }
-            } else {
-                /* Start from opaque black; each active track alpha_over's
-                 * on top in declaration order (bottom → top z-order). */
-                std::fill(dst_rgba.begin(), dst_rgba.end(), 0);
-                for (std::size_t i = 3; i < dst_rgba.size(); i += 4) {
-                    dst_rgba[i] = 255;
-                }
+            /* Start from opaque black; each track's FrameSource
+             * (SingleClip or Transition) alpha_over's on top in
+             * Timeline::tracks declaration order (bottom → top
+             * z-order). Tracks whose frame_source_at returns None at
+             * T contribute nothing (lower layers unchanged). */
+            std::fill(dst_rgba.begin(), dst_rgba.end(), 0);
+            for (std::size_t i = 3; i < dst_rgba.size(); i += 4) {
+                dst_rgba[i] = 255;
+            }
 
-                for (const auto& ta : active) {
+            for (std::size_t ti = 0; ti < tl_.tracks.size(); ++ti) {
+                const me::compose::FrameSource fs =
+                    me::compose::frame_source_at(tl_, ti, T);
+
+                if (fs.kind == me::compose::FrameSourceKind::None) continue;
+
+                /* Track-level output of this frame's compositing
+                 * (before opacity + transform): track_rgba is filled
+                 * with W×H×4 RGBA8 ready for alpha_over onto dst_rgba.
+                 * SingleClip path: decoded frame → track_rgba.
+                 * Transition path: cross_dissolve(from, to, t) → track_rgba. */
+                int src_w = 0, src_h = 0;
+                std::size_t transform_clip_idx = SIZE_MAX;   /* for per-clip opacity / Transform */
+
+                if (fs.kind == me::compose::FrameSourceKind::SingleClip) {
+                    const me::compose::TrackActive& ta = fs.single;
                     if (ta.clip_idx >= clip_decoders.size()) continue;
                     TrackDecoderState& td = clip_decoders[ta.clip_idx];
                     if (td.video_stream_idx < 0 || !td.dec) continue;
@@ -255,18 +271,11 @@ public:
                     me_status_t pull_s = pull_next_video_frame(
                         td.demux->fmt, td.video_stream_idx, td.dec.get(),
                         td.pkt_scratch.get(), td.frame_scratch.get(), err);
-                    if (pull_s == ME_E_NOT_FOUND) {
-                        /* Track exhausted early — leave dst_rgba as-is
-                         * for this layer (lower layers unchanged). */
-                        continue;
-                    }
+                    if (pull_s == ME_E_NOT_FOUND) continue;
                     if (pull_s != ME_OK) return pull_s;
 
-                    /* Capture source dims BEFORE unref (av_frame_unref
-                     * zeroes width/height as part of releasing buffer
-                     * references). */
-                    const int src_w = td.frame_scratch->width;
-                    const int src_h = td.frame_scratch->height;
+                    src_w = td.frame_scratch->width;
+                    src_h = td.frame_scratch->height;
 
                     if (auto s = me::compose::frame_to_rgba8(
                             td.frame_scratch.get(), track_rgba, err);
@@ -275,75 +284,172 @@ public:
                         return s;
                     }
                     av_frame_unref(td.frame_scratch.get());
+                    transform_clip_idx = ta.clip_idx;
+                } else {
+                    /* Transition. Pull from + to decoders, both at
+                     * canvas resolution for phase-1 (cross_dissolve
+                     * requires matching dims + strides across all
+                     * three buffers — enforcing W×H avoids a separate
+                     * affine pre-composite for each endpoint).
+                     *
+                     * Phase-1 limitations (documented in the
+                     * cross-dissolve-transition-render-wire decision):
+                     *   - No per-clip Transform applied to from/to
+                     *     during the transition window (identity
+                     *     assumed). Slow-path affine during blend is
+                     *     a follow-up.
+                     *   - to_clip's single-clip region after the
+                     *     transition window plays `duration/2` ahead
+                     *     of what the schema nominally says — because
+                     *     the to decoder advances by one frame per
+                     *     output frame throughout the window, arriving
+                     *     at the post-window boundary with
+                     *     `duration/2 * fps` frames consumed. Slowly-
+                     *     changing content makes this visually
+                     *     imperceptible; proper handles / seeking
+                     *     is future work. */
+                    const std::size_t from_ci = fs.transition_from_clip_idx;
+                    const std::size_t to_ci   = fs.transition_to_clip_idx;
+                    if (from_ci >= clip_decoders.size() ||
+                        to_ci   >= clip_decoders.size()) continue;
+                    TrackDecoderState& td_from = clip_decoders[from_ci];
+                    TrackDecoderState& td_to   = clip_decoders[to_ci];
+                    if (td_from.video_stream_idx < 0 || !td_from.dec ||
+                        td_to.video_stream_idx   < 0 || !td_to.dec) continue;
 
-                    const me::Clip& clip = tl_.clips[ta.clip_idx];
-                    const float opacity =
-                        clip.transform.has_value()
-                            ? static_cast<float>(clip.transform->opacity)
-                            : 1.0f;
-
-                    /* Spatial identity = translate 0 + scale 1 + rotate 0.
-                     * Anchor doesn't matter when the three differentials
-                     * are identity; no pre-composite pass needed and the
-                     * fast path requires src dims == output dims. */
-                    const bool spatial_identity =
-                        !clip.transform.has_value() ||
-                        (clip.transform->translate_x  == 0.0 &&
-                         clip.transform->translate_y  == 0.0 &&
-                         clip.transform->scale_x      == 1.0 &&
-                         clip.transform->scale_y      == 1.0 &&
-                         clip.transform->rotation_deg == 0.0);
-
-                    if (spatial_identity) {
-                        /* Fast path: src dims must match output dims
-                         * (identity mapping at pixel granularity). */
-                        if (src_w != W || src_h != H) {
-                            if (err) {
-                                *err = "ComposeSink: track frame size (" +
-                                       std::to_string(src_w) + "x" +
-                                       std::to_string(src_h) +
-                                       ") doesn't match output (" +
-                                       std::to_string(W) + "x" +
-                                       std::to_string(H) +
-                                       "); either match the timeline "
-                                       "resolution or set a non-identity "
-                                       "Transform (scale != 1 or translate "
-                                       "!= 0) to opt into the affine "
-                                       "pre-composite path";
-                            }
-                            return ME_E_UNSUPPORTED;
+                    /* Pull from_clip; if exhausted, degrade to to-only
+                     * single-clip rendering (weight-based soft degrade
+                     * isn't possible without a cached last-from frame,
+                     * which is a follow-up for real handle support). */
+                    const me_status_t pull_from = pull_next_video_frame(
+                        td_from.demux->fmt, td_from.video_stream_idx,
+                        td_from.dec.get(), td_from.pkt_scratch.get(),
+                        td_from.frame_scratch.get(), err);
+                    bool from_valid = false;
+                    int from_w = 0, from_h = 0;
+                    if (pull_from == ME_OK) {
+                        from_w = td_from.frame_scratch->width;
+                        from_h = td_from.frame_scratch->height;
+                        if (auto s = me::compose::frame_to_rgba8(
+                                td_from.frame_scratch.get(), from_rgba, err);
+                            s != ME_OK) {
+                            av_frame_unref(td_from.frame_scratch.get());
+                            return s;
                         }
-                        me::compose::alpha_over(
-                            dst_rgba.data(), track_rgba.data(),
-                            W, H, static_cast<std::size_t>(W) * 4,
-                            opacity,
-                            me::compose::BlendMode::Normal);
-                    } else {
-                        /* Slow path: affine pre-composite. Build
-                         * inverse matrix from the Transform, blit
-                         * src → canvas-sized intermediate, then
-                         * alpha_over the intermediate. Handles
-                         * differing src/output dims implicitly. */
-                        const me::Transform& tr = *clip.transform;
-                        const me::compose::AffineMatrix inv =
-                            me::compose::compose_inverse_affine(
-                                tr.translate_x, tr.translate_y,
-                                tr.scale_x,     tr.scale_y,
-                                tr.rotation_deg,
-                                tr.anchor_x,    tr.anchor_y,
-                                src_w, src_h);
-                        me::compose::affine_blit(
-                            track_rgba_xform.data(), W, H,
-                            static_cast<std::size_t>(W) * 4,
-                            track_rgba.data(), src_w, src_h,
-                            static_cast<std::size_t>(src_w) * 4,
-                            inv);
-                        me::compose::alpha_over(
-                            dst_rgba.data(), track_rgba_xform.data(),
-                            W, H, static_cast<std::size_t>(W) * 4,
-                            opacity,
-                            me::compose::BlendMode::Normal);
+                        av_frame_unref(td_from.frame_scratch.get());
+                        from_valid = true;
+                    } else if (pull_from != ME_E_NOT_FOUND) {
+                        return pull_from;
                     }
+
+                    /* Pull to_clip. */
+                    const me_status_t pull_to = pull_next_video_frame(
+                        td_to.demux->fmt, td_to.video_stream_idx,
+                        td_to.dec.get(), td_to.pkt_scratch.get(),
+                        td_to.frame_scratch.get(), err);
+                    if (pull_to == ME_E_NOT_FOUND) continue;   /* whole transition contributes nothing */
+                    if (pull_to != ME_OK) return pull_to;
+
+                    const int to_w = td_to.frame_scratch->width;
+                    const int to_h = td_to.frame_scratch->height;
+                    if (auto s = me::compose::frame_to_rgba8(
+                            td_to.frame_scratch.get(), to_rgba, err);
+                        s != ME_OK) {
+                        av_frame_unref(td_to.frame_scratch.get());
+                        return s;
+                    }
+                    av_frame_unref(td_to.frame_scratch.get());
+
+                    /* Enforce W×H for transition endpoint frames. */
+                    if (to_w != W || to_h != H ||
+                        (from_valid && (from_w != W || from_h != H))) {
+                        if (err) {
+                            *err = "ComposeSink: cross-dissolve endpoint frame size "
+                                   "doesn't match output; transition rendering "
+                                   "requires W×H-matching source frames for phase-1 "
+                                   "(affine pre-composite during blend is a "
+                                   "follow-up of cross-dissolve-transition-render-wire)";
+                        }
+                        return ME_E_UNSUPPORTED;
+                    }
+
+                    const std::size_t bytes = static_cast<std::size_t>(W) * H * 4;
+                    if (track_rgba.size() != bytes) track_rgba.resize(bytes);
+
+                    if (from_valid) {
+                        me::compose::cross_dissolve(
+                            track_rgba.data(),
+                            from_rgba.data(), to_rgba.data(),
+                            W, H, static_cast<std::size_t>(W) * 4,
+                            fs.transition.t);
+                    } else {
+                        /* from exhausted — copy to into track_rgba
+                         * unblended (t effectively = 1). */
+                        std::memcpy(track_rgba.data(), to_rgba.data(), bytes);
+                    }
+                    src_w = W;
+                    src_h = H;
+                    transform_clip_idx = to_ci;   /* to_clip's opacity / transform wins for layer compositing */
+                }
+
+                /* Common: apply per-clip opacity + optional affine
+                 * transform, then alpha_over onto dst_rgba. */
+                const me::Clip& clip = tl_.clips[transform_clip_idx];
+                const float opacity =
+                    clip.transform.has_value()
+                        ? static_cast<float>(clip.transform->opacity)
+                        : 1.0f;
+
+                const bool spatial_identity =
+                    !clip.transform.has_value() ||
+                    (clip.transform->translate_x  == 0.0 &&
+                     clip.transform->translate_y  == 0.0 &&
+                     clip.transform->scale_x      == 1.0 &&
+                     clip.transform->scale_y      == 1.0 &&
+                     clip.transform->rotation_deg == 0.0);
+
+                if (spatial_identity) {
+                    if (src_w != W || src_h != H) {
+                        if (err) {
+                            *err = "ComposeSink: track frame size (" +
+                                   std::to_string(src_w) + "x" +
+                                   std::to_string(src_h) +
+                                   ") doesn't match output (" +
+                                   std::to_string(W) + "x" +
+                                   std::to_string(H) +
+                                   "); either match the timeline "
+                                   "resolution or set a non-identity "
+                                   "Transform (scale != 1 or translate "
+                                   "!= 0) to opt into the affine "
+                                   "pre-composite path";
+                        }
+                        return ME_E_UNSUPPORTED;
+                    }
+                    me::compose::alpha_over(
+                        dst_rgba.data(), track_rgba.data(),
+                        W, H, static_cast<std::size_t>(W) * 4,
+                        opacity,
+                        me::compose::BlendMode::Normal);
+                } else {
+                    const me::Transform& tr = *clip.transform;
+                    const me::compose::AffineMatrix inv =
+                        me::compose::compose_inverse_affine(
+                            tr.translate_x, tr.translate_y,
+                            tr.scale_x,     tr.scale_y,
+                            tr.rotation_deg,
+                            tr.anchor_x,    tr.anchor_y,
+                            src_w, src_h);
+                    me::compose::affine_blit(
+                        track_rgba_xform.data(), W, H,
+                        static_cast<std::size_t>(W) * 4,
+                        track_rgba.data(), src_w, src_h,
+                        static_cast<std::size_t>(src_w) * 4,
+                        inv);
+                    me::compose::alpha_over(
+                        dst_rgba.data(), track_rgba_xform.data(),
+                        W, H, static_cast<std::size_t>(W) * 4,
+                        opacity,
+                        me::compose::BlendMode::Normal);
                 }
             }
 
@@ -437,28 +543,37 @@ std::unique_ptr<OutputSink> make_compose_sink(
     std::string*                   err) {
 
     if (!streq(spec.video_codec, "h264") || !streq(spec.audio_codec, "aac")) {
-        if (err) *err = "multi-track compose currently requires "
-                         "video_codec=h264 + audio_codec=aac; other codecs "
-                         "(including passthrough) unsupported for compose path";
+        if (err) *err = "compose path (used for multi-track or transitions) "
+                         "currently requires video_codec=h264 + audio_codec=aac; "
+                         "other codecs (including passthrough) unsupported";
         return nullptr;
     }
     if (!pool) {
-        if (err) *err = "multi-track compose requires a CodecPool (engine->codecs)";
+        if (err) *err = "compose path requires a CodecPool (engine->codecs)";
         return nullptr;
     }
     if (clip_ranges.empty()) {
-        if (err) *err = "multi-track compose requires at least one clip";
+        if (err) *err = "compose path requires at least one clip";
         return nullptr;
     }
-    if (tl.tracks.size() < 2) {
-        if (err) *err = "make_compose_sink: expected 2+ tracks (single-track "
-                         "timelines route through make_output_sink, not here)";
+    /* Accept multi-track OR any timeline with transitions. Single-
+     * track no-transition timelines route through make_output_sink. */
+    if (tl.tracks.size() < 2 && tl.transitions.empty()) {
+        if (err) *err = "make_compose_sink: expected 2+ tracks or non-empty "
+                         "transitions (simpler timelines route through "
+                         "make_output_sink, not here)";
         return nullptr;
     }
 
-    /* Phase-1: each track must have exactly one clip. Multi-clip-per-
-     * track compose needs within-track clip-transition handling which
-     * is separately-scoped work. */
+    /* Per-track clip-count rule:
+     *   - Track without any transition on it: exactly 1 clip
+     *     (multi-clip concat on a non-transition track is
+     *     the old "multi-clip-single-track compose" gap that
+     *     needs decoder seek / source_start=0 semantics — not
+     *     in this phase).
+     *   - Track with at least one transition declared on it: 2+
+     *     clips allowed (a transition's from_clip_id + to_clip_id
+     *     point at two distinct clips on the same track). */
     std::vector<std::size_t> per_track_count(tl.tracks.size(), 0);
     for (const auto& c : tl.clips) {
         for (std::size_t ti = 0; ti < tl.tracks.size(); ++ti) {
@@ -468,10 +583,20 @@ std::unique_ptr<OutputSink> make_compose_sink(
             }
         }
     }
+    std::vector<bool> track_has_transition(tl.tracks.size(), false);
+    for (const auto& tr : tl.transitions) {
+        for (std::size_t ti = 0; ti < tl.tracks.size(); ++ti) {
+            if (tl.tracks[ti].id == tr.track_id) {
+                track_has_transition[ti] = true;
+                break;
+            }
+        }
+    }
     for (std::size_t ti = 0; ti < per_track_count.size(); ++ti) {
+        if (track_has_transition[ti]) continue;   /* transition tracks exempt */
         if (per_track_count[ti] != 1) {
             if (err) {
-                *err = "multi-track compose phase-1: each track must have "
+                *err = "compose phase-1: non-transition tracks must have "
                        "exactly 1 clip; track[" + std::to_string(ti) +
                        "] has " + std::to_string(per_track_count[ti]);
             }

@@ -350,3 +350,75 @@ TEST_CASE("ComposeSink e2e: two 2-track renders produce similarly-sized output")
     CHECK(ratio >= 0.90);
     CHECK(ratio <= 1.10);
 }
+
+TEST_CASE("ComposeSink e2e: single-track with cross-dissolve transition renders") {
+    /* Cross-dissolve wire-in smoke test. 2-clip single-track timeline
+     * with a 0.5s cross-dissolve transition. The compose path is
+     * reached via has_transitions=true (bypassing the is_multi_track
+     * check). Transition window: [0.75s, 1.25s) — midway in the
+     * 2s timeline. Verifies the route_through_compose routing +
+     * compose factory acceptance + frame loop Transition branch
+     * don't crash; pixel-exact correctness of the blend is pinned
+     * by test_compose_cross_dissolve (kernel) and by
+     * test_compose_active_clips (scheduler). */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) { return; }
+
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    const std::string fixture_uri = "file://" + fixture_path;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":25,"den":1},
+      "resolution": {"width":640,"height":480},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":")" + fixture_uri + R"("}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"cA","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}},
+          {"type":"video","id":"cB","assetId":"a1",
+           "timeRange":{"start":{"num":25,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ],"transitions":[
+          {"kind":"crossDissolve","fromClipId":"cA","toClipId":"cB",
+           "duration":{"num":12,"den":25}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+    TimelineHandle tl;
+    REQUIRE(me_timeline_load_json(eng.p, j.data(), j.size(), &tl.p) == ME_OK);
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-compose-sink-e2e";
+    fs::create_directories(tmp_dir);
+    const fs::path out_path = tmp_dir / "crossdissolve.mp4";
+    fs::remove(out_path);
+
+    me_output_spec_t spec{};
+    spec.path        = out_path.c_str();
+    spec.container   = "mp4";
+    spec.video_codec = "h264";
+    spec.audio_codec = "aac";
+
+    JobHandle job;
+    REQUIRE(me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, &job.p) == ME_OK);
+    const me_status_t wait_s = me_render_wait(job.p);
+
+    const char* err_msg = me_engine_last_error(eng.p);
+    const std::string err_str = err_msg ? std::string{err_msg} : std::string{};
+    MESSAGE("crossdissolve e2e: status=" << static_cast<int>(wait_s)
+            << " err='" << err_str << "'");
+
+    if (wait_s == ME_E_UNSUPPORTED || wait_s == ME_E_ENCODE) {
+        /* videotoolbox unavailable or known encoder limit — not an
+         * e2e regression signal we can pin here. */
+        return;
+    }
+
+    CHECK(wait_s == ME_OK);
+    CHECK(fs::exists(out_path));
+    CHECK(fs::file_size(out_path) > 4096);
+}

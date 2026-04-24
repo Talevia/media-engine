@@ -308,7 +308,7 @@ TEST_CASE("multi-track + passthrough codec is rejected synchronously by compose 
     CHECK(job == nullptr);
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("multi-track compose currently requires") != std::string::npos);
+    CHECK(std::string{err}.find("compose path") != std::string::npos);
     me_timeline_destroy(tl);
 }
 
@@ -911,7 +911,12 @@ TEST_CASE("track.transitions with crossDissolve between adjacent clips loads int
     me_timeline_destroy(tl);
 }
 
-TEST_CASE("non-empty transitions rejected at render layer by Exporter") {
+TEST_CASE("non-empty transitions route through compose sink; passthrough codec rejected") {
+    /* Previously, Exporter flat-rejected any timeline with transitions
+     * (before cross-dissolve kernel existed). Now transitions route
+     * through ComposeSink, which requires h264/aac encoding. The
+     * test keeps its passthrough spec to verify the precise surface
+     * where rejection happens: the compose factory's codec gate. */
     EngineFixture f;
     const std::string j = R"({
       "schemaVersion": 1,
@@ -945,7 +950,8 @@ TEST_CASE("non-empty transitions rejected at render layer by Exporter") {
     CHECK(me_render_start(f.eng, tl, &spec, nullptr, nullptr, &job) == ME_E_UNSUPPORTED);
     const char* err = me_engine_last_error(f.eng);
     REQUIRE(err != nullptr);
-    CHECK(std::string{err}.find("cross-dissolve / transitions not yet implemented") != std::string::npos);
+    CHECK(std::string{err}.find("compose path") != std::string::npos);
+    CHECK(std::string{err}.find("h264") != std::string::npos);
     me_timeline_destroy(tl);
 }
 
