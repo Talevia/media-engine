@@ -41,7 +41,9 @@ AudioMixer::~AudioMixer() {
     av_channel_layout_uninit(&cfg_.target_ch_layout);
 }
 
-me_status_t AudioMixer::add_track(AudioTrackFeed feed, std::string* err) {
+me_status_t AudioMixer::add_track(AudioTrackFeed     feed,
+                                   me::AnimatedNumber gain_db,
+                                   std::string*       err) {
     if (!ok_) {
         if (err) *err = "AudioMixer: mixer not ok (check ctor err)";
         return ME_E_INTERNAL;
@@ -54,7 +56,8 @@ me_status_t AudioMixer::add_track(AudioTrackFeed feed, std::string* err) {
     }
 
     TrackState ts;
-    ts.feed = std::move(feed);
+    ts.feed    = std::move(feed);
+    ts.gain_db = std::move(gain_db);
     ts.planes.assign(num_channels_, std::vector<float>{});
     tracks_.push_back(std::move(ts));
     return ME_OK;
@@ -143,9 +146,19 @@ me_status_t AudioMixer::pull_next_mixed_frame(AVFrame**    out_frame,
     std::vector<std::vector<float>> track_strips_buf;
     track_strips_buf.assign(N, std::vector<float>(want, 0.0f));
 
-    /* Gains: 1.0 everywhere. AudioTrackFeed already applied per-clip
-     * gain during pull. Mixer's role is pure sum + limit. */
+    /* Evaluate per-track animated gain at this frame's timeline T.
+     * T is the emission cursor in rational form — samples_emitted_
+     * is monotonically advanced by `want` each successful pull, so
+     * the same T is produced for the same frame index across runs
+     * (determinism). Per-frame-constant gain is a buffer-level
+     * approximation; within a 1024/48k = ~21ms window we hold gain
+     * flat rather than interpolate per-sample. */
+    const me_rational_t T{samples_emitted_, cfg_.target_rate};
     std::vector<float> gains(N, 1.0f);
+    for (int i = 0; i < N; ++i) {
+        gains[i] = db_to_linear(
+            static_cast<float>(tracks_[i].gain_db.evaluate_at(T)));
+    }
 
     /* Output frame allocated up front; planes filled per channel. */
     AVFrame* out = av_frame_alloc();
@@ -210,6 +223,7 @@ me_status_t AudioMixer::pull_next_mixed_frame(AVFrame**    out_frame,
         }
     }
 
+    samples_emitted_ += want;
     *out_frame = out;
     return ME_OK;
 }
@@ -284,14 +298,11 @@ me_status_t build_audio_mixer_for_timeline(
             return ME_E_INVALID_ARG;
         }
 
-        const float gain_linear = static_cast<float>(
-            db_to_linear(static_cast<float>(c.gain_db.value_or(0.0))));
-
         AudioTrackFeed feed;
         const me_status_t s = open_audio_track_feed(
             demux_by_clip_idx[ci], pool,
             cfg.target_rate, cfg.target_fmt, cfg.target_ch_layout,
-            gain_linear, feed, err);
+            feed, err);
         if (s != ME_OK) {
             /* Prefix with clip context for easier debugging. */
             if (err) *err = "build_audio_mixer_for_timeline: clip[" +
@@ -299,7 +310,12 @@ me_status_t build_audio_mixer_for_timeline(
             return s;
         }
 
-        const me_status_t add_s = mixer->add_track(std::move(feed), err);
+        me::AnimatedNumber gain_db = c.gain_db.has_value()
+            ? *c.gain_db
+            : me::AnimatedNumber::from_static(0.0);
+
+        const me_status_t add_s = mixer->add_track(
+            std::move(feed), std::move(gain_db), err);
         if (add_s != ME_OK) {
             if (err) *err = "build_audio_mixer_for_timeline: clip[" +
                              std::to_string(ci) + "] add_track: " + *err;

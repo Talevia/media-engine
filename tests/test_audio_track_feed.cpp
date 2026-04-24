@@ -53,7 +53,7 @@ TEST_CASE("open_audio_track_feed: null demux returns ME_E_INVALID_ARG") {
     me::audio::AudioTrackFeed feed;
     std::string err;
     CHECK(me::audio::open_audio_track_feed(
-              nullptr, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 1.0f, feed, &err)
+              nullptr, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, feed, &err)
           == ME_E_INVALID_ARG);
 }
 
@@ -68,7 +68,7 @@ TEST_CASE("open_audio_track_feed: invalid target_rate returns ME_E_INVALID_ARG")
     me::audio::AudioTrackFeed feed;
     std::string err;
     CHECK(me::audio::open_audio_track_feed(
-              demux, pool, 0, AV_SAMPLE_FMT_FLTP, mono.l, 1.0f, feed, &err)
+              demux, pool, 0, AV_SAMPLE_FMT_FLTP, mono.l, feed, &err)
           == ME_E_INVALID_ARG);
 }
 
@@ -87,7 +87,7 @@ TEST_CASE("open_audio_track_feed: demux with no audio returns ME_E_NOT_FOUND") {
     me::audio::AudioTrackFeed feed;
     std::string err;
     CHECK(me::audio::open_audio_track_feed(
-              demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 1.0f, feed, &err)
+              demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, feed, &err)
           == ME_E_NOT_FOUND);
 }
 
@@ -105,13 +105,12 @@ TEST_CASE("open_audio_track_feed: configures fields on success") {
     me::audio::AudioTrackFeed feed;
     std::string err;
     REQUIRE(me::audio::open_audio_track_feed(
-                demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 0.5f, feed, &err)
+                demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, feed, &err)
             == ME_OK);
     CHECK(feed.audio_stream_idx >= 0);
     CHECK(feed.target_rate == 48000);
     CHECK(feed.target_fmt == AV_SAMPLE_FMT_FLTP);
     CHECK(feed.target_ch_layout.nb_channels == 1);
-    CHECK(feed.gain_linear == 0.5f);
     CHECK_FALSE(feed.eof);
 }
 
@@ -126,7 +125,7 @@ TEST_CASE("pull_next_processed_audio_frame: drains feed to EOF with target-forma
     me::audio::AudioTrackFeed feed;
     std::string err;
     REQUIRE(me::audio::open_audio_track_feed(
-                demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 1.0f, feed, &err)
+                demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, feed, &err)
             == ME_OK);
 
     int pulled = 0;
@@ -145,33 +144,6 @@ TEST_CASE("pull_next_processed_audio_frame: drains feed to EOF with target-forma
     }
     CHECK(pulled >= 1);
     CHECK(feed.eof);
-}
-
-TEST_CASE("pull_next_processed_audio_frame: applies gain on FLTP target (silent input stays silent)") {
-    const std::string fixture = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
-    if (fixture.empty() || !fs::exists(fixture)) { return; }
-
-    auto demux = open_demux(fixture);
-    REQUIRE(demux);
-    me::resource::CodecPool pool;
-    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
-    me::audio::AudioTrackFeed feed;
-    std::string err;
-    /* gain 0.5 doesn't produce visibly-different output on silent
-     * input (0 * 0.5 == 0), but exercises the gain-apply code path
-     * — assert finiteness + zero for silence. */
-    REQUIRE(me::audio::open_audio_track_feed(
-                demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 0.5f, feed, &err)
-            == ME_OK);
-
-    AVFrame* f = nullptr;
-    REQUIRE(me::audio::pull_next_processed_audio_frame(feed, &f, &err) == ME_OK);
-    REQUIRE(f != nullptr);
-    auto* samples = reinterpret_cast<const float*>(f->extended_data[0]);
-    for (int i = 0; i < f->nb_samples; ++i) {
-        CHECK(samples[i] == 0.0f);
-    }
-    av_frame_free(&f);
 }
 
 TEST_CASE("pull_next_processed_audio_frame: null out_frame returns ME_E_INVALID_ARG") {

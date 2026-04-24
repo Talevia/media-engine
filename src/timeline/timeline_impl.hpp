@@ -171,13 +171,16 @@ struct Clip {
      * meaningless). */
     std::optional<Transform> transform;
 
-    /* Audio-only: optional static gain in decibels. Populated iff
+    /* Audio-only: optional animated gain in decibels. Populated iff
      * JSON clip carries a `gainDb` object of the form
-     * `{"static": <number>}`. Phase-1 static-only; `keyframes` form
-     * rejected by loader. Ignored on video clips (loader rejects
-     * gainDb on video). Consumer is audio-mix-kernel (M2 follow-up)
-     * and M4 audio-effect-chain. */
-    std::optional<double> gain_db;
+     * `{"static": <number>}` or `{"keyframes": [...]}` (same
+     * AnimatedNumber shape as Transform fields). Keyframe times are
+     * in timeline-global rational time — consumers evaluate via
+     * `gain_db->evaluate_at(T)` where T is the audio frame's
+     * timeline-global timestamp. Ignored on video clips (loader
+     * rejects gainDb on video). Consumer is AudioMixer (applies
+     * per-emitted-frame linear gain). */
+    std::optional<AnimatedNumber> gain_db;
 };
 
 /* Kind of a compositing track. Audio tracks carry audio clips, video

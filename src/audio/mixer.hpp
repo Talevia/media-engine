@@ -15,9 +15,13 @@
  *   - Target format must be AV_SAMPLE_FMT_FLTP (planar float).
  *   - All feeds must share the same target (rate, fmt, ch_layout)
  *     — enforced at `add_track` time; mixer does not re-resample.
- *   - `mix_samples` applies gain_linear=1.0 per input: per-clip
- *     gain was already applied by AudioTrackFeed during pull.
- *     Mixer's responsibility is purely sum + limit.
+ *   - Per-clip gain lives on the mixer (AnimatedNumber gain_db per
+ *     track) and is evaluated at the timeline-global T for each
+ *     emitted frame via `AnimatedNumber::evaluate_at(T)` +
+ *     `db_to_linear`. T is computed from the running samples-
+ *     emitted cursor and cfg.target_rate; per-frame-constant gain
+ *     is a buffer-level approximation (fine-grained enough for
+ *     typical envelope automation at ~20ms at 1024/48k).
  *
  * Ownership:
  *   - Mixer owns N AudioTrackFeed instances (moved in via
@@ -33,6 +37,7 @@
 
 #include "audio/track_feed.hpp"
 #include "media_engine/types.h"
+#include "timeline/animated_number.hpp"
 
 extern "C" {
 #include <libavutil/channel_layout.h>
@@ -84,10 +89,14 @@ public:
 
     /* Add a track. Feed's target config must match mixer's
      * (target_rate, target_fmt, target_ch_layout.nb_channels).
-     * Returns ME_OK on success; ME_E_INVALID_ARG if mismatch; in
-     * either case the feed is consumed (moved in on success;
-     * destructed on failure). */
-    me_status_t add_track(AudioTrackFeed feed, std::string* err);
+     * `gain_db` is the per-clip animated gain evaluated per
+     * emitted frame at the current timeline T; static-0 means
+     * unity (no gain scaling). Returns ME_OK on success;
+     * ME_E_INVALID_ARG if mismatch; in either case the feed is
+     * consumed (moved in on success; destructed on failure). */
+    me_status_t add_track(AudioTrackFeed      feed,
+                           me::AnimatedNumber  gain_db,
+                           std::string*        err);
 
     /* Pull the next mixed frame of `cfg.frame_size` samples.
      *
@@ -134,32 +143,43 @@ public:
 
 private:
     struct TrackState {
-        AudioTrackFeed feed;
+        AudioTrackFeed     feed;
+        /* Per-clip animated gain in dB — evaluated at each emitted
+         * mixed frame's timeline-global T. Static-0 gain_db means
+         * unity (evaluate_at → 0.0 → db_to_linear → 1.0). */
+        me::AnimatedNumber gain_db;
         /* Per-channel-plane FIFO. Size = cfg.target_ch_layout.nb_channels.
          * Each plane holds queued float samples; front is the next
          * sample to emit. */
         std::vector<std::vector<float>> planes;
     };
 
-    /* Pull one AVFrame from track[ti].feed, resample/gain applied
-     * (feed does it), append its samples to track[ti].planes.
-     * Returns ME_OK, ME_E_NOT_FOUND (feed EOF), or error. */
+    /* Pull one AVFrame from track[ti].feed, resample applied by
+     * feed, append its samples to track[ti].planes. Gain is NOT
+     * applied here — the per-frame mix path evaluates animated
+     * gain at the timeline T for each emitted frame. Returns
+     * ME_OK, ME_E_NOT_FOUND (feed EOF), or error. */
     me_status_t fill_one_from_feed(TrackState& ts, std::string* err);
 
     AudioMixerConfig cfg_{};
     bool             ok_ = false;
     int              num_channels_ = 0;
     std::vector<TrackState> tracks_;
+    /* Running count of samples emitted by pull_next_mixed_frame.
+     * Used to compute timeline-global T at each emitted frame via
+     * `T = {samples_emitted_, cfg_.target_rate}` (rational) for
+     * per-track `gain_db.evaluate_at(T)`. */
+    int64_t          samples_emitted_ = 0;
 };
 
 /* Build an AudioMixer from a Timeline + per-clip DemuxContext list.
  *
  * Walks `tl.clips`, filters to clips whose track has
  * `TrackKind::Audio`, opens an `AudioTrackFeed` per such clip using
- * `demux_by_clip_idx[clip_idx]` as the source demux and applying
- * the clip's `gain_db` (converted via `db_to_linear`) as the
- * feed's linear gain (clips without gain_db default to 0 dB = unity).
- * Each feed is added to the new mixer.
+ * `demux_by_clip_idx[clip_idx]` as the source demux, and forwards
+ * the clip's animated `gain_db` to `AudioMixer::add_track` where it
+ * is evaluated per emitted frame (clips without gain_db default to
+ * static 0 dB = unity).
  *
  * `demux_by_clip_idx` must be indexed parallel to `tl.clips` —
  * i.e. `demux_by_clip_idx[ci]` is the opened demux for `tl.clips[ci]`

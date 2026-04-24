@@ -55,10 +55,8 @@ double          parse_animated_static_number(const nlohmann::json& prop,
  * interp ∈ {linear, bezier, hold, stepped}, bezier requires `cp`
  * (4-float array with x1/x2 ∈ [0,1]).
  *
- * Currently **unused** by parse_transform / Clip::gain_db
- * (those call the static-only variant). Layer 3 of
- * `transform-animated-support` migrates callers once Transform
- * fields and Clip::gain_db become AnimatedNumber. */
+ * Consumed by `parse_transform` (all 8 Transform fields) and
+ * `Clip::gain_db` parsing. */
 me::AnimatedNumber parse_animated_number(const nlohmann::json& prop,
                                           const std::string& where);
 

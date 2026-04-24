@@ -674,8 +674,9 @@ TEST_CASE("clip transform missing static key rejected as ME_E_PARSE") {
 
 /* ========================================================================
  * Audio tracks — audio-mix-two-track schema+IR scope. Loader accepts
- * `kind: audio` tracks with `type: audio` clips and optional static
- * `gainDb`; Exporter rejects audio tracks until audio-mix-kernel lands.
+ * `kind: audio` tracks with `type: audio` clips and optional animated
+ * `gainDb` ({"static":v} or {"keyframes":[...]}); AudioMixer evaluates
+ * per emitted frame.
  * ======================================================================== */
 
 TEST_CASE("audio track with audio clip + static gainDb loads into IR") {
@@ -705,8 +706,47 @@ TEST_CASE("audio track with audio clip + static gainDb loads into IR") {
     REQUIRE(tl->tl.clips.size() == 1);
     CHECK(tl->tl.clips[0].type == me::ClipType::Audio);
     REQUIRE(tl->tl.clips[0].gain_db.has_value());
-    CHECK(*tl->tl.clips[0].gain_db == -6.0);
+    CHECK(tl->tl.clips[0].gain_db->static_value.has_value());
+    CHECK(*tl->tl.clips[0].gain_db->static_value == -6.0);
     CHECK_FALSE(tl->tl.clips[0].transform.has_value());
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("audio track with audio clip + keyframed gainDb loads into IR") {
+    EngineFixture f;
+    const std::string j = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":1920,"height":1080},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"audio","uri":"file:///tmp/audio.wav"}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"audio","id":"c1","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "sourceRange":{"start":{"num":0,"den":48000},"duration":{"num":48000,"den":48000}},
+           "gainDb":{"keyframes":[
+             {"t":{"num":0,"den":48000},    "v":0.0,   "interp":"linear"},
+             {"t":{"num":48000,"den":48000},"v":-20.0, "interp":"linear"}
+           ]}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    REQUIRE(tl != nullptr);
+    REQUIRE(tl->tl.clips[0].gain_db.has_value());
+    /* Keyframed form: static_value empty, keyframes populated. */
+    CHECK_FALSE(tl->tl.clips[0].gain_db->static_value.has_value());
+    REQUIRE(tl->tl.clips[0].gain_db->keyframes.size() == 2);
+    CHECK(tl->tl.clips[0].gain_db->keyframes[0].v == 0.0);
+    CHECK(tl->tl.clips[0].gain_db->keyframes[1].v == -20.0);
+    /* Midpoint evaluation pins that evaluate_at plugs into the same
+     * kernel as Transform's AnimatedNumber fields. */
+    CHECK(tl->tl.clips[0].gain_db->evaluate_at(me_rational_t{24000, 48000})
+          == doctest::Approx(-10.0));
     me_timeline_destroy(tl);
 }
 

@@ -1,15 +1,18 @@
 /*
  * me::audio::AudioTrackFeed — per-track audio pipeline: demux →
- * decode → resample to target format → per-clip gain.
+ * decode → resample to target format.
  *
  * Scope-A slice of `audio-mix-scheduler-wire` sub-scope (1). One
  * feed represents one audio track's contribution to the eventual
  * AudioMixer: it binds a demux + audio stream decoder together with
- * the mix target params (rate / sample_fmt / channel_layout) and a
- * linear gain. `pull_next_processed_audio_frame` yields the next
- * target-formatted, gain-applied AVFrame on demand; the follow-up
- * mixer cycle wraps N of these, sums their sample planes, and runs
- * peak_limiter before emitting to the encoder.
+ * the mix target params (rate / sample_fmt / channel_layout).
+ * `pull_next_processed_audio_frame` yields the next target-formatted
+ * AVFrame on demand; AudioMixer wraps N of these, evaluates per-clip
+ * animated gain at the current timeline T, sums their sample planes,
+ * and runs peak_limiter before emitting to the encoder. Gain
+ * application lives in AudioMixer — feeds are gain-agnostic so the
+ * mixer can evaluate `AnimatedNumber::evaluate_at(T)` per emitted
+ * frame without reopening feeds.
  *
  * Deliberate separation from `TrackDecoderState` (orchestrator/
  * frame_puller.hpp, video-side): the video track-state only holds
@@ -65,11 +68,6 @@ struct AudioTrackFeed {
     AVSampleFormat  target_fmt      = AV_SAMPLE_FMT_NONE;
     AVChannelLayout target_ch_layout{};   /* owned; uninit in dtor */
 
-    /* Per-clip gain applied to each pulled frame's samples. 1.0 =
-     * unity passthrough; 0.0 = silence; typically pre-computed from
-     * gainDb via `me::audio::db_to_linear`. */
-    float gain_linear = 1.0f;
-
     /* Sticky EOF flag — once the underlying decoder returns
      * NOT_FOUND, subsequent pulls short-circuit without hitting
      * libav. Caller checks `feed.eof` or looks for NOT_FOUND return. */
@@ -98,16 +96,15 @@ me_status_t open_audio_track_feed(
     int                                    target_rate,
     AVSampleFormat                         target_fmt,
     const AVChannelLayout&                 target_ch_layout,
-    float                                  gain_linear,
     AudioTrackFeed&                        out,
     std::string*                           err);
 
-/* Pull the next decoded audio frame from the feed's decoder,
- * resample to the target format, and apply gain_linear scaling.
+/* Pull the next decoded audio frame from the feed's decoder and
+ * resample to the target format.
  *
  * On success (ME_OK): `*out_frame` is a freshly-allocated AVFrame
- * at (target_rate, target_fmt, target_ch_layout) with samples
- * gain-scaled. Caller owns — free via `av_frame_free(&f)`.
+ * at (target_rate, target_fmt, target_ch_layout). Caller owns —
+ * free via `av_frame_free(&f)`.
  *
  * On EOF (ME_E_NOT_FOUND): `*out_frame == nullptr`, `feed.eof = true`.
  *
@@ -115,10 +112,9 @@ me_status_t open_audio_track_feed(
  * `*out_frame == nullptr`, err populated. `feed.eof` unchanged —
  * caller decides whether to retry or abandon.
  *
- * Gain apply scope: only AV_SAMPLE_FMT_FLTP (planar float) is
- * gain-adjusted in-place. For other target formats the frame returns
- * unscaled — the M2 mixer mandates FLTP working format so this
- * doesn't block phase-1 usage. */
+ * Gain is NOT applied here — AudioMixer does it per emitted frame
+ * via `AnimatedNumber::evaluate_at(T)` + db_to_linear, so that
+ * animated gain keyframes take effect across the mix. */
 me_status_t pull_next_processed_audio_frame(
     AudioTrackFeed& feed,
     AVFrame**       out_frame,

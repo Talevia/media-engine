@@ -112,13 +112,14 @@ TEST_CASE("AudioMixer: 1-track silent fixture mixes to silent output") {
     me::audio::AudioTrackFeed feed;
     std::string err;
     REQUIRE(me::audio::open_audio_track_feed(
-                demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 1.0f, feed, &err)
+                demux, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, feed, &err)
             == ME_OK);
 
     me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
     me::audio::AudioMixer mixer(cfg, &err);
     REQUIRE(mixer.ok());
-    REQUIRE(mixer.add_track(std::move(feed), &err) == ME_OK);
+    REQUIRE(mixer.add_track(std::move(feed),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
     CHECK(mixer.track_count() == 1);
 
     int frames = 0;
@@ -163,17 +164,19 @@ TEST_CASE("AudioMixer: 2-track silent fixtures mix to silent output") {
     me::audio::AudioTrackFeed f1, f2;
     std::string err;
     REQUIRE(me::audio::open_audio_track_feed(
-                demux1, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 0.5f, f1, &err)
+                demux1, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, f1, &err)
             == ME_OK);
     REQUIRE(me::audio::open_audio_track_feed(
-                demux2, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, 0.5f, f2, &err)
+                demux2, pool, 48000, AV_SAMPLE_FMT_FLTP, mono.l, f2, &err)
             == ME_OK);
 
     me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
     me::audio::AudioMixer mixer(cfg, &err);
     REQUIRE(mixer.ok());
-    REQUIRE(mixer.add_track(std::move(f1), &err) == ME_OK);
-    REQUIRE(mixer.add_track(std::move(f2), &err) == ME_OK);
+    REQUIRE(mixer.add_track(std::move(f1),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
+    REQUIRE(mixer.add_track(std::move(f2),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
     CHECK(mixer.track_count() == 2);
 
     int frames = 0;
@@ -247,7 +250,7 @@ TEST_CASE("build_audio_mixer_for_timeline: 1 audio clip + fixture demux builds a
     me::Clip ac;
     ac.id = "c0"; ac.track_id = "a0"; ac.type = me::ClipType::Audio;
     ac.asset_id = "a1";
-    ac.gain_db = -6.0;   /* ~0.501 linear — still silent input * anything = 0 */
+    ac.gain_db = me::AnimatedNumber::from_static(-6.0);   /* ~0.501 linear — still silent input * anything = 0 */
     ac.time_start   = me_rational_t{0, 48000};
     ac.time_duration = me_rational_t{48000, 48000};
     ac.source_start = me_rational_t{0, 48000};
@@ -312,7 +315,6 @@ me::audio::AudioTrackFeed make_test_only_feed(const me::audio::AudioMixerConfig&
     feed.target_rate = cfg.target_rate;
     feed.target_fmt  = cfg.target_fmt;
     av_channel_layout_copy(&feed.target_ch_layout, &cfg.target_ch_layout);
-    feed.gain_linear = 1.0f;
     feed.eof = true;
     return feed;
 }
@@ -331,8 +333,10 @@ TEST_CASE("AudioMixer: 2-track injection below peak threshold — sum is exact p
     me::audio::AudioMixer mixer(cfg, &err);
     REQUIRE(mixer.ok());
 
-    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
-    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
 
     std::vector<float> plane0(cfg.frame_size, 0.25f);
     std::vector<float> plane1(cfg.frame_size, 0.25f);
@@ -365,8 +369,10 @@ TEST_CASE("AudioMixer: 2-track injection above peak threshold triggers soft-knee
     std::string err;
     me::audio::AudioMixer mixer(cfg, &err);
     REQUIRE(mixer.ok());
-    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
-    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
 
     std::vector<float> plane0(cfg.frame_size, 0.8f);
     std::vector<float> plane1(cfg.frame_size, 0.8f);
@@ -400,8 +406,10 @@ TEST_CASE("AudioMixer: synthetic sine-wave mix is bit-identical across two runs 
         std::string err;
         me::audio::AudioMixer mixer(cfg, &err);
         REQUIRE(mixer.ok());
-        REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
-        REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+        REQUIRE(mixer.add_track(make_test_only_feed(cfg),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
+        REQUIRE(mixer.add_track(make_test_only_feed(cfg),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
 
         /* 50 Hz sine (track 0) + 100 Hz sine (track 1) at 48kHz,
          * both at 0.4 amplitude. Raw sum peaks at 0.8 → below
@@ -447,7 +455,8 @@ TEST_CASE("AudioMixer::inject_samples_for_test: invalid args rejected") {
     std::string err;
     me::audio::AudioMixer mixer(cfg, &err);
     REQUIRE(mixer.ok());
-    REQUIRE(mixer.add_track(make_test_only_feed(cfg), &err) == ME_OK);
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg),
+                             me::AnimatedNumber::from_static(0.0), &err) == ME_OK);
 
     std::vector<float> plane(128, 0.0f);
     const float* planes[1] = {plane.data()};
@@ -471,13 +480,78 @@ TEST_CASE("AudioMixer::add_track: feed with mismatched target rejected") {
     me::audio::AudioTrackFeed feed;
     std::string err;
     REQUIRE(me::audio::open_audio_track_feed(
-                demux, pool, 44100, AV_SAMPLE_FMT_FLTP, mono.l, 1.0f, feed, &err)
+                demux, pool, 44100, AV_SAMPLE_FMT_FLTP, mono.l, feed, &err)
             == ME_OK);
 
     me::audio::AudioMixerConfig cfg = make_cfg(mono.l);   /* 48000 */
     me::audio::AudioMixer mixer(cfg, &err);
     REQUIRE(mixer.ok());
-    CHECK(mixer.add_track(std::move(feed), &err) == ME_E_INVALID_ARG);
+    CHECK(mixer.add_track(std::move(feed),
+                           me::AnimatedNumber::from_static(0.0), &err) == ME_E_INVALID_ARG);
     CHECK(mixer.track_count() == 0);
+    av_channel_layout_uninit(&cfg.target_ch_layout);
+}
+
+TEST_CASE("AudioMixer: animated gain_db interpolates linearly across emitted frames") {
+    /* Pin the animated-gain path: inject a constant 0.4-amplitude
+     * signal over 2 frames (2048 samples at 48 kHz, so T spans
+     * [0, 2048/48000)). gain_db keyframes ramp linearly from 0 dB
+     * at T=0 to -20 dB at T=2048/48000. Each emitted frame's T is
+     * the frame-start cursor:
+     *   - Frame 0: T={0, 48000} → gain_db = 0 dB → linear = 1.0
+     *              → expected samples ≈ 0.4
+     *   - Frame 1: T={1024, 48000} (linear midpoint) →
+     *              gain_db = -10 dB → linear ≈ 0.316 → samples ≈ 0.126
+     * Assert monotone decrease and approximate amplitudes. This
+     * would have been impossible before the gain_db migration
+     * (feed's gain_linear was ctor-frozen). */
+    LayoutGuard mono{AV_CHANNEL_LAYOUT_MONO};
+    me::audio::AudioMixerConfig cfg = make_cfg(mono.l);
+    std::string err;
+    me::audio::AudioMixer mixer(cfg, &err);
+    REQUIRE(mixer.ok());
+
+    me::AnimatedNumber ramp = me::AnimatedNumber::from_keyframes({
+        {me_rational_t{0,    48000}, 0.0,   me::Interp::Linear, {0,0,1,1}},
+        {me_rational_t{2048, 48000}, -20.0, me::Interp::Linear, {0,0,1,1}},
+    });
+    REQUIRE(mixer.add_track(make_test_only_feed(cfg), std::move(ramp), &err) == ME_OK);
+
+    /* Inject 2 frames worth of constant 0.4 into the FIFO — the
+     * mixer is eof (test feed has eof=true), so it consumes the
+     * injected samples and stops when the FIFO drains. */
+    std::vector<float> plane(static_cast<std::size_t>(cfg.frame_size) * 2, 0.4f);
+    const float* planes[1] = {plane.data()};
+    REQUIRE(mixer.inject_samples_for_test(
+                0, planes,
+                static_cast<std::size_t>(cfg.frame_size) * 2, &err) == ME_OK);
+
+    /* Frame 0 — T={0, 48000}, gain_db = 0, linear = 1.0. */
+    AVFrame* f0 = nullptr;
+    REQUIRE(mixer.pull_next_mixed_frame(&f0, &err) == ME_OK);
+    REQUIRE(f0 != nullptr);
+    auto* s0 = reinterpret_cast<const float*>(f0->extended_data[0]);
+    const float first_sample_0 = s0[0];
+    const float last_sample_0  = s0[cfg.frame_size - 1];
+    CHECK(first_sample_0 == doctest::Approx(0.4f).epsilon(1e-4f));
+    CHECK(last_sample_0  == doctest::Approx(0.4f).epsilon(1e-4f));
+    av_frame_free(&f0);
+
+    /* Frame 1 — T={1024, 48000}, gain_db midpoint = -10 dB,
+     * linear ≈ 0.31623 → samples ≈ 0.1265. */
+    AVFrame* f1 = nullptr;
+    REQUIRE(mixer.pull_next_mixed_frame(&f1, &err) == ME_OK);
+    REQUIRE(f1 != nullptr);
+    auto* s1 = reinterpret_cast<const float*>(f1->extended_data[0]);
+    const float first_sample_1 = s1[0];
+    CHECK(first_sample_1 == doctest::Approx(0.4f * 0.31623f).epsilon(1e-3f));
+    /* All samples in frame 1 held at the frame-start T (per-frame-
+     * constant gain is the documented buffer-level approximation). */
+    for (int i = 0; i < f1->nb_samples; ++i) {
+        CHECK(s1[i] == doctest::Approx(first_sample_1).epsilon(1e-6f));
+    }
+    /* Strict monotone decrease — the point of animated gain. */
+    CHECK(first_sample_1 < first_sample_0);
+    av_frame_free(&f1);
     av_channel_layout_uninit(&cfg.target_ch_layout);
 }

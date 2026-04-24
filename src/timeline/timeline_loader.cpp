@@ -222,7 +222,7 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                     require(track_kind == me::TrackKind::Audio, ME_E_PARSE,
                             where + ".gainDb: not valid on video clip (audio gain is "
                             "only meaningful for audio clips)");
-                    c.gain_db = parse_animated_static_number(
+                    c.gain_db = parse_animated_number(
                         clip["gainDb"], where + ".gainDb");
                 }
                 const std::string clip_id = clip.at("id").get<std::string>();

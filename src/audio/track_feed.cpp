@@ -24,7 +24,6 @@ AudioTrackFeed::AudioTrackFeed(AudioTrackFeed&& other) noexcept
       frame_scratch(std::move(other.frame_scratch)),
       target_rate(other.target_rate),
       target_fmt(other.target_fmt),
-      gain_linear(other.gain_linear),
       eof(other.eof) {
     target_ch_layout = AVChannelLayout{};
     av_channel_layout_copy(&target_ch_layout, &other.target_ch_layout);
@@ -45,7 +44,6 @@ AudioTrackFeed& AudioTrackFeed::operator=(AudioTrackFeed&& other) noexcept {
         target_fmt       = other.target_fmt;
         av_channel_layout_copy(&target_ch_layout, &other.target_ch_layout);
         av_channel_layout_uninit(&other.target_ch_layout);
-        gain_linear      = other.gain_linear;
         eof              = other.eof;
         other.audio_stream_idx = -1;
         other.eof              = true;
@@ -59,7 +57,6 @@ me_status_t open_audio_track_feed(
     int                                    target_rate,
     AVSampleFormat                         target_fmt,
     const AVChannelLayout&                 target_ch_layout,
-    float                                  gain_linear,
     AudioTrackFeed&                        out,
     std::string*                           err) {
 
@@ -126,28 +123,9 @@ me_status_t open_audio_track_feed(
     out.frame_scratch    = std::move(frm);
     out.target_rate      = target_rate;
     out.target_fmt       = target_fmt;
-    out.gain_linear      = gain_linear;
     out.eof              = false;
     return ME_OK;
 }
-
-namespace {
-
-/* In-place linear gain on a planar-float AVFrame. Silent input
- * stays silent regardless of gain; for FLTP the gain applies per
- * channel plane, per sample. gain == 1.0f is a no-op short-circuit
- * (common case for first pass / unity-gain tracks). */
-void apply_gain_fltp(AVFrame* f, float gain) {
-    if (gain == 1.0f) return;
-    const int planes   = f->ch_layout.nb_channels;
-    const int nb_samps = f->nb_samples;
-    for (int ch = 0; ch < planes; ++ch) {
-        auto* p = reinterpret_cast<float*>(f->extended_data[ch]);
-        for (int i = 0; i < nb_samps; ++i) p[i] *= gain;
-    }
-}
-
-}  // namespace
 
 me_status_t pull_next_processed_audio_frame(
     AudioTrackFeed& feed,
@@ -183,10 +161,6 @@ me_status_t pull_next_processed_audio_frame(
                                         &resampled, err);
     av_frame_unref(feed.frame_scratch.get());
     if (rs != ME_OK) return rs;
-
-    if (feed.target_fmt == AV_SAMPLE_FMT_FLTP) {
-        apply_gain_fltp(resampled, feed.gain_linear);
-    }
 
     *out_frame = resampled;
     return ME_OK;
