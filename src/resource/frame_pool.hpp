@@ -56,14 +56,41 @@ private:
     std::vector<std::byte> buf_;
 };
 
-/* FramePool — bootstrap stub. Allocates fresh on acquire; no LRU, no
- * budget enforcement. Upgrade in `engine-owns-resources`. */
+/* FramePool — allocates FrameHandles with memory budget enforcement.
+ *
+ * `budget_bytes > 0` caps the total bytes of currently-held
+ * FrameHandles; a ctor-time 0 means "unlimited" (no enforcement,
+ * `pressure()` returns 0). On `acquire`, if a new frame would push
+ * the current held total over the cap, the call returns `nullptr`
+ * — no LRU eviction yet (tracked separately; this pool is still
+ * the non-pooling variant — every acquire is a fresh allocation).
+ *
+ * `used_` semantic: "bytes of FrameHandles currently alive". The
+ * shared_ptr returned by `acquire` carries a custom deleter that
+ * decrements `used_` on destruction. Cumulative acquisitions (for
+ * debugging / observability) stays in `acquisitions_`.
+ *
+ * Lifetime invariant: FramePool must outlive every FrameHandle
+ * shared_ptr it emitted — the custom deleter reads `used_` at
+ * destruction. The engine owns both via `me_engine::frames`
+ * (engine_impl.hpp), which outlives anything that acquires frames
+ * through its scheduler / orchestrators. Tests that want to drop
+ * the pool early must first release their handles. */
 class FramePool {
 public:
     explicit FramePool(int64_t budget_bytes = 0) : budget_(budget_bytes) {}
 
+    /* Returns nullptr when budget is set AND the new allocation
+     * would exceed it. Callers treat nullptr as back-pressure —
+     * either wait for in-flight handles to release, or fail the
+     * upstream pipeline stage. */
     std::shared_ptr<FrameHandle> acquire(FrameSpec spec);
-    float                        pressure() const noexcept { return 0.0f; }
+
+    /* Ratio of currently-held bytes to budget. Returns 0 when
+     * budget == 0 (unlimited); callers comparing pressure() >
+     * threshold get "never trigger" behaviour under unlimited
+     * config, which matches expectations. */
+    float pressure() const noexcept;
 
     struct Stats {
         int64_t memory_bytes_used  = 0;
@@ -72,16 +99,17 @@ public:
     };
     Stats stats() const noexcept;
 
-    /* Reset bytes_used + acquisitions counters. Handles already acquired
-     * stay owned by their callers; this only clears the pool's accounting.
-     * Used by me_cache_clear so `me_cache_stats.memory_bytes_used` returns
-     * to a fresh baseline. */
+    /* Reset acquisitions counter only. Currently-held bytes can't
+     * be cleared this way — they come from live FrameHandles whose
+     * lifetimes the pool doesn't control. Used by me_cache_clear
+     * so the "lifetime acquisitions" signal returns to a fresh
+     * baseline while the in-flight-held counter stays accurate. */
     void reset_counters() noexcept;
 
 private:
     int64_t               budget_ = 0;
-    std::atomic<int64_t>  used_{0};
-    std::atomic<int64_t>  acquisitions_{0};
+    std::atomic<int64_t>  used_{0};          /* currently-held bytes */
+    std::atomic<int64_t>  acquisitions_{0};  /* cumulative acquires */
 };
 
 /* GpuContext — bootstrap empty class; methods added when backlog items

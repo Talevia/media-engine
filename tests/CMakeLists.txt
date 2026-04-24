@@ -35,6 +35,7 @@ set(_test_suites
   test_probe
   test_thumbnail
   test_composition_thumbnailer
+  test_frame_pool
   test_asset_reuse
   test_timeline_segment
   test_color_pipeline
@@ -248,6 +249,11 @@ add_dependencies(test_thumbnail determinism_fixture determinism_fixture_tagged)
 target_compile_definitions(test_thumbnail PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
   ME_TEST_FIXTURE_MP4_TAGGED="${_fixture_mp4_tagged}")
+
+# test_frame_pool pins FramePool's budget / pressure / deleter
+# contract (debt-frame-pool-enforce-budget). Reaches into src/ for
+# the internal class directly.
+target_include_directories(test_frame_pool PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_composition_thumbnailer exercises CompositionThumbnailer::png_at
 # (composition-level thumbnail — distinct from me_thumbnail_png's
