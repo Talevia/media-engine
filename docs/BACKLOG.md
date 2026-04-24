@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **transform-on-text-subtitle-clips** — `src/timeline/timeline_loader.cpp:255` loader `require(track_kind == me::TrackKind::Video, ME_E_PARSE, ".transform: not valid on audio clip ...")` 把 text / subtitle 轨道都拒绝 transform。但 Clip::transform 字段对所有 ClipType 都有意义（位置、缩放、不透明度）；compose_decode_loop 的 transform/opacity 代码已经统一走 `transform_clip_idx` 对 text/subtitle 通用。**方向：** loader 放宽为 `track_kind != Audio`（音频仍拒绝；视频/文本/字幕允许）；错误信息更新；新增 test case 验证 text clip 带 transform.opacity 0.5 半透明渲染。Milestone §M5-debt (cross)，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
 

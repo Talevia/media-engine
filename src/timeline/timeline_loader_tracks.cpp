@@ -142,7 +142,10 @@ void parse_track_into(const json&                                    track,
         c.time_duration = t_dur;
         c.source_start  = s_start;
         if (clip.contains("transform")) {
-            require(track_kind == me::TrackKind::Video, ME_E_PARSE,
+            /* Transform is a 2D positional concept — meaningful for
+             * any visual clip kind (video / text / subtitle). Audio
+             * clips reject it since there's no spatial axis. */
+            require(track_kind != me::TrackKind::Audio, ME_E_PARSE,
                     where + ".transform: not valid on audio clip (2D positional "
                     "transform is meaningless for audio)");
             c.transform = parse_transform(clip["transform"], where + ".transform");
