@@ -97,18 +97,21 @@ ProgressCallback is a Java SAM that the JNI glue invokes.
 
 Much cleaner than JNI — Kotlin/Native has direct C interop.
 
+**Canonical in-repo example: `bindings/kotlin-native/`.** `media_engine.def` + `example/` is a runnable Gradle project that links against the CMake build output and exercises `me_version` / `me_engine_create` / `me_engine_destroy`. Host projects can copy the `.def` verbatim and adapt `example/build.gradle.kts`'s cinterop block; path conventions are documented at the top of that file.
+
 ### `.def` file
 
 ```
 # nativeBindings/media_engine.def
 headers = media_engine.h
-headerFilter = media_engine/*
-compilerOpts = -Iinclude
-linkerOpts.osx = -Lbuild -lmedia_engine
-linkerOpts.ios = -Lbuild -lmedia_engine
-staticLibraries = libmedia_engine.a
-libraryPaths = build
+headerFilter = media_engine.h media_engine/*
+package = io.mediaengine.cinterop
+linkerOpts.osx = -lmedia_engine
+linkerOpts.ios_arm64 = -lmedia_engine
+linkerOpts.ios_simulator_arm64 = -lmedia_engine
 ```
+
+Include / library search paths come from the host Gradle build via `cinterops { compilerOpts("-I…") ; extraOpts("-libraryPath", "…") }`, not the `.def` itself — keeps the binding portable across monorepo layouts.
 
 ### Gradle wiring (KMP)
 
