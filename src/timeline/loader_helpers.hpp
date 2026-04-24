@@ -23,8 +23,11 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 namespace me::timeline_loader_detail {
 
@@ -107,5 +110,41 @@ me::TextClipParams parse_text_clip_params(const nlohmann::json& j,
  * whose bytes aren't UTF-8. */
 me::SubtitleClipParams parse_subtitle_clip_params(const nlohmann::json& j,
                                                     const std::string& where);
+
+/* --- Multi-TU walker helpers (extracted from timeline_loader.cpp
+ * as part of debt-split-timeline-loader-cpp; each lives in its own
+ * .cpp). They throw LoadError on schema violations; caller catches
+ * in the top-level load_json. ------------------------------------ */
+
+/* Walk the JSON document's "assets" array and populate
+ * `tl.assets`. Validates id uniqueness, contentHash shape (sha256
+ * prefix required when present), and per-asset colorSpace block.
+ * Missing "assets" key → no-op. */
+void parse_assets_into(const nlohmann::json& doc, me::Timeline& tl);
+
+/* Parse a single track JSON object (clips + transitions) and
+ * append into `tl.clips`, `tl.transitions`, `tl.tracks`. Updates
+ * `max_duration_out` with this track's cumulative duration if it
+ * exceeds the current max. `track_id_seen` threads across tracks
+ * for cross-track id-uniqueness enforcement. */
+void parse_track_into(const nlohmann::json& track,
+                      std::size_t           track_idx,
+                      me::Timeline&         tl,
+                      me_rational_t&        max_duration_out,
+                      std::unordered_map<std::string, std::size_t>& track_id_seen);
+
+/* Parse a track's "transitions" array (optional). Validates
+ * crossDissolve kind, fromClipId / toClipId existence + adjacency,
+ * duration ≤ min(from.dur, to.dur). Appends me::Transition records
+ * into `tl.transitions`. `track_clip_ids` is the clip id order
+ * from the track's own clip walk; `clip_dur_by_id` maps
+ * clip-id → time_duration for the bound check. */
+void parse_track_transitions_into(
+    const nlohmann::json&                                   transitions,
+    const std::string&                                      track_id,
+    const std::string&                                      track_where,
+    const std::vector<std::string>&                         track_clip_ids,
+    const std::unordered_map<std::string, me_rational_t>&   clip_dur_by_id,
+    me::Timeline&                                           tl);
 
 }  // namespace me::timeline_loader_detail

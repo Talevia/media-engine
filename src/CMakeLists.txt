@@ -253,6 +253,9 @@ add_library(media_engine STATIC
   core/version.cpp
   core/engine_seed.cpp
   timeline/timeline_loader.cpp
+  timeline/timeline_loader_assets.cpp
+  timeline/timeline_loader_tracks.cpp
+  timeline/timeline_loader_transitions.cpp
   timeline/loader_helpers.cpp
   timeline/animated_number.cpp
   timeline/segmentation.cpp
