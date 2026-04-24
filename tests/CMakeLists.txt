@@ -66,6 +66,7 @@ set(_test_suites
   test_skia_backend
   test_text_renderer
   test_font_fallback
+  test_frame_server
 )
 
 foreach(_suite ${_test_suites})
@@ -484,6 +485,13 @@ target_include_directories(test_font_fallback PRIVATE ${CMAKE_SOURCE_DIR}/src)
 if(ME_WITH_SKIA)
   target_compile_definitions(test_font_fallback PRIVATE ME_HAS_SKIA=1)
 endif()
+
+# test_frame_server uses the deterministic fixture MP4 to verify
+# the M6 frame-server path (me_render_frame → Previewer::frame_at
+# → RGBA8 me_frame). Pure C API consumption — no src/ include.
+add_dependencies(test_frame_server determinism_fixture)
+target_compile_definitions(test_frame_server PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
