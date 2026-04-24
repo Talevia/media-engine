@@ -171,10 +171,49 @@ from the `textParams` object directly with no source media to seek.
   keyframeable independently. Defaults: 48 / 0 / 0.
 
 Loaded as of `text-clip-ir` (2026-04-24) — see
-`src/timeline/timeline_impl.hpp`'s `TextClipParams` + loader dispatch
-in `loader_helpers.cpp::parse_text_clip_params`. Rendering integration
-(text → canvas pixels) lands with follow-up `text-clip-render-skia`
-bullet once Skia is wired.
+`src/timeline/timeline_ir_params.hpp`'s `TextClipParams` + loader
+dispatch in `loader_helpers_clip_params.cpp::parse_text_clip_params`
+(the helper TU was split by parse-shape as part of
+debt-split-loader-helpers-cpp). Rendering integration (text →
+canvas pixels) landed with `text-clip-render-skia` via
+`me::text::TextRenderer`.
+
+### Subtitle clip
+
+```json
+{
+  "type": "subtitle",
+  "id": "c4",
+  "timeRange": { "start": {"num":0,"den":1}, "duration": {"num":5,"den":1} },
+  "subtitleParams": {
+    "content":  "1\n00:00:00,000 --> 00:00:01,000\nHello subs\n\n",
+    "codepage": "cp1251"
+  }
+}
+```
+
+Subtitle clips live on tracks with `kind: "subtitle"`. Same shape as
+text clips w.r.t. `assetId` / `sourceRange` being optional — the
+renderer draws from `subtitleParams` directly via libass without
+seeking source media.
+
+- `subtitleParams.content` (string, required) — inline .ass / .ssa /
+  .srt markup. Newlines embedded in JSON via the `\n` escape. libass
+  parses the content once at clip entry and rasterises per-frame
+  glyphs onto the composite canvas.
+- `subtitleParams.codepage` (string, optional, default empty =
+  UTF-8) — iconv codepage name for legacy .srt files whose bytes
+  aren't UTF-8 (e.g. `cp1251`, `gbk`). Passed to libass's
+  `ass_read_memory` codepage param. Empty / absent = UTF-8 assumed.
+
+Loaded as of `compose-sink-subtitle-track-wire` (2026-04-24) — see
+`src/timeline/timeline_ir_params.hpp`'s `SubtitleClipParams` + loader
+dispatch in `loader_helpers_clip_params.cpp::parse_subtitle_clip_params`.
+Compose-loop integration (draws onto `track_rgba` via
+`me::text::SubtitleRenderer`, then alpha-overs onto the composite) is
+wired in `src/orchestrator/compose_decode_loop.cpp` under
+`ME_HAS_LIBASS`. Non-subtitle clips that carry a `subtitleParams`
+field → `ME_E_PARSE` at load.
 
 ## Transform
 

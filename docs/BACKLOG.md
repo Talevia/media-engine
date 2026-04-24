@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **timeline-schema-subtitleparams-docs** — `docs/TIMELINE_SCHEMA.md:89` 列了 `"subtitle"` track kind 但没对应 subtitleParams 文档段（`grep -n 'subtitleParams' docs/TIMELINE_SCHEMA.md` 空；textParams 从 line 148 起文档齐全）。cycle 30 刚落地实装，schema doc 滞后。**方向：** 仿 `textParams` 段（docs/TIMELINE_SCHEMA.md:148-170）加 `subtitleParams.content` (required, UTF-8 .ass/.srt) + `subtitleParams.codepage` (optional, iconv codepage) + 一个 minimal 例子 JSON。Milestone §M7-debt (cross)，Rubric §5.6。
 - **transform-on-text-subtitle-clips** — `src/timeline/timeline_loader.cpp:255` loader `require(track_kind == me::TrackKind::Video, ME_E_PARSE, ".transform: not valid on audio clip ...")` 把 text / subtitle 轨道都拒绝 transform。但 Clip::transform 字段对所有 ClipType 都有意义（位置、缩放、不透明度）；compose_decode_loop 的 transform/opacity 代码已经统一走 `transform_clip_idx` 对 text/subtitle 通用。**方向：** loader 放宽为 `track_kind != Audio`（音频仍拒绝；视频/文本/字幕允许）；错误信息更新；新增 test case 验证 text clip 带 transform.opacity 0.5 半透明渲染。Milestone §M5-debt (cross)，Rubric §5.2。
 
 ## P2（未来，当前 milestone 不挤占）
