@@ -179,6 +179,34 @@ from the `textParams` object directly with no source media to seek.
   primary family lacks (CJK, emoji).
 - `textParams.fontSize` / `x` / `y` (animated number, optional) — each
   keyframeable independently. Defaults: 48 / 0 / 0.
+- `textParams.maxWidth` (number, optional) — positive pixel cap for
+  paragraph layout. Absent = legacy single-line rendering (no
+  wrap; content extending past the canvas right edge gets clipped
+  by Skia). Positive value routes rendering through
+  `SkiaBackend::draw_paragraph`, which greedy-breaks at codepoint
+  boundaries so no rendered line exceeds `maxWidth`. Explicit
+  `\n` in `content` always starts a new line regardless of
+  `maxWidth`. Current break policy is per-codepoint (safe for CJK
+  + emoji; Latin text may split mid-word — whitespace-preferred
+  break is a follow-up if a consumer surfaces the need).
+- `textParams.lineHeightMultiplier` (number, optional, default
+  1.2) — vertical advance between rendered lines as a multiplier
+  of `fontSize`. Only consulted when `maxWidth` is set or
+  `content` contains explicit `\n`. Typical CSS-style value
+  `1.2`; tighter layouts use `1.0`-`1.1`, looser use `1.4`-`1.6`.
+
+Paragraph example (CJK + emoji wrap at 240 px, loose line
+height):
+```json
+"textParams": {
+  "content":   "你好世界 Hello World 🎉 emoji caption line",
+  "fontSize":  { "static": 32 },
+  "x":         { "static": 4  },
+  "y":         { "static": 40 },
+  "maxWidth":  240,
+  "lineHeightMultiplier": 1.4
+}
+```
 
 Keyframed-color example (red → transparent fade over 1 s):
 ```json
@@ -199,7 +227,10 @@ canvas pixels) landed with `text-clip-render-skia` via
 `me::text::TextRenderer`. Animated-color support landed with
 `text-clip-color-animation` — `me::AnimatedColor` in
 `src/timeline/animated_color.hpp` backs the new JSON shapes
-above.
+above. Paragraph word-wrap (`maxWidth` + `lineHeightMultiplier`)
+landed with `text-clip-multiline-word-wrap` — see
+`SkiaBackend::draw_paragraph` in `src/text/skia_backend.hpp` for
+the greedy codepoint-break algorithm.
 
 ### Subtitle clip
 
