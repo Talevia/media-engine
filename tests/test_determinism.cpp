@@ -295,3 +295,76 @@ TEST_CASE("h264/aac reencode concat across N segments is byte-deterministic") {
         CHECK(true);
     }
 }
+
+#ifndef ME_TEST_FIXTURE_MP4_WITH_AUDIO
+#define ME_TEST_FIXTURE_MP4_WITH_AUDIO ""
+#endif
+
+TEST_CASE("compose path (2-track video + audio mixer) is byte-deterministic across two independent renders") {
+    /* Cover the M2 software-path determinism criterion end-to-end:
+     * renders a timeline exercising ComposeSink (multi-track) +
+     * AudioMixer (explicit audio track) + the AAC encoder twice
+     * from fresh engines and compares output bytes. As with the
+     * h264/aac reencode case, this leans on h264_videotoolbox's
+     * run-to-run stability (same machine, bitexact flags) — not a
+     * strict software-determinism guarantee, but it's the tripwire
+     * M2 requires for ComposeSink regressions that would perturb
+     * the encoder inputs. Skips cleanly when videotoolbox is
+     * unavailable (non-mac CI). */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping compose determinism test: with-audio fixture not available");
+        return;
+    }
+
+    const std::string fixture_uri = "file://" + fixture_path;
+    const std::string timeline_json = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":25,"den":1},
+      "resolution": {"width":640,"height":480},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a1","kind":"video","uri":")" + fixture_uri + R"("}],
+      "compositions": [{"id":"main","tracks":[
+        {"id":"v0","kind":"video","clips":[
+          {"type":"video","id":"c_vid","assetId":"a1",
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ]},
+        {"id":"a0","kind":"audio","clips":[
+          {"type":"audio","id":"c_aud","assetId":"a1","gainDb":{"static":0},
+           "timeRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}},
+           "sourceRange":{"start":{"num":0,"den":25},"duration":{"num":25,"den":25}}}
+        ]}
+      ]}],
+      "output": {"compositionId":"main"}
+    })";
+
+    const fs::path tmp_dir = fs::temp_directory_path() / "me-determinism-test-compose";
+    fs::create_directories(tmp_dir);
+    const fs::path out1 = tmp_dir / "compose1.mp4";
+    const fs::path out2 = tmp_dir / "compose2.mp4";
+    fs::remove(out1);
+    fs::remove(out2);
+
+    const me_status_t s1 = render_with_spec(timeline_json, out1.string(), "h264", "aac");
+    if (s1 == ME_E_UNSUPPORTED || s1 == ME_E_ENCODE) {
+        MESSAGE("skipping compose determinism test: videotoolbox or encoder unavailable (status="
+                << me_status_str(s1) << ")");
+        return;
+    }
+    REQUIRE(s1 == ME_OK);
+    REQUIRE(render_with_spec(timeline_json, out2.string(), "h264", "aac") == ME_OK);
+
+    const auto bytes1 = slurp(out1);
+    const auto bytes2 = slurp(out2);
+    REQUIRE(!bytes1.empty());
+    REQUIRE(!bytes2.empty());
+    CHECK(bytes1.size() == bytes2.size());
+    if (bytes1 != bytes2) {
+        size_t i = 0;
+        while (i < bytes1.size() && i < bytes2.size() && bytes1[i] == bytes2[i]) ++i;
+        FAIL("compose outputs differ at byte offset " << i);
+    } else {
+        CHECK(true);
+    }
+}

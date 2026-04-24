@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **compose-determinism-regression-test** — M2 最后一个 exit criterion "确定性回归测试：同一 timeline 跑两次产物 byte-identical（软件路径）" 尚未覆盖 M2 features。`tests/test_determinism.cpp` 现有 4 TEST_CASE 都是 M1 passthrough / h264-videotoolbox 单轨；`grep -rn 'compose\|mixer\|transition\|cross_dissolve' tests/test_determinism.cpp` 返回空——ComposeSink 的 compose 路径（multi-track / Transform / cross-dissolve transition / audio mixer）无 byte-identical 回归覆盖。ComposeSink 走 h264_videotoolbox（HW，byte-identity run-to-run 不是合约保证）+ libavcodec aac。**方向：** 扩展 `test_determinism.cpp` 加一个 compose-path TEST_CASE：构造一个带 transition / audio mixer 的多轨 timeline，渲染 2 次到不同 out_path，slurp 两文件比 bytes。当 videotoolbox 不可用或 byte-mismatch 时依 `test_determinism` 既定 pattern skip with MESSAGE 而非 fail。进阶：考虑为 ComposeSink 加 software MPEG-4 Part 2 encoder option（libavcodec 内建 LGPL，已在 `tests/fixtures/gen_fixture.cpp` 验证 bit-exact）让 compose 路径真·软件确定性可测。Milestone §M2，Rubric §5.3。
 
 ## P1（强烈建议，M2 主线 / 跨 milestone debt）
 

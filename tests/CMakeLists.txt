@@ -172,9 +172,9 @@ add_custom_command(
   COMMENT "Generating determinism test fixture: ${_fixture_mp4}"
   VERBATIM)
 add_custom_target(determinism_fixture DEPENDS ${_fixture_mp4})
-add_dependencies(test_determinism determinism_fixture)
-target_compile_definitions(test_determinism PRIVATE
-  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+# test_determinism's fixture deps + defines wire below after the
+# with-audio variant is declared (CMake variable ordering — same
+# pattern as test_frame_puller further down).
 
 # Tagged variant: same shape as the main fixture but with bt709 /
 # limited color metadata set on the encoder (see gen_fixture's
@@ -204,6 +204,14 @@ add_custom_command(
   COMMENT "Generating audio-capable determinism test fixture: ${_fixture_mp4_with_audio}"
   VERBATIM)
 add_custom_target(determinism_fixture_with_audio DEPENDS ${_fixture_mp4_with_audio})
+
+# test_determinism depends on both fixture variants now — the video-
+# only fixture for legacy passthrough / h264 reencode cases, and the
+# with-audio fixture for the new compose-path determinism case.
+add_dependencies(test_determinism determinism_fixture determinism_fixture_with_audio)
+target_compile_definitions(test_determinism PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 
 # test_probe reuses the determinism fixture — same build-time MP4 gives
 # us a known codec / dimensions / framerate / color-tag state to assert
