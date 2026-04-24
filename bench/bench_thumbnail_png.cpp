@@ -19,7 +19,8 @@
  */
 #include <media_engine.h>
 
-#include <chrono>
+#include "bench_harness.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -64,50 +65,44 @@ int main(int argc, char** argv) {
     const std::string uri = "file://" + fixture_path;
     const me_rational_t t = {1, 2};  /* ~0.5 s into the 2 s fixture */
 
-    auto total_timed = std::chrono::duration<double>::zero();
-    int timed_n = 0;
+    /* outcome lets the lambda short-circuit subsequent iterations
+     * once the first call surfaces a skip / failure status; the
+     * harness still spins through the remaining iterations but
+     * each early-returns in <1 µs, well below noise. */
+    me_status_t outcome = ME_OK;
+    const double avg_sec = me::bench::measure_avg_sec(
+        kIters, kWarmup, [&](int /*i*/) {
+            if (outcome != ME_OK) return;
+            uint8_t* png = nullptr;
+            size_t   len = 0;
+            outcome = me_thumbnail_png(eng, uri.c_str(), t,
+                                        kOutWidth, kOutHeight,
+                                        &png, &len);
+            if (outcome == ME_OK) {
+                if (!png || len == 0) outcome = ME_E_INTERNAL;
+                else                  me_buffer_free(png);
+            }
+        });
 
-    for (int i = 0; i < kIters; ++i) {
-        uint8_t* png = nullptr;
-        size_t   len = 0;
-        const auto t0 = std::chrono::steady_clock::now();
-        const me_status_t s = me_thumbnail_png(eng, uri.c_str(), t,
-                                                kOutWidth, kOutHeight,
-                                                &png, &len);
-        const auto t1 = std::chrono::steady_clock::now();
-        if (s == ME_E_UNSUPPORTED) {
-            /* PNG encoder missing or source has no video stream —
-             * no signal to emit. Skip with exit 0. */
-            std::printf("bench_thumbnail_png: skipped (status=%d: %s)\n",
-                        static_cast<int>(s),
-                        me_engine_last_error(eng));
-            return 0;
-        }
-        if (s != ME_OK) {
-            std::fprintf(stderr,
-                         "bench_thumbnail_png: me_thumbnail_png failed (status=%d): %s\n",
-                         static_cast<int>(s), me_engine_last_error(eng));
-            return 1;
-        }
-        if (!png || len == 0) {
-            std::fprintf(stderr,
-                         "bench_thumbnail_png: ME_OK but empty buffer\n");
-            return 1;
-        }
-        me_buffer_free(png);
-        if (i >= kWarmup) {
-            total_timed += (t1 - t0);
-            ++timed_n;
-        }
+    if (outcome == ME_E_UNSUPPORTED) {
+        /* PNG encoder missing or source has no video stream —
+         * no signal to emit. Skip with exit 0. */
+        std::printf("bench_thumbnail_png: skipped (status=%d: %s)\n",
+                    static_cast<int>(outcome), me_engine_last_error(eng));
+        return 0;
     }
-
-    if (timed_n <= 0) {
+    if (outcome != ME_OK) {
+        std::fprintf(stderr,
+                     "bench_thumbnail_png: me_thumbnail_png failed (status=%d): %s\n",
+                     static_cast<int>(outcome), me_engine_last_error(eng));
+        return 1;
+    }
+    if (avg_sec <= 0.0) {
         std::fprintf(stderr, "bench_thumbnail_png: no timed iterations\n");
         return 1;
     }
-    const double avg_sec = total_timed.count() / timed_n;
-    const double avg_ms  = avg_sec * 1000.0;
-    const double fps     = 1.0 / avg_sec;
+    const double avg_ms = avg_sec * 1000.0;
+    const double fps    = 1.0 / avg_sec;
 
     std::printf("bench_thumbnail_png: avg=%.3f ms (%.2f fps) budget=%.1f ms\n",
                 avg_ms, fps, kBudgetMs);

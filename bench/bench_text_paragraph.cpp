@@ -18,12 +18,12 @@
  */
 #ifdef ME_HAS_SKIA
 
+#include "bench_harness.hpp"
 #include "text/text_renderer.hpp"
 #include "timeline/animated_color.hpp"
 #include "timeline/animated_number.hpp"
 #include "timeline/timeline_ir_params.hpp"
 
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -92,26 +92,16 @@ int main() {
     std::vector<std::uint8_t> buf(
         static_cast<std::size_t>(kCanvasH) * stride, 0);
 
-    /* Warm-up iterations: first draw primes Skia's glyph cache +
-     * font-fallback tables. Only post-warm-up iterations count
-     * toward the fps calculation. */
-    auto total_timed = std::chrono::duration<double>::zero();
-    int timed_n = 0;
-    for (int i = 0; i < kIters; ++i) {
-        const auto t0 = std::chrono::steady_clock::now();
-        r.render(params, me_rational_t{i, 1}, buf.data(), stride);
-        const auto t1 = std::chrono::steady_clock::now();
-        if (i >= kWarmup) {
-            total_timed += (t1 - t0);
-            ++timed_n;
-        }
-    }
-
-    if (timed_n <= 0) {
+    /* Warm-up iterations prime Skia's glyph cache + font-
+     * fallback tables; the harness excludes them from the avg. */
+    const double avg_sec = me::bench::measure_avg_sec(
+        kIters, kWarmup, [&](int i) {
+            r.render(params, me_rational_t{i, 1}, buf.data(), stride);
+        });
+    if (avg_sec <= 0.0) {
         std::fprintf(stderr, "bench_text_paragraph: no timed iterations\n");
         return 1;
     }
-    const double avg_sec = total_timed.count() / timed_n;
     const double fps = 1.0 / avg_sec;
 
     std::printf("bench_text_paragraph: content_bytes=%zu avg=%.3f ms "
