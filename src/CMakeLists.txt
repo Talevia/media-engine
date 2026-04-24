@@ -121,6 +121,7 @@ add_library(media_engine STATIC
   timeline/loader_helpers.cpp
   timeline/animated_number.cpp
   timeline/segmentation.cpp
+  gpu/gpu_backend.cpp
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp

@@ -54,6 +54,7 @@ set(_test_suites
   test_audio_mixer
   test_effect_chain
   test_animated_number
+  test_gpu_backend
 )
 
 foreach(_suite ${_test_suites})
@@ -274,6 +275,10 @@ target_include_directories(test_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_animated_number exercises me::AnimatedNumber (M3 keyframe
 # interpolation primitive). Pure C++ (no libav).
 target_include_directories(test_animated_number PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_gpu_backend exercises the phase-1 NullGpuBackend factory. Pure
+# C++. When ME_WITH_GPU + bgfx lands, add BgfxGpuBackend-path cases.
+target_include_directories(test_gpu_backend PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

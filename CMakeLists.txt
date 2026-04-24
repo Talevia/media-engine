@@ -35,6 +35,15 @@ option(ME_WERROR         "Treat warnings as errors" OFF)
 # `IdentityPipeline`).
 option(ME_WITH_OCIO      "Fetch and link OpenColorIO (M2 color pipeline)" ON)
 
+# M3 GPU backend (bgfx). Phase-1: flag exists + GpuBackend abstract
+# interface + NullGpuBackend default. Flipping ON today changes
+# nothing visible — the follow-up cycle of bgfx-integration-skeleton
+# adds FetchContent_Declare(bgfx) + BgfxGpuBackend impl + Metal
+# context init under this gate. Default OFF matches M3 scope note
+# ("opt-in at M3 start"); safe to leave OFF indefinitely for
+# CPU-only builds.
+option(ME_WITH_GPU       "Enable bgfx GPU backend (M3, currently stub)" OFF)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
   if(ME_WERROR)
