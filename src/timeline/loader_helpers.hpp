@@ -63,4 +63,21 @@ me::AnimatedNumber parse_animated_number(const nlohmann::json& prop,
 me::Transform   parse_transform   (const nlohmann::json& j, const std::string& where);
 me::ColorSpace  parse_color_space (const nlohmann::json& j, const std::string& where);
 
+/* Parse a TIMELINE_SCHEMA.md §Effect object into the typed IR:
+ *
+ *   { "id": "e1",
+ *     "kind": "color" | "blur" | "lut",
+ *     "enabled": true,                        (optional, default true)
+ *     "mix":     { "static": 1.0 },          (optional, default static 1.0)
+ *     "params":  { ...typed by kind... } }
+ *
+ * Each kind's `params` dispatches to a kind-specific sub-parser:
+ *   - "color" → { brightness, contrast, saturation } all optional double,
+ *     defaults (0, 1, 1) = identity.
+ *   - "blur"  → { radius } required double.
+ *   - "lut"   → { lutPath } required string.
+ * Unknown `kind` strings → ME_E_UNSUPPORTED. Missing required params
+ * per kind → ME_E_PARSE. */
+me::EffectSpec  parse_effect_spec (const nlohmann::json& j, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

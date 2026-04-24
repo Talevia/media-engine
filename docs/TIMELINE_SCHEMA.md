@@ -184,19 +184,24 @@ Pixel space is output-canvas pixels; scale 1.0 = native clip size; anchor is in 
   "kind": "blur",
   "enabled": true,
   "mix":    { "static": 1.0 },
-  "params": { "radius": { "static": 5.0 } }
+  "params": { "radius": 5.0 }
 }
 ```
 
 - `kind` (string, required) — registered effect kind. Unknown kind ⇒ `ME_E_UNSUPPORTED`.
+- `id` (string, optional) — addressable handle for future scrub-time parameter tweaks; empty / absent is fine.
+- `enabled` (bool, optional, default `true`) — disabled effects are skipped entirely (cheaper than `mix: 0`).
 - `mix` (animated number, default `{"static": 1.0}`) — blends effect output with input; `0` = effect off, `1` = full effect.
-- `params` (object, required) — **typed by `kind`**. Each kind has a parameter schema registered with the engine. Type mismatch ⇒ `ME_E_PARSE`.
+- `params` (object, required) — **typed by `kind`**. Each kind has a parameter schema the loader validates. Type mismatch ⇒ `ME_E_PARSE`. Missing required field ⇒ `ME_E_PARSE`.
 
-Effect kinds and their parameter schemas live in `EFFECTS.md` (future doc). Core kinds planned:
-- `blur` — `radius: number`
-- `color` — `brightness: number, contrast: number, saturation: number`
-- `lut` — `lutPath: asset_ref`
-- `cross_dissolve` — transition, not a clip effect (separate section)
+Loaded effect kinds (as of `timeline-loader-effect-parse`, 2026-04-24) — see `src/timeline/loader_helpers.cpp`'s `parse_effect_spec` dispatch:
+- `color` — `brightness: number` (default 0), `contrast: number` (default 1), `saturation: number` (default 1). All optional; omitted fields use identity defaults.
+- `blur` — `radius: number` (required).
+- `lut` — `lutPath: string` (required). Asset-ref resolution is the LUT effect's responsibility; today it's a raw path string.
+
+The IR carries these in `me::Clip::effects` as a typed `std::variant` by kind. GPU effect consumers land with follow-up `effect-gpu-*` bullets. `cross_dissolve` is a separate section (§Transition) — not a clip effect.
+
+Audio clips reject non-empty `effects` today (`ME_E_PARSE`) — audio effect chain lands with M4 audio polish.
 
 ## Animated property
 

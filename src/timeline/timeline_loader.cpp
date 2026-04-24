@@ -181,8 +181,6 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                 require(clip_type == expected_clip_type, ME_E_PARSE,
                         where + ".type: must match parent track.kind (expected '" +
                         expected_clip_type + "', got '" + clip_type + "')");
-                require(!clip.contains("effects") || clip["effects"].empty(),
-                        ME_E_UNSUPPORTED, where + ": phase-1: clip.effects not supported");
 
                 const std::string asset_id = clip.at("assetId").get<std::string>();
                 require(tl.assets.find(asset_id) != tl.assets.end(), ME_E_PARSE,
@@ -224,6 +222,19 @@ me_status_t load_json(std::string_view src, me_timeline** out, std::string* err)
                             "only meaningful for audio clips)");
                     c.gain_db = parse_animated_number(
                         clip["gainDb"], where + ".gainDb");
+                }
+                if (clip.contains("effects")) {
+                    require(track_kind == me::TrackKind::Video, ME_E_PARSE,
+                            where + ".effects: not valid on audio clip (audio "
+                            "effect chain lands with M4 audio polish)");
+                    const auto& eff_arr = clip["effects"];
+                    require(eff_arr.is_array(), ME_E_PARSE,
+                            where + ".effects: expected array");
+                    for (std::size_t ei = 0; ei < eff_arr.size(); ++ei) {
+                        c.effects.push_back(parse_effect_spec(
+                            eff_arr[ei],
+                            where + ".effects[" + std::to_string(ei) + "]"));
+                    }
                 }
                 const std::string clip_id = clip.at("id").get<std::string>();
                 require(!clip_id.empty(), ME_E_PARSE, where + ".id must be non-empty");

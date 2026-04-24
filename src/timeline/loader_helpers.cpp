@@ -241,4 +241,75 @@ me::ColorSpace parse_color_space(const json& j, const std::string& where) {
     return cs;
 }
 
+me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
+    require(j.is_object(), ME_E_PARSE, where + ": expected object");
+    require(j.contains("kind"), ME_E_PARSE, where + ": missing required 'kind'");
+    require(j["kind"].is_string(), ME_E_PARSE, where + ".kind: expected string");
+
+    me::EffectSpec spec;
+    const std::string kind_str = j.at("kind").get<std::string>();
+
+    if (j.contains("id")) {
+        require(j["id"].is_string(), ME_E_PARSE, where + ".id: expected string");
+        spec.id = j.at("id").get<std::string>();
+    }
+    if (j.contains("enabled")) {
+        require(j["enabled"].is_boolean(), ME_E_PARSE,
+                where + ".enabled: expected bool");
+        spec.enabled = j.at("enabled").get<bool>();
+    }
+    if (j.contains("mix")) {
+        spec.mix = parse_animated_number(j["mix"], where + ".mix");
+    }
+
+    require(j.contains("params"), ME_E_PARSE,
+            where + ": missing required 'params'");
+    const auto& p = j["params"];
+    require(p.is_object(), ME_E_PARSE, where + ".params: expected object");
+
+    if (kind_str == "color") {
+        spec.kind = me::EffectKind::Color;
+        me::ColorEffectParams cp;
+        if (p.contains("brightness")) {
+            require(p["brightness"].is_number(), ME_E_PARSE,
+                    where + ".params.brightness: expected number");
+            cp.brightness = p.at("brightness").get<double>();
+        }
+        if (p.contains("contrast")) {
+            require(p["contrast"].is_number(), ME_E_PARSE,
+                    where + ".params.contrast: expected number");
+            cp.contrast = p.at("contrast").get<double>();
+        }
+        if (p.contains("saturation")) {
+            require(p["saturation"].is_number(), ME_E_PARSE,
+                    where + ".params.saturation: expected number");
+            cp.saturation = p.at("saturation").get<double>();
+        }
+        spec.params = cp;
+    } else if (kind_str == "blur") {
+        spec.kind = me::EffectKind::Blur;
+        require(p.contains("radius"), ME_E_PARSE,
+                where + ".params: blur requires 'radius'");
+        require(p["radius"].is_number(), ME_E_PARSE,
+                where + ".params.radius: expected number");
+        me::BlurEffectParams bp;
+        bp.radius = p.at("radius").get<double>();
+        spec.params = bp;
+    } else if (kind_str == "lut") {
+        spec.kind = me::EffectKind::Lut;
+        require(p.contains("lutPath"), ME_E_PARSE,
+                where + ".params: lut requires 'lutPath'");
+        require(p["lutPath"].is_string(), ME_E_PARSE,
+                where + ".params.lutPath: expected string");
+        me::LutEffectParams lp;
+        lp.path = p.at("lutPath").get<std::string>();
+        spec.params = lp;
+    } else {
+        throw LoadError{ME_E_UNSUPPORTED,
+                        where + ".kind: unknown effect kind '" + kind_str +
+                        "' (supported: color, blur, lut)"};
+    }
+    return spec;
+}
+
 }  // namespace me::timeline_loader_detail

@@ -18,6 +18,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 namespace me {
@@ -139,6 +140,71 @@ enum class ClipType : uint8_t {
     Audio = 1,
 };
 
+/* Typed effect parameter tagged union.
+ *
+ * VISION §3.2 forbids `Map<String, Float>`-shaped effect parameter
+ * APIs. Each EffectKind has its own POD parameter struct; EffectSpec
+ * holds a std::variant over them so add-a-new-kind is a variant
+ * extension + a parse branch, not a map entry.
+ *
+ * Params are plain numbers (not AnimatedNumber) today — keyframed
+ * effect params arrive with the `effect-param-animated` cycle once
+ * GPU effects actually consume them. Schema doc lists all three
+ * kinds' param names (TIMELINE_SCHEMA.md §Effect "Core kinds").
+ *
+ * Ranges documented here are *semantic* and not loader-enforced —
+ * downstream GPU effects clamp to their shader's valid domain.
+ * Loader only enforces "required params present, types correct". */
+struct ColorEffectParams {
+    double brightness = 0.0;   /* ~[-1, +1]; 0 = identity */
+    double contrast   = 1.0;   /* ~[0, 2];   1 = identity */
+    double saturation = 1.0;   /* ~[0, 2];   1 = identity */
+};
+
+struct BlurEffectParams {
+    double radius = 0.0;       /* pixels; 0 = identity */
+};
+
+struct LutEffectParams {
+    std::string path;          /* .cube file path / URI; asset_ref
+                                * resolution deferred to LUT effect */
+};
+
+/* EffectKind enum. Stable once shipped — appending new kinds is ABI-
+ * safe (new enum value + new variant alternative); reordering /
+ * removing kinds is not. JSON tags ("color", "blur", "lut") live in
+ * loader_helpers.cpp's dispatch; add entries in lock-step. */
+enum class EffectKind : uint8_t {
+    Color = 0,
+    Blur  = 1,
+    Lut   = 2,
+};
+
+struct EffectSpec {
+    /* Optional JSON "id" for addressable effect updates (future M3+
+     * scrub-time parameter tweaks). Empty when JSON omits "id". */
+    std::string    id;
+
+    EffectKind     kind{EffectKind::Color};
+
+    /* `enabled` defaults true per TIMELINE_SCHEMA.md §Effect. Consumer
+     * skips disabled effects entirely — cheaper than running through
+     * `mix=0`. */
+    bool           enabled{true};
+
+    /* Blend factor between input and effect output. AnimatedNumber so
+     * keyframed fades work on the same `{"static": v}` / `{"keyframes":
+     * [...]}` shape as Transform fields. Default = full effect. */
+    AnimatedNumber mix = AnimatedNumber::from_static(1.0);
+
+    /* Typed params by EffectKind. The variant's index must match the
+     * kind enum's underlying value (Color → 0, Blur → 1, Lut → 2) so
+     * consumers can `std::get_if<ColorEffectParams>(&spec.params)`
+     * without re-checking kind. Loader enforces the invariant. */
+    std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams>
+        params{ColorEffectParams{}};
+};
+
 struct Clip {
     /* JSON clip id (from `{"id": ...}` in the timeline JSON). Unique
      * within a track (loader enforces). Used by transitions
@@ -181,6 +247,22 @@ struct Clip {
      * rejects gainDb on video). Consumer is AudioMixer (applies
      * per-emitted-frame linear gain). */
     std::optional<AnimatedNumber> gain_db;
+
+    /* Ordered list of effects applied to this clip's rendered
+     * output. Populated iff JSON clip carries a non-empty `effects`
+     * array. Applied in declaration order — later effects see the
+     * output of earlier ones (matches TIMELINE_SCHEMA.md §Clip
+     * "effects (array, optional) — applied in order").
+     *
+     * Video-only today: loader rejects effects on audio clips (audio
+     * effect chain lands with M4 audio polish).
+     *
+     * Consumer: ComposeSink's GPU branch once effect-gpu-* cycles
+     * land — today the list is loaded and stored but no consumer
+     * walks it. Kept here so the IR + JSON schema stays honest:
+     * timeline JSON with effects now round-trips through the IR
+     * instead of being rejected. */
+    std::vector<EffectSpec> effects;
 };
 
 /* Kind of a compositing track. Audio tracks carry audio clips, video
