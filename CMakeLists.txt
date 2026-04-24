@@ -35,6 +35,12 @@ option(ME_WERROR         "Treat warnings as errors" OFF)
 # `IdentityPipeline`).
 option(ME_WITH_OCIO      "Fetch and link OpenColorIO (M2 color pipeline)" ON)
 
+# M3 GPU render benchmarks (bench/). OFF by default — benches are
+# run ad-hoc by dev machines + CI perf gates, not on every build.
+# Requires ME_WITH_GPU=ON to do anything useful; the bench/
+# CMakeLists.txt detects and skips otherwise.
+option(ME_BUILD_BENCH    "Build GPU render benchmarks (bench/)"          OFF)
+
 # M3 GPU backend (bgfx). ON wires FetchContent_Declare(bgfx.cmake)
 # and swaps the `make_gpu_backend()` factory to return a
 # `BgfxGpuBackend` whose ctor performs a headless `bgfx::init`
@@ -63,4 +69,8 @@ endif()
 if(ME_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
+endif()
+
+if(ME_BUILD_BENCH)
+  add_subdirectory(bench)
 endif()

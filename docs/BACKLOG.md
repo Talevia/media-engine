@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M3 主线 / 跨 milestone debt）
 
-- **gpu-render-1080p60-bench** — `grep -rn 'benchmark\|1080p\|60fps' tests examples` 空。M3 exit criterion "1080p@60 可实时渲染带 3-5 个 GPU effect 的 timeline" 需要 bench harness + 性能闸。**方向：** 新 `bench/bench_gpu_compose.cpp`（build target `bench_gpu_compose` 只在 `ME_BUILD_BENCH=ON` 且 `ME_WITH_GPU=ON` 时开）。跑 N 帧 1080p × (color-correct + blur + lut) chain，`std::chrono::high_resolution_clock` 测端到端时间，断言 avg frame time < 16.67 ms（60 fps budget）。Build-time smoke：跑 10 帧即可（CI 时间预算）；release 跑 600 帧更稳。Milestone §M3，Rubric §5.3。
 
 ## P2（未来，当前 milestone 不挤占）
 
