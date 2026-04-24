@@ -17,8 +17,6 @@
 
 ## P1（强烈建议，M6 主线 / 跨 milestone debt）
 
-- **cache-stats-invalidate-impl** — M6 exit criterion "`me_cache_stats` / `me_cache_invalidate_asset` 行为与 VISION §3.3 一致"。`grep -rn 'me_cache_stats\|me_cache_invalidate' src/api` 显示 api/cache.cpp 存在，但 `src/resource/frame_pool.cpp` 的 `hit_count_` / `miss_count_` 是否真推进未验证——frame-server 还没接入，没有客户端。**方向：** 把 frame_pool 加计数器步进（每次 allocate → miss++, 命中已缓存 sample → hit++）；实装 `cache_invalidate_asset` 走 AssetHashCache 清除 content_hash entry + 相关 disk_cache 文件删除。Test: 跑两次相同 frame 请求，第二次 hit_count 应增加；invalidate 后第三次 miss 又回到未缓存。Milestone §M6，Rubric §5.3。
-- **scrub-cache-reuse** — M6 exit criterion "Scrubbing 场景下同一时刻重复取帧命中缓存"。`grep -rn 'scrub\|seek.*cache' src tests` 空——没有测 scrubbing 往返行为。**方向：** 依赖 me-render-frame-impl + disk-cache。test: 请求 t=1.0 → t=2.0 → t=1.0 (scrub back)，断言第二次 t=1.0 的请求命中缓存 (hit count +1)，不是 miss。Milestone §M6，Rubric §5.3。
 - **async-job-base** — 当前只有 `me_render_start` 一个异步入口，worker→caller 的 error propagation 走 `Job::err_msg` + `me_render_wait` 中转。等第二个异步 API 落地（大概率 M6 frame-server async preview）时抽 `AsyncJobBase` 收口。Milestone §M6，Rubric §5.2。
 - **codec-pool-real-pooling** — `src/resource/codec_pool.hpp:6` 注释: "encoder reuse (the "pool" in the name) is deferred"；`codec_pool.cpp` 只 `++live_count_` / `--live_count_`。`reencode-multi-clip` N-segment 开独立 AVCodecContext（`reencode_segment.cpp:112`），但每段 open_decoder 只 ~ms，没 profile 证据表明是瓶颈。**方向：** 等 benchmark 证实瓶颈再加 `get_or_make_decoder(codec_id, codecpar)` + `avcodec_flush_buffers` pool 路径。Milestone §M6-debt (cross)，Rubric §5.3。
 

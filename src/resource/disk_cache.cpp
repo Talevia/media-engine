@@ -93,19 +93,23 @@ bool DiskCache::put(const std::string& hash,
 }
 
 std::optional<CachedFrame> DiskCache::get(const std::string& hash) {
-    if (dir_.empty() || hash.empty()) return std::nullopt;
+    auto miss_return = [&]() -> std::optional<CachedFrame> {
+        misses_.fetch_add(1, std::memory_order_relaxed);
+        return std::nullopt;
+    };
+
+    if (dir_.empty() || hash.empty()) return miss_return();
 
     std::lock_guard<std::mutex> lk(mu_);
 
     const std::string path = entry_path(dir_, hash);
     std::ifstream in(path, std::ios::binary);
-    if (!in) return std::nullopt;
+    if (!in) return miss_return();
 
     uint8_t header[kHeaderBytes] = {0};
     in.read(reinterpret_cast<char*>(header), kHeaderBytes);
-    if (!in) return std::nullopt;
-    if (in.gcount() != static_cast<std::streamsize>(kHeaderBytes)) {
-        return std::nullopt;  /* file too small; corrupted */
+    if (!in || in.gcount() != static_cast<std::streamsize>(kHeaderBytes)) {
+        return miss_return();
     }
 
     CachedFrame out;
@@ -118,7 +122,7 @@ std::optional<CachedFrame> DiskCache::get(const std::string& hash) {
     if (out.width <= 0 || out.width > 16384 ||
         out.height <= 0 || out.height > 16384 ||
         out.stride <= 0 || out.stride > 16384 * 8) {
-        return std::nullopt;
+        return miss_return();
     }
 
     const std::size_t body_bytes =
@@ -127,11 +131,33 @@ std::optional<CachedFrame> DiskCache::get(const std::string& hash) {
     out.rgba.resize(body_bytes);
     in.read(reinterpret_cast<char*>(out.rgba.data()),
             static_cast<std::streamsize>(body_bytes));
-    if (!in) return std::nullopt;
-    if (in.gcount() != static_cast<std::streamsize>(body_bytes)) {
-        return std::nullopt;
+    if (!in || in.gcount() != static_cast<std::streamsize>(body_bytes)) {
+        return miss_return();
     }
+
+    hits_.fetch_add(1, std::memory_order_relaxed);
     return out;
+}
+
+std::size_t DiskCache::invalidate_by_prefix(const std::string& prefix) {
+    if (dir_.empty() || prefix.empty()) return 0;
+    std::lock_guard<std::mutex> lk(mu_);
+    std::error_code ec;
+    std::size_t removed = 0;
+    fs::directory_iterator it(dir_, ec);
+    if (ec) return 0;
+    for (const auto& entry : it) {
+        std::error_code check_ec;
+        if (!entry.is_regular_file(check_ec)) continue;
+        if (entry.path().extension() != ".bin") continue;
+        const std::string stem = entry.path().stem().string();
+        if (stem.size() >= prefix.size() &&
+            stem.compare(0, prefix.size(), prefix) == 0) {
+            std::error_code rm_ec;
+            if (fs::remove(entry.path(), rm_ec)) ++removed;
+        }
+    }
+    return removed;
 }
 
 void DiskCache::invalidate(const std::string& hash) {

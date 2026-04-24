@@ -5,6 +5,8 @@
 #include "core/frame_impl.hpp"
 #include "io/av_err.hpp"
 #include "io/ffmpeg_raii.hpp"
+#include "resource/asset_hash_cache.hpp"
+#include "resource/disk_cache.hpp"
 #include "timeline/timeline_impl.hpp"
 
 extern "C" {
@@ -161,6 +163,36 @@ me_status_t Previewer::frame_at(me_rational_t time, me_frame** out_frame) {
     if (a_it == tl_->assets.end()) return ME_E_NOT_FOUND;
     const std::string path = strip_file_scheme(a_it->second.uri);
 
+    /* Cache lookup before decoding. Key = `<asset_hash>:<source_num>:
+     * <source_den>` so the same (asset, timeline-local moment)
+     * returns the cached frame, and all entries for a given asset
+     * share a common prefix (me_cache_invalidate_asset walks on
+     * prefix). Asset hash comes from AssetHashCache (seeded by the
+     * loader from JSON contentHash, or computed lazily on first
+     * lookup). Empty hash → skip cache (can't key). */
+    std::string asset_hash;
+    if (engine_ && engine_->asset_hashes) {
+        asset_hash = engine_->asset_hashes->get_or_compute(a_it->second.uri);
+    }
+    std::string cache_key;
+    if (!asset_hash.empty()) {
+        cache_key = asset_hash + ":" +
+                    std::to_string(source_t.num) + ":" +
+                    std::to_string(source_t.den);
+        if (engine_ && engine_->disk_cache && engine_->disk_cache->enabled()) {
+            auto cached = engine_->disk_cache->get(cache_key);
+            if (cached.has_value()) {
+                auto mf = std::make_unique<me_frame>();
+                mf->width  = cached->width;
+                mf->height = cached->height;
+                mf->stride = cached->stride;
+                mf->rgba   = std::move(cached->rgba);
+                *out_frame = mf.release();
+                return ME_OK;
+            }
+        }
+    }
+
     /* Open input + find video stream + spin up decoder. */
     AVFormatContext* fmt = nullptr;
     int rc = avformat_open_input(&fmt, path.c_str(), nullptr, nullptr);
@@ -221,6 +253,15 @@ me_status_t Previewer::frame_at(me_rational_t time, me_frame** out_frame) {
     const me_status_t cs = me::compose::frame_to_rgba8(fr.get(), mf->rgba, &err);
     avformat_close_input(&fmt);
     if (cs != ME_OK) return cs;
+
+    /* Write to disk cache (best-effort; failures don't affect the
+     * render path). Same key we probed above; skip when cache is
+     * disabled or asset_hash unavailable. */
+    if (!cache_key.empty() &&
+        engine_ && engine_->disk_cache && engine_->disk_cache->enabled()) {
+        engine_->disk_cache->put(cache_key, mf->rgba.data(),
+                                  mf->width, mf->height, mf->stride);
+    }
 
     *out_frame = mf.release();
     return ME_OK;

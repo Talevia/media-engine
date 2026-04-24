@@ -48,6 +48,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -94,6 +95,22 @@ public:
      * there (defensive: avoid `rm -rf`-style foot-guns). */
     void clear();
 
+    /* Remove every entry whose hash starts with `prefix`. Useful
+     * when keys follow an `<asset_hash>:<suffix>` convention and
+     * an asset-level invalidation should cascade. Returns the
+     * count of entries removed. O(entries) scan; disabled cache
+     * returns 0. */
+    std::size_t invalidate_by_prefix(const std::string& prefix);
+
+    /* Cumulative hit/miss counters — get() increments one per
+     * call. Survives clear(); reset via reset_counters(). */
+    std::int64_t hit_count()  const noexcept { return hits_.load();   }
+    std::int64_t miss_count() const noexcept { return misses_.load(); }
+    void         reset_counters() noexcept {
+        hits_.store(0);
+        misses_.store(0);
+    }
+
     /* Path of the configured cache directory (for diagnostic
      * logging; not for caller-side I/O). */
     const std::string& dir() const noexcept { return dir_; }
@@ -104,8 +121,10 @@ public:
     bool enabled() const noexcept { return !dir_.empty(); }
 
 private:
-    std::string   dir_;   /* empty = disabled */
-    std::mutex    mu_;    /* guards concurrent put/get/invalidate */
+    std::string                dir_;   /* empty = disabled */
+    std::mutex                 mu_;    /* guards put/get/invalidate */
+    std::atomic<std::int64_t>  hits_{0};
+    std::atomic<std::int64_t>  misses_{0};
 };
 
 }  // namespace me::resource
