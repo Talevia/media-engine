@@ -63,6 +63,8 @@ if(ME_BUILD_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Cancel.java")
         set(_me_jni_status_src
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/LastStatusAssert.java")
+        set(_me_jni_throw_src
+            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/ProgressThrow.java")
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
         set(_me_jni_classfile
             "${_me_jni_classdir}/io/mediaengine/MediaEngine.class")
@@ -76,6 +78,8 @@ if(ME_BUILD_TESTS)
             "${_me_jni_classdir}/io/mediaengine/example/Cancel.class")
         set(_me_jni_status_classfile
             "${_me_jni_classdir}/io/mediaengine/example/LastStatusAssert.class")
+        set(_me_jni_throw_classfile
+            "${_me_jni_classdir}/io/mediaengine/example/ProgressThrow.class")
 
         # Compile MediaEngine.java + the example runners together; the
         # runners depend on the wrapper class. Re-runs only when any
@@ -88,6 +92,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_thumb_classfile}"
                     "${_me_jni_cancel_classfile}"
                     "${_me_jni_status_classfile}"
+                    "${_me_jni_throw_classfile}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_me_jni_classdir}"
             COMMAND ${Java_JAVAC_EXECUTABLE}
                     -d "${_me_jni_classdir}"
@@ -97,12 +102,14 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_thumb_src}"
                     "${_me_jni_cancel_src}"
                     "${_me_jni_status_src}"
+                    "${_me_jni_throw_src}"
             DEPENDS "${_me_jni_java_src}"
                     "${_me_jni_run_src}"
                     "${_me_jni_verify_src}"
                     "${_me_jni_thumb_src}"
                     "${_me_jni_cancel_src}"
                     "${_me_jni_status_src}"
+                    "${_me_jni_throw_src}"
             COMMENT "javac MediaEngine.java + example runners -> ${_me_jni_classdir}")
 
         add_custom_target(media_engine_jni_classes
@@ -111,7 +118,8 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_verify_classfile}"
                     "${_me_jni_thumb_classfile}"
                     "${_me_jni_cancel_classfile}"
-                    "${_me_jni_status_classfile}")
+                    "${_me_jni_status_classfile}"
+                    "${_me_jni_throw_classfile}")
         add_dependencies(media_engine_jni_classes media_engine_jni)
 
         # jni_load_smoke: no-args MediaEngine.main() — prints version
@@ -169,6 +177,23 @@ if(ME_BUILD_TESTS)
             DEPENDS           media_engine_jni_classes
             FIXTURES_REQUIRED jni_lib_fresh
             TIMEOUT           20)
+
+        # jni_progress_throw_smoke: install a listener that throws on
+        # the 2nd FRAMES event; verify the engine survives + delivers
+        # subsequent events. me_jni.cpp:74's ExceptionClear path was
+        # uncovered before this — a regression that dropped the
+        # ExceptionCheck would crash hosts the moment a listener bug
+        # threw.
+        add_test(NAME jni_progress_throw_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.ProgressThrow
+                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${CMAKE_CURRENT_BINARY_DIR}/jni_progress_throw_smoke_out.mp4")
+        set_tests_properties(jni_progress_throw_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  30)
 
         # jni_last_status_smoke: load malformed JSON, expect
         # MediaEngineException with status == ME_E_PARSE (-5). Pins
