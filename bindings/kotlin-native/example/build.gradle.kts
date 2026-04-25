@@ -17,6 +17,15 @@
 import org.jetbrains.kotlin.konan.target.HostManager
 
 plugins {
+    /* Pinned to 2.0.20 — see bindings/kotlin-native/CMakeLists.txt's
+     * gradle-version gate: this example targets Gradle 8.x, which
+     * is what `gradle wrapper --gradle-version 8.10` produces. With
+     * Gradle 9+, `kotlin("multiplatform") version "2.0.20"` fails at
+     * apply time (DefaultArtifactPublicationSet was removed). The
+     * jump to a 2.1+ Kotlin pin is non-trivial here because the K/N
+     * cinterop tool changed how opaque-handle out-params surface in
+     * Kotlin (me_engine_tVar → CPointerVar<me_engine>), which
+     * requires Main.kt edits the dev box hasn't validated yet. */
     kotlin("multiplatform") version "2.0.20"
 }
 
