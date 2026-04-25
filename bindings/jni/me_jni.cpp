@@ -51,6 +51,28 @@ Java_io_mediaengine_MediaEngine_nativeCreate(JNIEnv*, jclass) {
     return reinterpret_cast<jlong>(eng);
 }
 
+JNIEXPORT jlong JNICALL
+Java_io_mediaengine_MediaEngine_nativeCreateWithConfig(JNIEnv* env, jclass,
+                                                        jstring cache_dir,
+                                                        jlong   mem_cache_bytes,
+                                                        jlong   disk_cache_bytes) {
+    me_engine_config_t cfg{};
+    const char* cache_dir_c = nullptr;
+    if (cache_dir) {
+        cache_dir_c     = env->GetStringUTFChars(cache_dir, nullptr);
+        cfg.cache_dir   = cache_dir_c;
+    }
+    cfg.memory_cache_bytes = static_cast<int64_t>(mem_cache_bytes);
+    cfg.disk_cache_bytes   = static_cast<int64_t>(disk_cache_bytes);
+
+    me_engine_t* eng = nullptr;
+    me_status_t s = me_engine_create(&cfg, &eng);
+    g_jni_last_status = s;
+    if (cache_dir_c) env->ReleaseStringUTFChars(cache_dir, cache_dir_c);
+    if (s != ME_OK) return 0;
+    return reinterpret_cast<jlong>(eng);
+}
+
 JNIEXPORT void JNICALL
 Java_io_mediaengine_MediaEngine_nativeDestroy(JNIEnv*, jclass, jlong h) {
     me_engine_destroy(reinterpret_cast<me_engine_t*>(h));

@@ -36,6 +36,23 @@ public final class MediaEngine implements AutoCloseable {
         }
     }
 
+    /** Construct an engine with explicit configuration. Mirrors
+     *  {@code me_engine_config_t} fields: a non-null {@code cacheDir}
+     *  enables the disk cache (see VISION §3.3 cache contract), and
+     *  the cap fields can override engine defaults. Pass
+     *  {@code null} / 0 to fall back to defaults equivalent to the
+     *  no-arg constructor's behavior. */
+    public MediaEngine(Config cfg) {
+        this.handle = nativeCreateWithConfig(
+                cfg == null ? null : cfg.cacheDir(),
+                cfg == null ? 0L   : cfg.memoryCacheBytes(),
+                cfg == null ? 0L   : cfg.diskCacheBytes());
+        if (handle == 0L) {
+            throw new MediaEngineException(nativeLastStatus(),
+                    "me_engine_create(Config) failed");
+        }
+    }
+
     public Timeline loadTimeline(String json) {
         long h = nativeLoadTimeline(handle, json);
         if (h == 0L) {
@@ -143,6 +160,24 @@ public final class MediaEngine implements AutoCloseable {
 
     public record Version(int major, int minor, int patch, String gitSha) {}
 
+    /** Engine construction config, mirroring {@code me_engine_config_t}.
+     *
+     *  <p><b>cacheDir.</b> Non-null enables the disk cache (cycle 39):
+     *  intermediate frame results land under this directory keyed by
+     *  content hash. Null leaves the disk cache disabled.
+     *
+     *  <p><b>memoryCacheBytes.</b> In-memory frame cache cap, bytes.
+     *  0 = engine default.
+     *
+     *  <p><b>diskCacheBytes.</b> Disk cache cap, bytes. Applies only
+     *  when {@code cacheDir} is set. 0 = unlimited (no eviction;
+     *  directory grows until cleared / filesystem fills). When
+     *  positive, the engine evicts oldest-by-mtime entries to keep
+     *  the on-disk footprint under the cap. */
+    public record Config(String cacheDir,
+                          long   memoryCacheBytes,
+                          long   diskCacheBytes) {}
+
     /** Decoded frame returned by {@link #frame(Timeline,long,long)}.
      *
      *  <p><b>Pixel layout.</b> RGBA8 row-major. Each pixel is exactly
@@ -195,6 +230,8 @@ public final class MediaEngine implements AutoCloseable {
     /* ------------------------------------------------------------------
      * Native bridges — implementations in me_jni.cpp. */
     private static native long    nativeCreate();
+    private static native long    nativeCreateWithConfig(
+            String cacheDir, long memoryCacheBytes, long diskCacheBytes);
     private static native void    nativeDestroy(long engine);
     private static native long    nativeLoadTimeline(long engine, String json);
     private static native void    nativeTimelineDestroy(long tl);

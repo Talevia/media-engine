@@ -80,6 +80,7 @@ if(ME_BUILD_TESTS)
             example/src/io/mediaengine/example/VersionAssert.java
             example/src/io/mediaengine/example/Thumbnail.java
             example/src/io/mediaengine/example/ThumbnailBatch.java
+            example/src/io/mediaengine/example/ConfigCacheAssert.java
             example/src/io/mediaengine/example/Cancel.java
             example/src/io/mediaengine/example/LastStatusAssert.java
             example/src/io/mediaengine/example/ProgressThrow.java
@@ -207,6 +208,25 @@ if(ME_BUILD_TESTS)
                          -cp "${_me_jni_classdir}"
                          io.mediaengine.example.LastStatusAssert)
         set_tests_properties(jni_last_status_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  20)
+
+        # jni_config_cache_smoke: pin the cycle 106 MediaEngine
+        # (Config) ctor — passing a non-null cacheDir engages the
+        # engine's disk cache (verifiable via files appearing under
+        # the cacheDir). Catches a regression that drops the
+        # cache_dir field on the JNI side; without it host hosts
+        # silently run without disk cache.
+        set(_me_jni_config_cache_dir
+            "${CMAKE_CURRENT_BINARY_DIR}/jni_config_cache_smoke_dir")
+        add_test(NAME jni_config_cache_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.ConfigCacheAssert
+                         "${_me_jni_test_fixture_mp4}"
+                         "${_me_jni_config_cache_dir}")
+        set_tests_properties(jni_config_cache_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
 

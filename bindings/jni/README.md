@@ -64,7 +64,8 @@ smoke-level integration:
 
 | Java | C |
 |---|---|
-| `MediaEngine()` | `me_engine_create()` |
+| `MediaEngine()` | `me_engine_create()` (defaults; no disk cache) |
+| `MediaEngine(Config)` | `me_engine_create()` (explicit cacheDir + caps) |
 | `MediaEngine.close()` | `me_engine_destroy()` |
 | `loadTimeline(json)` | `me_timeline_load_json()` |
 | `Timeline.close()` | `me_timeline_destroy()` |
