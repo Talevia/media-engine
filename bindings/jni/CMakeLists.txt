@@ -280,6 +280,19 @@ if(ME_BUILD_TESTS)
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
 
+        # Companion check: verify the FrameFetch output is a valid
+        # P6 PPM (bytes 0-2 == "P6\n"). A regression where
+        # nativeRenderFrame returned ME_OK but the byte[] copy
+        # produced empty / corrupt RGBA would surface as a
+        # mis-headered or zero-byte file. Mirrors cycle 87/88
+        # validators.
+        add_test(NAME jni_frame_smoke_validate
+                 COMMAND bash -c
+                   "test \"$(head -c 2 '${CMAKE_CURRENT_BINARY_DIR}/jni_frame_smoke_out.ppm')\" = P6")
+        set_tests_properties(jni_frame_smoke_validate PROPERTIES
+            DEPENDS jni_frame_smoke
+            TIMEOUT 5)
+
         # jni_thumbnail_smoke: pull a 160x120 PNG thumbnail at t=0.5s
         # from the determinism fixture via the JNI bridge. Catches
         # nativeThumbnail signature drift + the byte[] copy contract +
