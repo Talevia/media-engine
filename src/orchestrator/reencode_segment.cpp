@@ -45,55 +45,10 @@ bool audio_params_compatible(const SharedEncState& s, const AVCodecContext* adec
 
 }  // namespace
 
-me_status_t open_decoder(me::resource::CodecPool&      pool,
-                         AVStream*                     in_stream,
-                         me::resource::CodecPool::Ptr& out,
-                         std::string*                  err) {
-    const AVCodec* dec = avcodec_find_decoder(in_stream->codecpar->codec_id);
-    if (!dec) {
-        if (err) *err = std::string("no decoder for ") +
-                         avcodec_get_name(in_stream->codecpar->codec_id);
-        /* LEGIT: FFmpeg build missing a decoder for the input stream's
-         * codec (rare on stock builds; surfaced clearly). */
-        return ME_E_UNSUPPORTED;
-    }
-    auto ctx = pool.allocate(dec);
-    if (!ctx) return ME_E_OUT_OF_MEMORY;
-
-    int rc = avcodec_parameters_to_context(ctx.get(), in_stream->codecpar);
-    if (rc < 0) {
-        if (err) *err = "parameters_to_context: " + av_err_str(rc);
-        return ME_E_INTERNAL;
-    }
-    ctx->pkt_timebase = in_stream->time_base;
-    rc = avcodec_open2(ctx.get(), dec, nullptr);
-    if (rc < 0) {
-        if (err) *err = std::string("open decoder ") + dec->name + ": " + av_err_str(rc);
-        return ME_E_DECODE;
-    }
-    out = std::move(ctx);
-    return ME_OK;
-}
-
-int64_t total_output_us(const std::vector<ReencodeSegment>& segs) {
-    int64_t total = 0;
-    for (const auto& seg : segs) {
-        if (seg.source_duration.den > 0 && seg.source_duration.num > 0) {
-            total += av_rescale_q(seg.source_duration.num,
-                                   AVRational{1, static_cast<int>(seg.source_duration.den)},
-                                   AV_TIME_BASE_Q);
-        } else if (seg.demux && seg.demux->fmt && seg.demux->fmt->duration > 0) {
-            int64_t src_start_us = 0;
-            if (seg.source_start.den > 0 && seg.source_start.num > 0) {
-                src_start_us = av_rescale_q(seg.source_start.num,
-                                             AVRational{1, static_cast<int>(seg.source_start.den)},
-                                             AV_TIME_BASE_Q);
-            }
-            total += std::max<int64_t>(0, seg.demux->fmt->duration - src_start_us);
-        }
-    }
-    return total;
-}
+/* open_decoder + total_output_us live in reencode_segment_helpers.cpp
+ * (split out to keep this TU under the §1a 400-line ceiling). Both
+ * are still declared in reencode_segment.hpp; consumers across
+ * src/orchestrator/ are unchanged. */
 
 me_status_t process_segment(const ReencodeSegment&      seg,
                             me::resource::CodecPool&    pool,

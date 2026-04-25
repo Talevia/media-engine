@@ -310,6 +310,7 @@ add_library(media_engine STATIC
   orchestrator/reencode_video.cpp
   orchestrator/reencode_audio.cpp
   orchestrator/reencode_segment.cpp
+  orchestrator/reencode_segment_helpers.cpp
   orchestrator/reencode_pipeline.cpp
   orchestrator/output_sink.cpp
   orchestrator/compose_sink.cpp
