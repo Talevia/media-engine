@@ -4,6 +4,7 @@
 #include "compose/affine_blit.hpp"
 #include "compose/alpha_over.hpp"
 #include "compose/frame_convert.hpp"
+#include "orchestrator/compose_decode_renderers.hpp"
 #include "orchestrator/compose_transition_step.hpp"
 #include "orchestrator/reencode_video.hpp"
 
@@ -24,9 +25,7 @@ extern "C" {
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -121,95 +120,39 @@ me_status_t run_compose_video_frame_loop(
                 bool text_handled = false;
 
 #ifdef ME_HAS_SKIA
-                /* Text clip: synthetic, no decoder. Lazy-init the
-                 * TextRenderer at the output canvas size and draw the
-                 * current clip params at T onto track_rgba. Size it
-                 * here (not outside the branch) to keep the vector
-                 * usable below without a parallel size check. */
-                if (cur_clip.type == me::ClipType::Text &&
-                    cur_clip.text_params.has_value()) {
-                    auto& tr = text_renderers[ta.clip_idx];
-                    if (!tr) {
-                        tr = std::make_unique<me::text::TextRenderer>(W, H);
+                /* Synthetic text clip — see compose_decode_renderers
+                 * for the lazy-init + draw mechanics. */
+                {
+                    const auto r = try_render_text_clip(
+                        cur_clip, T, W, H,
+                        ctx.track_rgba, text_renderers[ta.clip_idx]);
+                    if (r.handled) {
+                        src_w = r.src_w;
+                        src_h = r.src_h;
+                        transform_clip_idx = ta.clip_idx;
+                        text_handled = true;
                     }
-                    const std::size_t pitch =
-                        static_cast<std::size_t>(W) * 4;
-                    ctx.track_rgba.assign(pitch * static_cast<std::size_t>(H), 0);
-                    if (tr->valid()) {
-                        tr->render(*cur_clip.text_params, T,
-                                    ctx.track_rgba.data(), pitch);
-                    }
-                    src_w = W;
-                    src_h = H;
-                    transform_clip_idx = ta.clip_idx;
-                    text_handled = true;
                 }
 #endif
 
 #ifdef ME_HAS_LIBASS
-                /* Subtitle clip: synthetic, no decoder. Lazy-init
-                 * the SubtitleRenderer + parse inline .ass/.srt on
-                 * first visit; subsequent frames reuse the parsed
-                 * track and only the t_ms → render_frame call runs.
-                 * libass consumes time in milliseconds — convert T
-                 * to integer ms via rational-safe scaling. */
-                if (!text_handled &&
-                    cur_clip.type == me::ClipType::Subtitle &&
-                    cur_clip.subtitle_params.has_value()) {
-                    auto& sr = subtitle_renderers[ta.clip_idx];
-                    if (!sr) {
-                        sr = std::make_unique<me::text::SubtitleRenderer>(W, H);
-                        const auto& sp = *cur_clip.subtitle_params;
-                        /* Source the subtitle bytes either from the
-                         * inline `content` string or by reading the
-                         * file referenced by `file_uri`. Loader
-                         * ensures exactly one is populated. Inline
-                         * empty content is a valid no-op (empty
-                         * subtitle track); file_uri that fails to
-                         * open is surfaced to err so hosts can
-                         * diagnose the bad path via
-                         * me_engine_last_error. */
-                        std::string bytes;
-                        if (!sp.content.empty()) {
-                            bytes = sp.content;
-                        } else if (!sp.file_uri.empty()) {
-                            std::string path = sp.file_uri;
-                            constexpr std::string_view file_prefix{"file://"};
-                            if (path.size() > file_prefix.size() &&
-                                path.compare(0, file_prefix.size(), file_prefix) == 0) {
-                                path = path.substr(file_prefix.size());
-                            }
-                            std::ifstream in(path, std::ios::binary);
-                            if (!in) {
-                                if (err) {
-                                    *err = "subtitle file_uri not readable: '" +
-                                           sp.file_uri + "'";
-                                }
-                                return ME_E_IO;
-                            }
-                            std::ostringstream ss;
-                            ss << in.rdbuf();
-                            bytes = ss.str();
-                        }
-                        if (!bytes.empty()) {
-                            sr->load_from_memory(bytes,
-                                sp.codepage.empty() ? nullptr : sp.codepage.c_str());
-                        }
+                /* Synthetic subtitle clip — see
+                 * compose_decode_renderers for the libass
+                 * lazy-parse + render mechanics. file_uri read
+                 * failure surfaces as ME_E_IO with err populated
+                 * by the helper. */
+                if (!text_handled) {
+                    const auto r = try_render_subtitle_clip(
+                        cur_clip, T, W, H,
+                        ctx.track_rgba, subtitle_renderers[ta.clip_idx],
+                        err);
+                    if (r.status != ME_OK) return r.status;
+                    if (r.handled) {
+                        src_w = r.src_w;
+                        src_h = r.src_h;
+                        transform_clip_idx = ta.clip_idx;
+                        text_handled = true;
                     }
-                    const std::size_t pitch =
-                        static_cast<std::size_t>(W) * 4;
-                    ctx.track_rgba.assign(pitch * static_cast<std::size_t>(H), 0);
-                    if (sr->valid()) {
-                        /* t_ms = T.num * 1000 / T.den; rational input
-                         * is exact, cast to int64 is the natural
-                         * libass boundary. */
-                        const int64_t t_ms = (T.num * 1000) / T.den;
-                        sr->render_frame(t_ms, ctx.track_rgba.data(), pitch);
-                    }
-                    src_w = W;
-                    src_h = H;
-                    transform_clip_idx = ta.clip_idx;
-                    text_handled = true;
                 }
 #endif
 

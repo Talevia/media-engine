@@ -308,6 +308,7 @@ add_library(media_engine STATIC
   orchestrator/compose_sink.cpp
   orchestrator/compose_sink_impl.cpp
   orchestrator/compose_decode_loop.cpp
+  orchestrator/compose_decode_renderers.cpp
   orchestrator/compose_transition_step.cpp
   orchestrator/compose_audio.cpp
   orchestrator/audio_only_sink.cpp
