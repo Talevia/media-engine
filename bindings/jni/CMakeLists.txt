@@ -81,6 +81,7 @@ if(ME_BUILD_TESTS)
             example/src/io/mediaengine/example/Thumbnail.java
             example/src/io/mediaengine/example/ThumbnailBatch.java
             example/src/io/mediaengine/example/ConfigCacheAssert.java
+            example/src/io/mediaengine/example/ThumbnailArgsAssert.java
             example/src/io/mediaengine/example/Cancel.java
             example/src/io/mediaengine/example/LastStatusAssert.java
             example/src/io/mediaengine/example/ProgressThrow.java
@@ -210,6 +211,19 @@ if(ME_BUILD_TESTS)
         set_tests_properties(jni_last_status_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
+
+        # jni_thumbnail_args_smoke: pin the cycle 107 contract that
+        # MediaEngine.thumbnail rejects negative maxWidth/Height
+        # with IllegalArgumentException. No fixture needed —
+        # bad-arg check happens in Java before the JNI bridge fires.
+        add_test(NAME jni_thumbnail_args_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.ThumbnailArgsAssert)
+        set_tests_properties(jni_thumbnail_args_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  10)
 
         # jni_config_cache_smoke: pin the cycle 106 MediaEngine
         # (Config) ctor — passing a non-null cacheDir engages the

@@ -95,11 +95,26 @@ public final class MediaEngine implements AutoCloseable {
         return nativeLastStatus();
     }
 
-    /** Render a single frame at `tNum/tDen` from `uri` as a PNG byte array.
-     *  `maxWidth`/`maxHeight` of 0 = native dimensions. Returns null on
-     *  failure (caller can read lastError() for details). */
+    /** Render a single frame at {@code tNum/tDen} from {@code uri}
+     *  as a PNG byte array.
+     *
+     *  <p><b>maxWidth / maxHeight.</b> 0 = native dimensions; a
+     *  positive value caps the longest side while preserving the
+     *  source aspect ratio. Negative values are <em>rejected</em>
+     *  with {@link IllegalArgumentException} — the C side
+     *  ({@code me_thumbnail_png}) treats negatives as undefined and
+     *  could feed them to swscale, which corrupts the output buffer.
+     *
+     *  <p>Returns null on failure (caller reads {@link #lastError()}
+     *  / {@link #lastStatus()} for details). */
     public byte[] thumbnail(String uri, long tNum, long tDen,
                             int maxWidth, int maxHeight) {
+        if (maxWidth < 0 || maxHeight < 0) {
+            throw new IllegalArgumentException(
+                    "thumbnail: maxWidth/maxHeight must be >= 0 "
+                    + "(got maxWidth=" + maxWidth
+                    + " maxHeight=" + maxHeight + ")");
+        }
         return nativeThumbnail(handle, uri, tNum, tDen, maxWidth, maxHeight);
     }
 

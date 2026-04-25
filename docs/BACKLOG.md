@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **debt-jni-thumbnail-arg-validation** — `bindings/jni/me_jni.cpp:Java_..._nativeThumbnail` 把 jint maxWidth/maxHeight 直接传 me_thumbnail_png；负值 / 极大值行为不文档化。`grep -n 'thumbnail.*-1\|thumbnail.*Integer.MAX_VALUE' bindings/jni/example/` 空——无 negative-arg 测试。**方向：** Java side 在 thumbnail() 抛 IllegalArgumentException if maxWidth/Height < 0；javadoc 声明 0 = native dim, 正数 = max bounding box；新 jni_thumbnail_args ctest 验拒 negative。Milestone §M7-debt，Rubric §5.5。
 - **debt-bindings-jvm-frame-helper-imageio** — `MediaEngine.Frame.rgba` 是 RGBA8 row-major (cycle 100 doc'd)；JVM hosts 想 wrap 成 `java.awt.image.BufferedImage` 或 javafx WritableImage 都需要 byte-channel re-pack (RGBA→ABGR for TYPE_4BYTE_ABGR)。每个 host 自己写。**方向：** 新 Frame.toBufferedImage() 静态 helper (or `Frames.toBufferedImage(Frame)` util class) 用 java.awt.image API 把 RGBA→BufferedImage TYPE_INT_ARGB；FrameFetch.java 演示。Milestone §M7-debt，Rubric §5.5。
 - **examples-c-cache-invalidate-demo** — `include/media_engine/cache.h:40` 暴露 `me_cache_invalidate_asset(eng, content_hash)` 但 `grep -rn 'me_cache_invalidate_asset' examples/` 空——无 demo。host 在 source 文件被外部改动时要 invalidate cache 不知怎么用 (content_hash 怎么算 / 何时调)。**方向：** 新 `examples/12_cache_invalidate/main.c` — render_frame at t=0 (产生 1 entry)，调 me_cache_invalidate_asset，再 render_frame 验 miss_count++。Milestone §M6-debt (cross)，Rubric §5.4。
 
