@@ -1,23 +1,22 @@
 /*
  * Previewer — single-frame-at-time pull for scrubbing / preview UI.
  *
- * Holds a borrowed Timeline + the engine pointer (for AssetHashCache
- * / CodecPool / DiskCache access). `frame_at(time)` walks the
- * bottom track's active clip at `time`, opens a decoder via the
- * engine's CodecPool, seeks frame-accurate in source-stream
- * coordinates, converts the decoded frame to tightly-packed RGBA8,
- * and returns a caller-owned `me_frame`. DiskCache round-trips are
- * transparent — repeat fetches at the same (asset_hash, source_t)
- * key hit cache without re-decoding.
+ * Holds a borrowed Timeline + the engine pointer. `frame_at(time)`
+ * resolves the bottom track's active clip at `time`, compiles a
+ * three-node graph (IoDemux → IoDecodeVideo → RenderConvertRgba8),
+ * and runs it through `engine.scheduler.evaluate_port`. Two cache
+ * layers wrap the call: cross-process `DiskCache` (peek + write-
+ * through, surfaced via me_cache_*) and in-process scheduler
+ * `OutputCache` (transparent to the call site). Returns a caller-
+ * owned `me_frame`.
  *
- * Phase-1 compose: single-track only. Multi-track composite-through-
- * preview arrives when Previewer grows the full compose kernel path
- * (separate bullet once a consumer pins the need).
+ * Phase-1 compose: single-track only. Multi-track composite arrives
+ * when RenderComposeCpu kernel + multi-input graph topology land —
+ * see BACKLOG `previewer-multi-track-compose-graph`.
  */
 #pragma once
 
 #include "media_engine/types.h"
-#include "orchestrator/segment_cache.hpp"
 #include "timeline/timeline_impl.hpp"
 
 #include <memory>
@@ -42,9 +41,6 @@ public:
 private:
     me_engine*                       engine_;
     std::shared_ptr<const Timeline>  tl_;
-    /* Populated once the graph-eval compose path lands — today's
-     * single-track Previewer talks directly to the CodecPool. */
-    [[maybe_unused]] SegmentCache    graph_cache_;
 };
 
 }  // namespace me::orchestrator
