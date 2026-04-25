@@ -216,6 +216,22 @@ if(ME_BUILD_TESTS)
             DEPENDS  media_engine_jni_classes
             TIMEOUT  30)
 
+        # Companion check: jni_passthrough_smoke writes an MP4 file
+        # but only validates exit code. A regression where the
+        # passthrough sink returned ME_OK but produced bytes that
+        # aren't a valid MP4 container would slip through. Asserts
+        # the ISO BMFF `ftyp` box marker at bytes 4-7 (the box-size
+        # uint32 occupies 0-3; box-type ASCII follows). Sequential
+        # after the runner via DEPENDS so the file is on disk when
+        # checked.
+        add_test(NAME jni_passthrough_smoke_validate
+                 COMMAND bash -c
+                   "test \"$(dd if='${CMAKE_CURRENT_BINARY_DIR}/jni_passthrough_smoke_out.mp4' \
+                                 bs=1 skip=4 count=4 status=none)\" = ftyp")
+        set_tests_properties(jni_passthrough_smoke_validate PROPERTIES
+            DEPENDS jni_passthrough_smoke
+            TIMEOUT 5)
+
         # jni_thumbnail_smoke: pull a 160x120 PNG thumbnail at t=0.5s
         # from the determinism fixture via the JNI bridge. Catches
         # nativeThumbnail signature drift + the byte[] copy contract +
