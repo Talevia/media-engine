@@ -80,6 +80,7 @@ set(_test_suites
   test_disk_cache
   test_bench_harness
   test_decode_kernels
+  test_scheduler_cache
 )
 
 foreach(_suite ${_test_suites})
@@ -562,6 +563,13 @@ target_link_libraries(test_decode_kernels PRIVATE Taskflow)
 add_dependencies(test_decode_kernels determinism_fixture)
 target_compile_definitions(test_decode_kernels PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_scheduler_cache exercises sched::OutputCache (peek-before-dispatch +
+# bounded LRU). Uses mock kernels registered into the bootstrap test slots
+# so the binary doesn't depend on engine-side kernel registration. Same
+# src/ + Taskflow link as test_decode_kernels.
+target_include_directories(test_scheduler_cache PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_scheduler_cache PRIVATE Taskflow)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

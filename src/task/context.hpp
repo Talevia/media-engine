@@ -12,7 +12,7 @@
 #include <atomic>
 
 namespace me::resource { class FramePool; class CodecPool; class GpuContext; }
-namespace me::sched    { class Cache; }
+namespace me::sched    { class OutputCache; }
 
 namespace me::task {
 
@@ -22,7 +22,7 @@ struct TaskContext {
     resource::CodecPool*     codecs = nullptr;
     resource::GpuContext*    gpu    = nullptr; /* null if CPU kernel */
     const std::atomic<bool>* cancel = nullptr; /* per-EvalInstance cancel flag */
-    sched::Cache*            cache  = nullptr; /* optional; null in bootstrap */
+    sched::OutputCache*      cache  = nullptr; /* injected by scheduler; null when caller passes ctx without scheduler ownership */
 };
 
 }  // namespace me::task

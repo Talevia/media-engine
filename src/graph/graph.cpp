@@ -84,6 +84,7 @@ NodeId Graph::Builder::add(task::TaskKindId kind,
         throw std::runtime_error("graph::Builder::add: unregistered TaskKindId");
     }
     n.time_invariant = info->time_invariant;
+    n.cacheable      = info->cacheable;
 
     /* Inputs — name/type come from schema, source from caller. Enforce arity. */
     if (input_refs.size() != info->input_schema.size()) {

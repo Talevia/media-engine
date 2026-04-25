@@ -22,6 +22,9 @@ struct Node {
     std::vector<OutputPort> outputs;
     uint64_t                content_hash   = 0;
     bool                    time_invariant = false;
+    /* Mirror of KindInfo::cacheable — copied at Builder::add time so the
+     * scheduler can decide whether to peek/put without a registry lookup. */
+    bool                    cacheable      = true;
 };
 
 }  // namespace me::graph

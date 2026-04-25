@@ -16,6 +16,23 @@ namespace me::sched {
 
 namespace {
 
+/* Cache key per the contract in ARCHITECTURE_GRAPH §缓存集成:
+ *   key = node.time_invariant
+ *       ? node.content_hash
+ *       : hash_combine(node.content_hash, eval_ctx.time)
+ *
+ * IoDecodeVideo et al. carry source_t in props (not ctx.time), so their
+ * content_hash already varies with time and the time mix is redundant
+ * but harmless. Time-invariant kernels (RenderConvertRgba8) skip the
+ * mix and hit identically across frames consuming the same upstream
+ * value. */
+inline uint64_t compute_cache_key(const graph::Node& node,
+                                   const graph::EvalContext& ctx) {
+    return node.time_invariant
+        ? node.content_hash
+        : mix_time_into_hash(node.content_hash, ctx.time);
+}
+
 /* Run one node's kernel. Looks up kernel, gathers inputs, constructs
  * TaskContext, invokes, writes outputs. On failure, records error + sets
  * cancel flag so downstream nodes short-circuit. */
@@ -35,6 +52,35 @@ void run_node(graph::NodeId       id,
     auto& ins = eval.inputs_of(id);
     for (size_t i = 0; i < node.inputs.size(); ++i) {
         ins[i] = eval.output_at(node.inputs[i].source);
+    }
+
+    auto& outs = eval.outputs_of(id);
+
+    /* Cache peek-before-dispatch. Only fires when the scheduler injected
+     * a cache pointer (always for engine-owned schedulers), the kernel
+     * declared itself cacheable (KindInfo::cacheable; false for kernels
+     * that emit stateful handles like IoDemux's AVFormatContext), AND
+     * every output port has a hit. Partial hits fall through to the
+     * kernel — caching individual ports independently would require
+     * splitting the kernel call too, which the per-kernel ABI doesn't
+     * support. */
+    OutputCache* cache = node.cacheable ? eval.ctx().cache : nullptr;
+    if (cache && !outs.empty()) {
+        const uint64_t key = compute_cache_key(node, eval.ctx());
+        bool all_hit = true;
+        std::vector<graph::OutputSlot> peeked(outs.size());
+        for (size_t p = 0; p < outs.size(); ++p) {
+            auto v = cache->get(key, static_cast<uint8_t>(p));
+            if (!v) { all_hit = false; break; }
+            peeked[p].v = std::move(*v);
+        }
+        if (all_hit) {
+            for (size_t p = 0; p < outs.size(); ++p) {
+                outs[p] = std::move(peeked[p]);
+            }
+            eval.set_state(id, NodeState::Done);
+            return;
+        }
     }
 
     /* Look up kernel. */
@@ -58,7 +104,6 @@ void run_node(graph::NodeId       id,
 
     eval.set_state(id, NodeState::Running);
 
-    auto& outs = eval.outputs_of(id);
     me_status_t status = ME_OK;
     try {
         status = kernel(ctx, node.props,
@@ -78,6 +123,16 @@ void run_node(graph::NodeId       id,
         return;
     }
 
+    /* Cache fill on success. Same key as the peek above. shared_ptr arms
+     * inside the variant amortize the cost of "store a frame" to a
+     * refcount bump. */
+    if (cache && !outs.empty()) {
+        const uint64_t key = compute_cache_key(node, eval.ctx());
+        for (size_t p = 0; p < outs.size(); ++p) {
+            cache->put(key, static_cast<uint8_t>(p), outs[p].v);
+        }
+    }
+
     eval.set_state(id, NodeState::Done);
 }
 
@@ -88,6 +143,7 @@ Scheduler::Scheduler(const Config& cfg,
                      resource::CodecPool& codecs)
     : frames_(frames),
       codecs_(codecs),
+      cache_(cfg.output_cache_capacity),
       cpu_(cfg.cpu_threads > 0
                ? static_cast<size_t>(cfg.cpu_threads)
                : std::thread::hardware_concurrency()) {}
@@ -98,7 +154,13 @@ Scheduler::~Scheduler() {
 
 std::pair<std::shared_future<void>, std::shared_ptr<EvalInstance>>
 Scheduler::build_and_run(const graph::Graph& g, const graph::EvalContext& ctx) {
-    auto eval = std::make_shared<EvalInstance>(g, ctx);
+    /* Patch the EvalContext's cache pointer to our owned OutputCache before
+     * the EvalInstance copies it. Caller can override by populating
+     * ctx.cache themselves with another OutputCache instance — useful for
+     * test scaffolds that want to observe cache behavior in isolation. */
+    graph::EvalContext patched = ctx;
+    if (!patched.cache) patched.cache = &cache_;
+    auto eval = std::make_shared<EvalInstance>(g, patched);
     /* Taskflow object must outlive the executor.run call. Store it alongside
      * the shared_future via a small holder owned by the shared_future's
      * continuation. Simplest: keep the flow in a shared_ptr and capture it

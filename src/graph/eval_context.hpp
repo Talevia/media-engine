@@ -11,7 +11,7 @@
 #include "media_engine/types.h"
 
 namespace me::resource { class FramePool; class CodecPool; class GpuContext; }
-namespace me::sched    { class Cache; }
+namespace me::sched    { class OutputCache; }
 
 namespace me::graph {
 
@@ -20,7 +20,9 @@ struct EvalContext {
     resource::FramePool*     frames = nullptr;
     resource::CodecPool*     codecs = nullptr;
     resource::GpuContext*    gpu    = nullptr;
-    sched::Cache*            cache  = nullptr;   /* optional */
+    /* Scheduler injects its OutputCache here at build_and_run time; callers
+     * passing an EvalContext don't need to set this (left null = no cache). */
+    sched::OutputCache*      cache  = nullptr;
 };
 
 }  // namespace me::graph

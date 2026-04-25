@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include "graph/eval_context.hpp"
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
 #include "media_engine/types.h"
@@ -17,10 +18,6 @@
 #include <atomic>
 #include <string>
 #include <vector>
-
-namespace me::graph {
-struct EvalContext;
-}
 
 namespace me::sched {
 
@@ -34,7 +31,11 @@ enum class NodeState : uint8_t {
 
 class EvalInstance {
 public:
-    EvalInstance(const graph::Graph&, const graph::EvalContext&);
+    /* ctx is taken by value: scheduler patches the cache pointer into a
+     * local copy before constructing the EvalInstance, and that copy needs
+     * to outlive the original caller frame (kernels read ctx.cache during
+     * task execution, which can outlast evaluate_port's return). */
+    EvalInstance(const graph::Graph&, graph::EvalContext);
 
     const graph::Graph&        graph() const noexcept { return graph_; }
     const graph::EvalContext&  ctx()   const noexcept { return ctx_; }
@@ -63,7 +64,7 @@ public:
 
 private:
     const graph::Graph&       graph_;
-    const graph::EvalContext& ctx_;
+    graph::EvalContext        ctx_;
     std::vector<std::vector<graph::OutputSlot>> outputs_;
     std::vector<std::vector<graph::InputValue>> inputs_;
     std::vector<NodeState>    states_;

@@ -1,12 +1,11 @@
 #include "scheduler/eval_instance.hpp"
-#include "graph/eval_context.hpp"
 
 #include <stdexcept>
 #include <utility>
 
 namespace me::sched {
 
-EvalInstance::EvalInstance(const graph::Graph& g, const graph::EvalContext& c)
+EvalInstance::EvalInstance(const graph::Graph& g, graph::EvalContext c)
     : graph_(g), ctx_(c),
       outputs_(g.nodes().size()),
       inputs_(g.nodes().size()),

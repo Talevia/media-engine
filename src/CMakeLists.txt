@@ -306,6 +306,7 @@ add_library(media_engine STATIC
   resource/asset_hash_cache.cpp
   resource/disk_cache.cpp
   scheduler/eval_instance.cpp
+  scheduler/output_cache.cpp
   scheduler/scheduler.cpp
   orchestrator/segment_cache.cpp
   orchestrator/muxer_state.cpp

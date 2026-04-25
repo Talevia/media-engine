@@ -19,9 +19,11 @@
 #include "graph/graph.hpp"
 #include "media_engine/types.h"
 #include "scheduler/eval_instance.hpp"
+#include "scheduler/output_cache.hpp"
 
 #include <taskflow/taskflow.hpp>
 
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -31,6 +33,11 @@ namespace me::sched {
 
 struct Config {
     int  cpu_threads     = 0;      /* 0 = hardware_concurrency */
+    /* OutputCache capacity (entries). 0 disables caching; default sized
+     * for typical Previewer scrubbing workloads. Per-frame RGBA at 4K
+     * (~33 MB) × 256 ≈ 8 GB worst case; common 720p (~3.7 MB) × 256
+     * ≈ 950 MB. Tune down via Engine config when memory is tight. */
+    std::size_t output_cache_capacity = 256;
     /* GPU / HW / IO pools arrive with their respective backlog items. */
 };
 
@@ -56,6 +63,11 @@ public:
     template<typename T>
     me_status_t wait(graph::Future<T>& f, T* out, std::string* err);
 
+    /* Diagnostic access to the output cache (hit/miss counters, size).
+     * Mutable in case future config wants runtime resizing. */
+    OutputCache&       cache()       noexcept { return cache_; }
+    const OutputCache& cache() const noexcept { return cache_; }
+
 private:
     /* Internal build: returns (run_future, eval_instance) pair. Separated from
      * the template so the bulk of the logic stays out of the header. */
@@ -64,6 +76,7 @@ private:
 
     resource::FramePool&  frames_;
     resource::CodecPool&  codecs_;
+    OutputCache           cache_;
     tf::Executor          cpu_;
 };
 

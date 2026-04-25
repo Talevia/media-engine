@@ -62,6 +62,11 @@ void register_demux_kind() {
         .affinity       = task::Affinity::Io,   /* blocking I/O */
         .latency        = task::Latency::Medium,
         .time_invariant = true,                  /* opening a file is idempotent per URI */
+        /* DemuxContext wraps an AVFormatContext whose read pointer
+         * advances as packets are pulled. Sharing one across
+         * evaluations would replay a half-consumed demuxer to the
+         * second consumer; each evaluate_port must open a fresh one. */
+        .cacheable      = false,
         .kernel         = demux_kernel,
         .input_schema   = {},
         .output_schema  = { {"source", graph::TypeId::DemuxCtx} },

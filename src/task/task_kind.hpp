@@ -71,6 +71,13 @@ struct KindInfo {
     Affinity                affinity      = Affinity::Cpu;
     Latency                 latency       = Latency::Medium;
     bool                    time_invariant = false;
+    /* Whether the kernel's outputs are safe to cache + replay.
+     * Pure functional kernels (decode-frame, color-correct, conv-rgba8) are
+     * cacheable. Kernels that emit handles to externally-mutable runtime
+     * state (e.g. an opened AVFormatContext whose read pointer advances)
+     * must mark this false — sharing the handle across evaluations would
+     * leak state between callers. Default true matches the common case. */
+    bool                    cacheable     = true;
     KernelFn                kernel        = nullptr;
     std::vector<graph::Port> input_schema;
     std::vector<graph::Port> output_schema;
