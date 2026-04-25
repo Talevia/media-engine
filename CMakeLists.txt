@@ -111,3 +111,11 @@ endif()
 if(ME_BUILD_JNI)
   add_subdirectory(bindings/jni)
 endif()
+
+# Kotlin/Native cinterop ctest — gated inside the subdir on
+# ME_BUILD_TESTS + presence of system `gradle`. No build artifacts
+# are produced here (the K/N example has its own gradle project);
+# only a single ctest entry is registered.
+if(ME_BUILD_TESTS AND EXISTS ${CMAKE_SOURCE_DIR}/bindings/kotlin-native/CMakeLists.txt)
+  add_subdirectory(bindings/kotlin-native)
+endif()
