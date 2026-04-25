@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-cmake-jni-fixture-path-share** — `grep -n 'tests/fixtures/determinism_input.mp4' bindings/jni/CMakeLists.txt` 命中 5 行 (lines 184/230/261/290/313)，每个 ctest 独立硬编码全路径。下一个加 ctest 又要复制 + 一次 fixture 路径变更要批改 5 处。**方向：** 在 bindings/jni/CMakeLists.txt 顶部 `set(_me_jni_test_fixture_mp4 "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4")`，5 个 add_test 引用 `${_me_jni_test_fixture_mp4}`。Milestone §M7-debt，Rubric §5.3。
 - **examples-jni-thumbnail-batch-demo** — `grep -c 'thumbnail(' bindings/jni/example/src/io/mediaengine/example/Thumbnail.java` 返回 2（一次声明 + 一次调用）。real scrub-row UI 一次拉 N=10-50 个 thumbnails (一格一缩略图)；当前 demo 不展示 batch loop pattern。**方向：** 新 ThumbnailBatch.java demo — 跑 5 个 t={0, 0.4, 0.8, 1.2, 1.6}s 的 thumbnails，写到 `<out-dir>/thumb_<i>.png`；展示 cache hit growth (cycle 94 example_08 同样模式但用 me_render_frame)。Milestone §M7-debt，Rubric §5.5。
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）

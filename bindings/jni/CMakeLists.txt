@@ -52,6 +52,14 @@ if(ME_BUILD_TESTS)
     find_package(Java COMPONENTS Development Runtime QUIET)
     if(Java_JAVAC_EXECUTABLE AND Java_JAVA_EXECUTABLE)
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
+        # Shared fixture path — every JNI ctest that needs a real
+        # source MP4 reads this. Mirrors the construction rule in
+        # tests/CMakeLists.txt without depending on it (tests/ is a
+        # separate add_subdirectory; we don't reach into its scope).
+        # If the fixture relocates, this is the single edit point
+        # for the JNI side.
+        set(_me_jni_test_fixture_mp4
+            "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4")
 
         # All Java sources compiled together as one javac invocation.
         # Each entry is the path under bindings/jni/ relative to the
@@ -181,7 +189,7 @@ if(ME_BUILD_TESTS)
                          "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
                          -cp "${_me_jni_classdir}"
                          io.mediaengine.example.ProgressThrow
-                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${_me_jni_test_fixture_mp4}"
                          "${CMAKE_CURRENT_BINARY_DIR}/jni_progress_throw_smoke_out.mp4")
         set_tests_properties(jni_progress_throw_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
@@ -227,7 +235,7 @@ if(ME_BUILD_TESTS)
                          "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
                          -cp "${_me_jni_classdir}"
                          io.mediaengine.example.Cancel
-                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${_me_jni_test_fixture_mp4}"
                          "${CMAKE_CURRENT_BINARY_DIR}/jni_cancel_smoke_out.mp4")
         set_tests_properties(jni_cancel_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
@@ -258,7 +266,7 @@ if(ME_BUILD_TESTS)
                          "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
                          -cp "${_me_jni_classdir}"
                          io.mediaengine.example.FrameFetch
-                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${_me_jni_test_fixture_mp4}"
                          "${CMAKE_CURRENT_BINARY_DIR}/jni_frame_smoke_out.ppm")
         set_tests_properties(jni_frame_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
@@ -287,7 +295,7 @@ if(ME_BUILD_TESTS)
                          "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
                          -cp "${_me_jni_classdir}"
                          io.mediaengine.example.Thumbnail
-                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${_me_jni_test_fixture_mp4}"
                          "${CMAKE_CURRENT_BINARY_DIR}/jni_thumbnail_smoke_out.png")
         set_tests_properties(jni_thumbnail_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
@@ -310,7 +318,7 @@ if(ME_BUILD_TESTS)
                          "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
                          -cp "${_me_jni_classdir}"
                          io.mediaengine.example.Run
-                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${_me_jni_test_fixture_mp4}"
                          "${_me_jni_passthrough_out}")
         set_tests_properties(jni_passthrough_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
