@@ -79,6 +79,7 @@ set(_test_suites
   test_frame_server
   test_disk_cache
   test_bench_harness
+  test_decode_kernels
 )
 
 foreach(_suite ${_test_suites})
@@ -545,6 +546,22 @@ target_compile_definitions(test_frame_server PRIVATE
 # cache). Uses temp_directory_path for scratch. Needs src/ on
 # include path for the header.
 target_include_directories(test_disk_cache PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_decode_kernels exercises the IoDemux + IoDecodeVideo +
+# RenderConvertRgba8 kernels through scheduler.evaluate_port.
+# First end-to-end use of the graph framework outside the
+# Exporter's lazy-demux smoke. Reaches into src/ for the kernel
+# registration helpers + graph/task/scheduler internals (the
+# C API doesn't expose graph evaluation, by design). Uses the
+# shared determinism fixture for a known 640×480 source.
+target_include_directories(test_decode_kernels PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# scheduler.hpp transitively pulls <taskflow/taskflow.hpp> — Taskflow is
+# PRIVATE-linked to media_engine, so test TUs need to see it explicitly
+# (mirrors 02_graph_smoke's EXTRA_LIBS Taskflow).
+target_link_libraries(test_decode_kernels PRIVATE Taskflow)
+add_dependencies(test_decode_kernels determinism_fixture)
+target_compile_definitions(test_decode_kernels PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")

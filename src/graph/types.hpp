@@ -8,17 +8,32 @@
 #include "media_engine/types.h"
 
 #include <cstdint>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <string>
 #include <variant>
 #include <vector>
 
+struct AVFrame;
+
 namespace me::graph { struct InputValue; }
 namespace me::resource { class FrameHandle; }
 namespace me::io       { class DemuxContext; }
 
 namespace me::graph {
+
+/* RgbaFrameData — tightly-packed RGBA8 frame carried as a graph value.
+ * Mirrors the public `me_frame` shape (width / height / stride / bytes)
+ * but lives in the internal graph layer so kernels can produce + consume
+ * it without dragging in the C ABI. The orchestrator wraps this into
+ * `me_frame` at the boundary. */
+struct RgbaFrameData {
+    int width  = 0;
+    int height = 0;
+    std::size_t stride = 0;          /* row stride in bytes — width * 4 for tightly packed */
+    std::vector<uint8_t> rgba;       /* size == stride * height */
+};
 
 /* Node index within a Graph::Builder / Graph. Stable through build(). */
 struct NodeId {
@@ -34,15 +49,20 @@ struct PortRef {
 };
 
 /* Typed tag for input/output values. Mirrors the order of the InputValue
- * variant so index-to-type is 1:1 and hashable. */
+ * variant so index-to-type is 1:1 and hashable.
+ *
+ * APPEND-ONLY: never reorder. Adding new types appends at the end and
+ * extends the variant in lock-step. */
 enum class TypeId : uint8_t {
-    Empty    = 0,   /* monostate */
-    Int64    = 1,
-    Float64  = 2,
-    Bool     = 3,
-    String   = 4,
-    Frame    = 5,   /* resource::FrameHandle */
-    DemuxCtx = 6,   /* io::DemuxContext — packet stream source */
+    Empty         = 0,   /* monostate */
+    Int64         = 1,
+    Float64       = 2,
+    Bool          = 3,
+    String        = 4,
+    Frame         = 5,   /* resource::FrameHandle */
+    DemuxCtx      = 6,   /* io::DemuxContext — packet stream source */
+    AvFrameHandle = 7,   /* shared_ptr<AVFrame> with libav-aware deleter — decoded raw frame */
+    RgbaFrame     = 8,   /* shared_ptr<RgbaFrameData> — tightly-packed RGBA8 frame */
     /* AudioBuf / MetaBlob will be appended; never reordered. */
 };
 
@@ -56,7 +76,9 @@ struct InputValue {
         bool,
         std::string,
         std::shared_ptr<resource::FrameHandle>,
-        std::shared_ptr<io::DemuxContext>
+        std::shared_ptr<io::DemuxContext>,
+        std::shared_ptr<AVFrame>,
+        std::shared_ptr<RgbaFrameData>
     > v;
 
     TypeId type() const noexcept {

@@ -39,6 +39,7 @@ enum class TaskKindId : uint32_t {
     RenderComposeCpu   = 0x3001,
     RenderCrossDissolve= 0x3002,
     RenderEffectChainGpu = 0x3003,
+    RenderConvertRgba8 = 0x3004,
 
     AudioMix           = 0x4001,
     AudioResample      = 0x4002,

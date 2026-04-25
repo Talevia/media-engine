@@ -292,9 +292,11 @@ add_library(media_engine STATIC
   compose/alpha_over.cpp
   compose/cross_dissolve.cpp
   compose/frame_convert.cpp
+  compose/convert_rgba8_kernel.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
   io/demux_kernel.cpp
+  io/decode_video_kernel.cpp
   io/mux_context.cpp
   graph/graph.cpp
   task/registry.cpp

@@ -1,5 +1,7 @@
 #include "media_engine/engine.h"
+#include "compose/convert_rgba8_kernel.hpp"
 #include "core/engine_impl.hpp"
+#include "io/decode_video_kernel.hpp"
 #include "io/demux_kernel.hpp"
 #include "resource/frame_pool.hpp"
 #include "scheduler/scheduler.hpp"
@@ -19,6 +21,8 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
     static std::once_flag kinds_once;
     std::call_once(kinds_once, []() {
         me::io::register_demux_kind();
+        me::io::register_decode_video_kind();
+        me::compose::register_convert_rgba8_kind();
     });
 
     auto* e = new (std::nothrow) me_engine{};
