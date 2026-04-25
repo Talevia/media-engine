@@ -59,6 +59,8 @@ if(ME_BUILD_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/VersionAssert.java")
         set(_me_jni_thumb_src
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Thumbnail.java")
+        set(_me_jni_cancel_src
+            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Cancel.java")
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
         set(_me_jni_classfile
             "${_me_jni_classdir}/io/mediaengine/MediaEngine.class")
@@ -68,6 +70,8 @@ if(ME_BUILD_TESTS)
             "${_me_jni_classdir}/io/mediaengine/example/VersionAssert.class")
         set(_me_jni_thumb_classfile
             "${_me_jni_classdir}/io/mediaengine/example/Thumbnail.class")
+        set(_me_jni_cancel_classfile
+            "${_me_jni_classdir}/io/mediaengine/example/Cancel.class")
 
         # Compile MediaEngine.java + the example runners together; the
         # runners depend on the wrapper class. Re-runs only when any
@@ -78,6 +82,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_run_classfile}"
                     "${_me_jni_verify_classfile}"
                     "${_me_jni_thumb_classfile}"
+                    "${_me_jni_cancel_classfile}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_me_jni_classdir}"
             COMMAND ${Java_JAVAC_EXECUTABLE}
                     -d "${_me_jni_classdir}"
@@ -85,17 +90,20 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_run_src}"
                     "${_me_jni_verify_src}"
                     "${_me_jni_thumb_src}"
+                    "${_me_jni_cancel_src}"
             DEPENDS "${_me_jni_java_src}"
                     "${_me_jni_run_src}"
                     "${_me_jni_verify_src}"
                     "${_me_jni_thumb_src}"
+                    "${_me_jni_cancel_src}"
             COMMENT "javac MediaEngine.java + example runners -> ${_me_jni_classdir}")
 
         add_custom_target(media_engine_jni_classes
             DEPENDS "${_me_jni_classfile}"
                     "${_me_jni_run_classfile}"
                     "${_me_jni_verify_classfile}"
-                    "${_me_jni_thumb_classfile}")
+                    "${_me_jni_thumb_classfile}"
+                    "${_me_jni_cancel_classfile}")
         add_dependencies(media_engine_jni_classes media_engine_jni)
 
         # jni_load_smoke: no-args MediaEngine.main() — prints version
@@ -127,6 +135,22 @@ if(ME_BUILD_TESTS)
         set_tests_properties(jni_version_assert_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
+
+        # jni_cancel_smoke: start a passthrough render, briefly sleep,
+        # then cancel + wait. Catches deadlocks on the cancel path
+        # (e.g. cancel raced with worker exit) + verifies waitFor
+        # returns either ME_OK or ME_E_CANCELLED. TIMEOUT 30s catches
+        # a hang.
+        add_test(NAME jni_cancel_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.Cancel
+                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${CMAKE_CURRENT_BINARY_DIR}/jni_cancel_smoke_out.mp4")
+        set_tests_properties(jni_cancel_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  30)
 
         # jni_thumbnail_smoke: pull a 160x120 PNG thumbnail at t=0.5s
         # from the determinism fixture via the JNI bridge. Catches
