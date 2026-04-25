@@ -76,6 +76,65 @@ TEST_CASE("AnimatedColor boundary: before first / after last") {
     CHECK(c.evaluate_at({10, 1}) == std::array<std::uint8_t, 4>{0, 0, 0, 0});
 }
 
+TEST_CASE("AnimatedColor::from_hex: invalid inputs return default opaque white") {
+    /* The lower-level from_hex API (vs the loader's
+     * parse_animated_color, which throws LoadError on invalid
+     * input) is documented as silently coercing structurally-
+     * invalid inputs to the default. Pin that contract so a future
+     * regression that crashes on nullptr / wrong length / missing
+     * '#' surfaces as a test failure rather than a runtime crash
+     * inside hosts that pass in user data. */
+    const std::array<std::uint8_t, 4> kWhite{0xFF, 0xFF, 0xFF, 0xFF};
+
+    SUBCASE("nullptr returns default") {
+        const auto c = me::AnimatedColor::from_hex(nullptr);
+        CHECK(c.evaluate_at({0, 1}) == kWhite);
+    }
+    SUBCASE("empty string returns default") {
+        const auto c = me::AnimatedColor::from_hex("");
+        CHECK(c.evaluate_at({0, 1}) == kWhite);
+    }
+    SUBCASE("missing leading # returns default") {
+        const auto c = me::AnimatedColor::from_hex("FF112233");
+        CHECK(c.evaluate_at({0, 1}) == kWhite);
+    }
+    SUBCASE("length 4 (#RGB shorthand not yet supported) returns default") {
+        const auto c = me::AnimatedColor::from_hex("#FFF");
+        CHECK(c.evaluate_at({0, 1}) == kWhite);
+    }
+    SUBCASE("length 5 returns default") {
+        const auto c = me::AnimatedColor::from_hex("#1234");
+        CHECK(c.evaluate_at({0, 1}) == kWhite);
+    }
+    SUBCASE("length 8 (#RRGGBBA missing one alpha nibble) returns default") {
+        const auto c = me::AnimatedColor::from_hex("#FF11223");
+        CHECK(c.evaluate_at({0, 1}) == kWhite);
+    }
+    SUBCASE("non-hex prefix like rgb(...) returns default") {
+        /* Length 12 → fails the 7|9 check immediately. */
+        const auto c = me::AnimatedColor::from_hex("rgb(255,0,0)");
+        CHECK(c.evaluate_at({0, 1}) == kWhite);
+    }
+    SUBCASE("structurally-valid #RRGGBB with non-hex chars coerces invalid nibbles to 0") {
+        /* The 7-char shape passes the length check; nibble_from
+         * returns 0 for any non-[0-9A-Fa-f] char. So '#GG0000'
+         * becomes (0x00, 0x00, 0x00) RGB + alpha 0xFF default. The
+         * test asserts the *current* behavior — a future tightening
+         * that throws or returns default is welcome but should
+         * update this case alongside. */
+        const auto c = me::AnimatedColor::from_hex("#GG0000");
+        const auto v = c.evaluate_at({0, 1});
+        CHECK(v[0] == 0x00);
+        CHECK(v[1] == 0x00);
+        CHECK(v[2] == 0x00);
+        CHECK(v[3] == 0xFF);
+    }
+    SUBCASE("valid #RRGGBB happy path still parses") {
+        const auto c = me::AnimatedColor::from_hex("#11223344");
+        CHECK(c.evaluate_at({0, 1}) == std::array<std::uint8_t, 4>{0x11, 0x22, 0x33, 0x44});
+    }
+}
+
 TEST_CASE("parse_animated_color: plain-string legacy shape") {
     json j = "#FFFFFFFF";
     auto c = parse_animated_color(j, "color");
