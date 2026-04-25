@@ -61,6 +61,14 @@ public final class MediaEngine implements AutoCloseable {
         return nativeLastError(handle);
     }
 
+    /** Render a single frame at `tNum/tDen` from `uri` as a PNG byte array.
+     *  `maxWidth`/`maxHeight` of 0 = native dimensions. Returns null on
+     *  failure (caller can read lastError() for details). */
+    public byte[] thumbnail(String uri, long tNum, long tDen,
+                            int maxWidth, int maxHeight) {
+        return nativeThumbnail(handle, uri, tNum, tDen, maxWidth, maxHeight);
+    }
+
     @Override
     public void close() {
         nativeDestroy(handle);
@@ -127,6 +135,10 @@ public final class MediaEngine implements AutoCloseable {
     private static native void    nativeRenderJobDestroy(long job);
     private static native String  nativeLastError(long engine);
     private static native Version nativeVersion();
+    private static native byte[]  nativeThumbnail(
+            long engine, String uri,
+            long tNum, long tDen,
+            int maxWidth, int maxHeight);
 
     /* ------------------------------------------------------------------
      * Demo entry point:

@@ -211,6 +211,36 @@ Java_io_mediaengine_MediaEngine_nativeLastError(JNIEnv* env, jclass, jlong h) {
     return env->NewStringUTF(msg ? msg : "");
 }
 
+JNIEXPORT jbyteArray JNICALL
+Java_io_mediaengine_MediaEngine_nativeThumbnail(JNIEnv* env, jclass,
+                                                 jlong   eng_h,
+                                                 jstring uri,
+                                                 jlong   t_num,
+                                                 jlong   t_den,
+                                                 jint    max_width,
+                                                 jint    max_height) {
+    auto* eng = reinterpret_cast<me_engine_t*>(eng_h);
+    const char* uri_c = env->GetStringUTFChars(uri, nullptr);
+    me_rational_t t{static_cast<int64_t>(t_num),
+                     static_cast<int64_t>(t_den)};
+    uint8_t* png   = nullptr;
+    size_t   nlen  = 0;
+    me_status_t s = me_thumbnail_png(eng, uri_c, t, max_width, max_height,
+                                      &png, &nlen);
+    env->ReleaseStringUTFChars(uri, uri_c);
+    if (s != ME_OK || !png || nlen == 0) {
+        if (png) me_buffer_free(png);
+        return nullptr;
+    }
+    jbyteArray out = env->NewByteArray(static_cast<jsize>(nlen));
+    if (out) {
+        env->SetByteArrayRegion(out, 0, static_cast<jsize>(nlen),
+                                 reinterpret_cast<const jbyte*>(png));
+    }
+    me_buffer_free(png);
+    return out;
+}
+
 JNIEXPORT jobject JNICALL
 Java_io_mediaengine_MediaEngine_nativeVersion(JNIEnv* env, jclass) {
     const me_version_t v = me_version();
