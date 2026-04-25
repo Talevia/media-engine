@@ -284,6 +284,7 @@ add_library(media_engine STATIC
   color/pipeline.cpp
   audio/mix.cpp
   audio/mixer.cpp
+  audio/mixer_builder.cpp
   audio/resample.cpp
   audio/track_feed.cpp
   compose/active_clips.cpp
