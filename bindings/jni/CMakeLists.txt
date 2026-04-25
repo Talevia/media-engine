@@ -184,6 +184,22 @@ if(ME_BUILD_TESTS)
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
 
+        # Companion check: jni_thumbnail_smoke writes a PNG file but
+        # only validates exit code. A regression that returned ME_OK
+        # but produced empty / non-PNG bytes would slip through.
+        # This test asserts the first 8 bytes match the PNG signature
+        # (89 50 4E 47 0D 0A 1A 0A — RFC 2083 §3.1). Sequential after
+        # the runner via DEPENDS so the file is on disk when checked.
+        add_test(NAME jni_thumbnail_smoke_validate
+                 COMMAND bash -c
+                   "head -c 8 '${CMAKE_CURRENT_BINARY_DIR}/jni_thumbnail_smoke_out.png' \
+                    | od -An -tx1 \
+                    | tr -s ' ' \
+                    | grep -q '89 50 4e 47 0d 0a 1a 0a'")
+        set_tests_properties(jni_thumbnail_smoke_validate PROPERTIES
+            DEPENDS jni_thumbnail_smoke
+            TIMEOUT 5)
+
         # jni_cancel_smoke: start a passthrough render, briefly sleep,
         # then cancel + wait. Catches deadlocks on the cancel path
         # (e.g. cancel raced with worker exit) + verifies waitFor

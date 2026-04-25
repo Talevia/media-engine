@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-jni-thumbnail-validate-png** — `bindings/jni/CMakeLists.txt:add_test(NAME jni_thumbnail_smoke ...)` 跑 Thumbnail.java 写 ~15 KB 输出但无后续校验；`grep -rn 'PASS_REGULAR_EXPRESSION\|magic\|file -b' bindings/jni/CMakeLists.txt` 空。一次 nativeThumbnail regression 把 PNG 输出退化成空 byte[] / random bytes 都不会 trip ctest（exit 0 + 文件存在但内容垃圾）。**方向：** 仿 cycle 80 的 example_08 companion 模式：新 ctest `jni_thumbnail_smoke_validate` 跑 `bash -c 'head -c 8 <png> | od -An -tx1 | grep -q "89 50 4e 47"'` 验 PNG signature；DEPENDS jni_thumbnail_smoke。Milestone §M7-debt (coverage)，Rubric §5.3。
 - **debt-jni-passthrough-validate-mp4** — 同上 shape — `jni_passthrough_smoke` 写 ~246 KB MP4 但无 ftyp 校验。**方向：** companion ctest 验 file(1) magic 或读 4-7 字节匹配 ASCII "ftyp"（`bash -c 'dd if=<mp4> bs=1 skip=4 count=4 status=none | grep -q ftyp'`）。Milestone §M7-debt (coverage)，Rubric §5.3。
 - **debt-render-spec-arg-validation** — `me_render_start` 的 `me_output_spec_t.frame_rate.den == 0` 会触发 div-by-zero；`spec.width = 0` 行为未文档化；`grep -rn 'spec.frame_rate\|spec.width' tests/test_output_spec.cpp tests/test_render_*.cpp 2>/dev/null` 显示 test_compose_frame_convert.cpp:79 只测了 frame.width=0 (decode 端)。**方向：** test_output_spec.cpp 新 SUBCASE — `me_render_start(spec_with_zero_den)` 应返回 ME_E_INVALID_ARG 并写 last_error；同样验 width=0 / height=0。Milestone §M7-debt，Rubric §5.5。
 
