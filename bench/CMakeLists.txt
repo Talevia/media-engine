@@ -82,7 +82,7 @@ endif()
 
 # bench_thumbnail_png — me_thumbnail_png (asset-level) throughput.
 # Times PNG encode of a 160×120 thumbnail against the
-# determinism_fixture MP4, asserts avg < 50 ms / frame.
+# determinism_fixture MP4, asserts avg < 25 ms / frame.
 add_executable(bench_thumbnail_png bench_thumbnail_png.cpp)
 target_link_libraries(bench_thumbnail_png PRIVATE
   media_engine::media_engine)

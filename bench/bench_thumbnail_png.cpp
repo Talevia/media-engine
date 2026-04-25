@@ -13,9 +13,12 @@
  * / fps, exits non-zero on budget miss. Skips (exit 0) when the
  * fixture isn't present or PNG encoder is unavailable.
  *
- * Budget: 50 ms avg per thumbnail on the dev box. A 20 fps floor
- * is loose enough to survive ctest -j8 CPU contention (RUN_SERIAL
- * additionally blocks co-scheduling with other tests).
+ * Budget: 25 ms avg per thumbnail on the dev box (~40 fps floor).
+ * Standalone runs measure ~12 ms; the 2x headroom catches a >2x
+ * regression while leaving room for ctest -j8 noise. RUN_SERIAL
+ * additionally blocks co-scheduling with other tests, so the
+ * shared-cache contention factor stays bounded. Tightened from
+ * 50 ms in cycle 93 (debt-bench-thumbnail-budget-tightening).
  */
 #include <media_engine.h>
 
@@ -34,7 +37,7 @@ constexpr int    kIters       = 8;    /* total iterations */
 constexpr int    kWarmup      = 2;    /* first N excluded from timing */
 constexpr int    kOutWidth    = 160;
 constexpr int    kOutHeight   = 120;
-constexpr double kBudgetMs    = 50.0;  /* avg ms / thumbnail floor */
+constexpr double kBudgetMs    = 25.0;  /* avg ms / thumbnail floor */
 
 }  // namespace
 
