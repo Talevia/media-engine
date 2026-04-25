@@ -1,0 +1,1 @@
+me_add_example(11_error_diagnosis)

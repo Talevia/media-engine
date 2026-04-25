@@ -87,6 +87,7 @@ set(_me_expected_examples
   07_compose_multitrack
   08_frame_server_scrub
   09_text_clip
+  11_error_diagnosis
 )
 
 add_subdirectory(01_passthrough)
@@ -98,6 +99,7 @@ add_subdirectory(06_thumbnail)
 add_subdirectory(07_compose_multitrack)
 add_subdirectory(08_frame_server_scrub)
 add_subdirectory(09_text_clip)
+add_subdirectory(11_error_diagnosis)
 
 # --- Post-subdir self-check: every expected example target exists ---------
 foreach(_expected ${_me_expected_examples})

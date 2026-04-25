@@ -673,4 +673,14 @@ if(TARGET 07_compose_multitrack
   set_tests_properties(example_09_text_clip_validate PROPERTIES
     DEPENDS example_09_text_clip
     TIMEOUT 5)
+
+  # 11_error_diagnosis: switch-on-status retry pattern. Hits 3
+  # deliberate failure modes (parse / IO / unsupported) and exits
+  # 0 only when all 3 expected statuses are observed. No fixture
+  # needed — all 3 failures are self-contained.
+  if(TARGET 11_error_diagnosis)
+    add_test(NAME example_11_error_diagnosis
+             COMMAND $<TARGET_FILE:11_error_diagnosis>)
+    set_tests_properties(example_11_error_diagnosis PROPERTIES TIMEOUT 10)
+  endif()
 endif()
