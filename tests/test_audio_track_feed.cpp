@@ -22,6 +22,7 @@ extern "C" {
 #include <filesystem>
 #include <memory>
 #include <string>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -93,11 +94,7 @@ TEST_CASE("open_audio_track_feed: demux with no audio returns ME_E_NOT_FOUND") {
 
 TEST_CASE("open_audio_track_feed: configures fields on success") {
     const std::string fixture = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
-    if (fixture.empty() || !fs::exists(fixture)) {
-        MESSAGE("skipping: audio fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture);
     auto demux = open_demux(fixture);
     REQUIRE(demux);
     me::resource::CodecPool pool;

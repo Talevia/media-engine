@@ -6,6 +6,7 @@
  * compose_sink_e2e_fixtures.hpp.
  */
 #include "compose_sink_e2e_fixtures.hpp"
+#include "fixture_skip.hpp"
 
 using me::tests::compose::EngineHandle;
 using me::tests::compose::TimelineHandle;
@@ -26,11 +27,7 @@ TEST_CASE("ComposeSink e2e: video track + subtitle track (subtitle clip wired in
      * a plausible-sized file — libass actually drawing the glyphs
      * is covered by test_subtitle_renderer's unit cases. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -102,11 +99,7 @@ TEST_CASE("ComposeSink e2e: subtitle clip with fileUri (external .srt)") {
      * the new filesystem branch of compose_decode_loop's
      * subtitle lazy-init. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     const fs::path tmp_dir = fs::temp_directory_path() / "me-compose-sink-e2e";
     fs::create_directories(tmp_dir);
     const fs::path srt_path = tmp_dir / "external.srt";
@@ -182,10 +175,7 @@ TEST_CASE("ComposeSink e2e: subtitle fileUri not readable → me_engine_last_err
      * returns ME_E_IO via the shared err channel so
      * me_render_wait propagates into me_engine_last_error. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 

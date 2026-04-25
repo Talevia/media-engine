@@ -29,6 +29,7 @@ extern "C" {
 #include <memory>
 #include <string>
 #include <vector>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -99,11 +100,7 @@ TEST_CASE("AudioMixer::pull_next_mixed_frame: no tracks added returns ME_E_INVAL
 
 TEST_CASE("AudioMixer: 1-track silent fixture mixes to silent output") {
     const std::string fixture = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
-    if (fixture.empty() || !fs::exists(fixture)) {
-        MESSAGE("skipping: audio fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture);
     auto demux = open_demux(fixture);
     REQUIRE(demux);
     me::resource::CodecPool pool;

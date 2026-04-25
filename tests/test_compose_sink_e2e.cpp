@@ -14,6 +14,7 @@
  * ME_E_ENCODE, which the existing assertions tolerate.
  */
 #include "compose_sink_e2e_fixtures.hpp"
+#include "fixture_skip.hpp"
 
 using me::tests::compose::EngineHandle;
 using me::tests::compose::TimelineHandle;
@@ -21,11 +22,7 @@ using me::tests::compose::JobHandle;
 using me::tests::compose::two_track_timeline;
 TEST_CASE("ComposeSink e2e: 2-track h264/aac render produces non-empty output") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -364,11 +361,7 @@ TEST_CASE("ComposeSink e2e: animated transform (translateX keyframes) renders en
      * loader (JSON → AnimatedNumber), and test_timeline_schema
      * (parse + evaluate_at per-T). */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 

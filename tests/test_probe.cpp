@@ -22,6 +22,7 @@
 
 #include <filesystem>
 #include <string>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -48,11 +49,7 @@ struct InfoHandle {
 
 TEST_CASE("me_probe extracts container + codec + dimensions + frame rate from fixture") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping probe test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -81,11 +78,7 @@ TEST_CASE("me_probe extracts container + codec + dimensions + frame rate from fi
 
 TEST_CASE("me_probe extracts extended video metadata (rotation / color / bit_depth)") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping probe extended-metadata test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 

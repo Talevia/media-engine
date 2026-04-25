@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -73,12 +74,7 @@ me_status_t render_passthrough(const std::string& timeline_json,
 
 TEST_CASE("passthrough is byte-deterministic across two independent renders") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping determinism test: fixture not available "
-                "(build without ffmpeg CLI?): " << fixture_path);
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     /* Timeline with a single clip referencing the fixture.
      * Fixture is 25 frames at 25 fps = 1 second; timeRange matches. */
     namespace tb = me::tests::tb;
@@ -125,11 +121,7 @@ TEST_CASE("passthrough is byte-deterministic across two independent renders") {
 
 TEST_CASE("passthrough determinism holds across engine restarts") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping determinism test (second case): fixture missing");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     /* Same assertion as above, but with a delay between renders to catch
      * any wall-clock dependency that the first case might miss if the runs
      * happen inside the same jiffy. */
@@ -171,11 +163,7 @@ TEST_CASE("passthrough determinism holds across engine restarts") {
 
 TEST_CASE("h264/aac reencode is byte-deterministic across two independent renders") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping reencode determinism test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     /* Same fixture, now fed through the h264_videotoolbox + libavcodec-aac
      * reencode path. AVFMT_FLAG_BITEXACT + AV_CODEC_FLAG_BITEXACT are set
      * upstream so mvhd creation_time + encoder version strings don't leak
@@ -228,11 +216,7 @@ TEST_CASE("h264/aac reencode is byte-deterministic across two independent render
 
 TEST_CASE("h264/aac reencode concat across N segments is byte-deterministic") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping multi-clip reencode determinism test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     /* Two contiguous clips, each 25/25 = 1s of the same fixture. Shared
      * encoder runs across both segments (reencode-multi-clip, 2bfa6cd);
      * BITEXACT flags applied both to the muxer and the encoder (debt-
@@ -312,11 +296,7 @@ TEST_CASE("compose path (2-track video + audio mixer) is byte-deterministic acro
      * the encoder inputs. Skips cleanly when videotoolbox is
      * unavailable (non-mac CI). */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping compose determinism test: with-audio fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     const std::string fixture_uri = "file://" + fixture_path;
     const std::string timeline_json = R"({
       "schemaVersion": 1,

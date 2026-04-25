@@ -6,6 +6,7 @@
  * compose_sink_e2e_fixtures.hpp.
  */
 #include "compose_sink_e2e_fixtures.hpp"
+#include "fixture_skip.hpp"
 
 using me::tests::compose::EngineHandle;
 using me::tests::compose::TimelineHandle;
@@ -32,11 +33,7 @@ TEST_CASE("ComposeSink e2e: video + audio track (mixer path) renders") {
 #define ME_TEST_FIXTURE_MP4_WITH_AUDIO ""
 #endif
     const std::string fixture_path = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: with-audio fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -131,11 +128,7 @@ TEST_CASE("AudioOnlySink e2e: audio-only timeline (no video track) renders") {
      * compose factory (which needs a video track). Expected output:
      * valid MP4 with a single AAC audio stream, no video stream. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: with-audio fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 

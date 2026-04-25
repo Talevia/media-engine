@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <string>
 #include <thread>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -96,11 +97,7 @@ TEST_CASE("me_render_job_destroy(NULL) is a no-op (idempotent)") {
 
 TEST_CASE("start → destroy without wait: destroy joins worker implicitly") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping destroy-no-wait test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;
@@ -140,11 +137,7 @@ TEST_CASE("start → destroy without wait: destroy joins worker implicitly") {
 
 TEST_CASE("start → cancel → destroy without wait: no crash, prompt cleanup") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping cancel-then-destroy test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;
@@ -189,11 +182,7 @@ TEST_CASE("start → cancel → destroy without wait: no crash, prompt cleanup")
 
 TEST_CASE("start → wait → destroy → destroy(NULL): standard cycle + shutdown-pass safe") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping standard-cycle test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;

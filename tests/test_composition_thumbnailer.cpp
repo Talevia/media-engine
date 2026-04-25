@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -78,10 +79,7 @@ TEST_CASE("CompositionThumbnailer: NULL out params rejected") {
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
+    ME_REQUIRE_FIXTURE(fixture_path);
     const std::string json = one_clip_timeline_json("file://" + fixture_path);
     me_timeline_t* tl = nullptr;
     REQUIRE(me_timeline_load_json(eng.p, json.data(), json.size(), &tl) == ME_OK);
@@ -117,10 +115,7 @@ TEST_CASE("CompositionThumbnailer: scale-to-bound preserves aspect") {
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
+    ME_REQUIRE_FIXTURE(fixture_path);
     const std::string json = one_clip_timeline_json("file://" + fixture_path);
     me_timeline_t* tl = nullptr;
     REQUIRE(me_timeline_load_json(eng.p, json.data(), json.size(), &tl) == ME_OK);

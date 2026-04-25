@@ -29,6 +29,7 @@ extern "C" {
 
 #include <filesystem>
 #include <string>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -72,10 +73,7 @@ TEST_CASE("pull_next_video_frame: null args return ME_E_INVALID_ARG") {
 
 TEST_CASE("pull_next_video_frame: negative stream idx returns ME_E_INVALID_ARG") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
+    ME_REQUIRE_FIXTURE(fixture_path);
     FmtGuard fmt;
     REQUIRE(avformat_open_input(&fmt.f, fixture_path.c_str(), nullptr, nullptr) >= 0);
     PacketGuard pkt;
@@ -89,11 +87,7 @@ TEST_CASE("pull_next_video_frame: negative stream idx returns ME_E_INVALID_ARG")
 
 TEST_CASE("pull_next_video_frame: pulls expected frame count from fixture then EOF") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     /* Open demux. */
     FmtGuard fmt;
     REQUIRE(avformat_open_input(&fmt.f, fixture_path.c_str(), nullptr, nullptr) >= 0);
@@ -214,11 +208,7 @@ TEST_CASE("pull_next_audio_frame: drains silent AAC audio from --with-audio fixt
 #define ME_TEST_FIXTURE_MP4_WITH_AUDIO ""
 #endif
     const std::string fixture_path = ME_TEST_FIXTURE_MP4_WITH_AUDIO;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: audio fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     FmtGuard fmt;
     REQUIRE(avformat_open_input(&fmt.f, fixture_path.c_str(), nullptr, nullptr) >= 0);
     REQUIRE(avformat_find_stream_info(fmt.f, nullptr) >= 0);
@@ -257,11 +247,7 @@ TEST_CASE("seek_track_decoder_frame_accurate_to: lands on target frame after dec
      * stream time_base = {1, 25}, so source_time = {10, 25} s maps
      * to pts 10. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     auto demux = std::make_shared<me::io::DemuxContext>();
     REQUIRE(avformat_open_input(&demux->fmt, fixture_path.c_str(), nullptr, nullptr) >= 0);
     REQUIRE(avformat_find_stream_info(demux->fmt, nullptr) >= 0);

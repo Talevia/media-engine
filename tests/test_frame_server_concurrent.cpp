@@ -31,6 +31,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -74,11 +75,7 @@ std::string single_clip_timeline(const std::string& fixture_uri) {
 
 TEST_CASE("me_render_frame: concurrent scrubbing from 4 threads returns valid frames") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     /* Scratch cache_dir so DiskCache sees a real persistence path
      * — threaded fetches should race through the cache's mutex
      * without corrupting the in-memory `disk_bytes_used` counter

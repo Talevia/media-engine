@@ -35,6 +35,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -139,11 +140,7 @@ std::string three_clip_timeline(const std::string& fixture_path) {
 
 TEST_CASE("Normal-path progress: [STARTED, FRAMES*, COMPLETED] with monotonic ratio") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping progress test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;
@@ -209,11 +206,7 @@ TEST_CASE("Normal-path progress: [STARTED, FRAMES*, COMPLETED] with monotonic ra
 
 TEST_CASE("Cancel-path progress: [STARTED, FRAMES*, FAILED(CANCELLED)], no COMPLETED") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping cancel-sequence test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;
@@ -278,11 +271,7 @@ TEST_CASE("me_render_start accepts NULL progress callback") {
      * for both cb and user. Implementation must not deref cb before
      * checking, and must still run the render to completion. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping null-cb test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;

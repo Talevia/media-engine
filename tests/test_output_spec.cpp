@@ -28,6 +28,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -94,11 +95,7 @@ TEST_CASE("me_render_start: null-arg validation rejects with ME_E_INVALID_ARG") 
      * slot) or that returns ME_OK with a stale out_job would slip
      * through silently. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -147,10 +144,7 @@ TEST_CASE("me_render_start: spec.{width,height,frame_rate.den}=0 inherits from t
      * regression that adds a "spec.width must be > 0" guard breaks
      * the test instead of host code. */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping: fixture not available");
-        return;
-    }
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;
@@ -183,11 +177,7 @@ TEST_CASE("me_render_start: spec.{width,height,frame_rate.den}=0 inherits from t
 
 TEST_CASE("me_output_spec.container=NULL + '.mp4' path: libav infers mp4 muxer") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping container-infer test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;
@@ -226,11 +216,7 @@ TEST_CASE("me_output_spec.container=NULL + '.mov' path: libav infers mov muxer")
 
 TEST_CASE("me_output_spec.container=NULL + unknown '.xyz' extension: ME_E_UNSUPPORTED") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping unsupported-extension test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
     TimelineHandle tl;

@@ -33,6 +33,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -124,11 +125,7 @@ me_status_t start_reencode_job(me_engine_t* eng, me_timeline_t* tl,
 
 TEST_CASE("me_render_cancel mid-render: wait returns ME_E_CANCELLED") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping cancel test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 

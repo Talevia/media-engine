@@ -24,6 +24,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include "fixture_skip.hpp"
 
 namespace fs = std::filesystem;
 
@@ -85,11 +86,7 @@ PngHeader parse_png_header(const uint8_t* data, size_t size) {
 
 TEST_CASE("me_thumbnail_png produces native-dimension PNG from fixture") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping thumbnail test: fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -196,11 +193,7 @@ TEST_CASE("me_thumbnail_png produces a valid PNG from a color-tagged fixture") {
      * "produces valid PNG" to "pixel output reflects correct
      * input→output color transform". */
     const std::string fixture_path = ME_TEST_FIXTURE_MP4_TAGGED;
-    if (fixture_path.empty() || !fs::exists(fixture_path)) {
-        MESSAGE("skipping tagged-fixture thumbnail test: tagged fixture not available");
-        return;
-    }
-
+    ME_REQUIRE_FIXTURE(fixture_path);
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
