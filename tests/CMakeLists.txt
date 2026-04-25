@@ -625,6 +625,21 @@ if(TARGET 07_compose_multitrack
   set_tests_properties(example_08_frame_server_scrub PROPERTIES TIMEOUT 30)
   add_dependencies(08_frame_server_scrub determinism_fixture)
 
+  # Companion check: the runner only verifies exit code. A regression
+  # where me_render_frame returned ME_OK but the PPM write produced
+  # zero bytes (or skipped frames) would slip through. Assert that
+  # all 4 expected files exist with non-zero size. Sequential after
+  # the runner via DEPENDS so the directory is populated.
+  add_test(NAME example_08_frame_server_scrub_files
+           COMMAND bash -c
+             "test -s '${_me_example_out}/08_frames/frame_0.ppm' && \
+              test -s '${_me_example_out}/08_frames/frame_1.ppm' && \
+              test -s '${_me_example_out}/08_frames/frame_2.ppm' && \
+              test -s '${_me_example_out}/08_frames/frame_3.ppm'")
+  set_tests_properties(example_08_frame_server_scrub_files PROPERTIES
+    DEPENDS example_08_frame_server_scrub
+    TIMEOUT 5)
+
   # 09_text_clip composites a Skia-rendered text overlay onto video;
   # without ME_HAS_SKIA the text branch is omitted (compose still runs
   # the video bottom track). Run the test either way — exit code is the

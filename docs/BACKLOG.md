@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **examples-08-frame-server-asserts** — `tests/CMakeLists.txt:add_test(NAME example_08_frame_server_scrub ...)` 只 verify exit 0；example writes `frame_0..3.ppm` 但 ctest 不 check 文件存在 / 大小合理。一次 me_render_frame 静默 produce empty output 不会触发回归。**方向：** ctest 加 `set_tests_properties(... PASS_REGULAR_EXPRESSION "wrote.*frame_3\\.ppm")`，或单独 add_test 跑 `test -s build/examples/_test_output/08_frames/frame_3.ppm`。Milestone §M7-debt (coverage)，Rubric §5.3。
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
