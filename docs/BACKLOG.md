@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **debt-bindings-jni-version-string-validate** — `bindings/jni/me_jni.cpp:215` `Java_io_mediaengine_MediaEngine_nativeVersion` 包了 `me_engine_version()` 返回 jstring，但没测 JNI 端返回的字符串等于 C 端 `me_engine_version_string()`。一次 engine version 重构（如 add patch suffix）可静默漂移。**方向：** ctest 通过 `find_package(Java)` JNI 调用 nativeVersion，与 `me_engine_version_string()` 字符串相等比较；无 Java 时 silent-skip。Milestone §M7-debt，Rubric §5.5。
 - **examples-jni-thumbnail-jvm-demo** — `examples/` 从 06_thumbnail 直接跳到 07_compose_multitrack；`grep -rn 'me_thumbnail\|nativeThumbnail' bindings/jni/` 空——MediaEngine.java 只 wrap 了 render_start，没有 thumbnail。host scrub-row UI 是 thumbnail 的主消费者，少了这条 hosts 不知怎么从 JVM 取 thumbnail。**方向：** 在 MediaEngine.java 加 `nativeThumbnail` + `me_jni.cpp` 加 `Java_io_mediaengine_MediaEngine_nativeThumbnail` 桥；新 `examples/10_jni_thumbnail/Run.java` 演示从 mp4 取 0.5s 的 PNG bytes。Milestone §M7-debt，Rubric §5.5。
 - **debt-test-bench-harness-coverage** — `bench/bench_harness.hpp` (cycle 68) 只有两个 bench 间接使用，`grep -rn 'measure_avg_sec\|me::bench::' tests/` 空。template 的 "iters <= warmup → 返回 0.0" 边界契约没显式覆盖；将来回归（如把 0.0 改成 NaN 或 -1）只能等 bench 跑挂才发现。**方向：** 新 `tests/test_bench_harness.cpp` doctest TEST_CASE: (a) iters>warmup happy path，验 work 调用次数 + 返回 ≈ sleep 时长，(b) iters<=warmup 返回 0.0，(c) work 是 lambda capturing 计数 verify call count = iters。Milestone §M7-debt (cross)，Rubric §5.3。
 

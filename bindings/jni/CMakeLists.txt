@@ -55,28 +55,39 @@ if(ME_BUILD_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/src/io/mediaengine/MediaEngine.java")
         set(_me_jni_run_src
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Run.java")
+        set(_me_jni_verify_src
+            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/VersionAssert.java")
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
         set(_me_jni_classfile
             "${_me_jni_classdir}/io/mediaengine/MediaEngine.class")
         set(_me_jni_run_classfile
             "${_me_jni_classdir}/io/mediaengine/example/Run.class")
+        set(_me_jni_verify_classfile
+            "${_me_jni_classdir}/io/mediaengine/example/VersionAssert.class")
 
-        # Compile MediaEngine.java + Run.java together (Run depends on
-        # the wrapper class). Re-runs only when either .java changes.
-        # Keep the classes/ tree under the binary dir so a clean build
-        # wipes it.
+        # Compile MediaEngine.java + the example runners together; the
+        # runners depend on the wrapper class. Re-runs only when any
+        # .java in the input list changes. Keep the classes/ tree
+        # under the binary dir so a clean build wipes it.
         add_custom_command(
-            OUTPUT  "${_me_jni_classfile}" "${_me_jni_run_classfile}"
+            OUTPUT  "${_me_jni_classfile}"
+                    "${_me_jni_run_classfile}"
+                    "${_me_jni_verify_classfile}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_me_jni_classdir}"
             COMMAND ${Java_JAVAC_EXECUTABLE}
                     -d "${_me_jni_classdir}"
                     "${_me_jni_java_src}"
                     "${_me_jni_run_src}"
-            DEPENDS "${_me_jni_java_src}" "${_me_jni_run_src}"
-            COMMENT "javac MediaEngine.java + Run.java -> ${_me_jni_classdir}")
+                    "${_me_jni_verify_src}"
+            DEPENDS "${_me_jni_java_src}"
+                    "${_me_jni_run_src}"
+                    "${_me_jni_verify_src}"
+            COMMENT "javac MediaEngine.java + example runners -> ${_me_jni_classdir}")
 
         add_custom_target(media_engine_jni_classes
-            DEPENDS "${_me_jni_classfile}" "${_me_jni_run_classfile}")
+            DEPENDS "${_me_jni_classfile}"
+                    "${_me_jni_run_classfile}"
+                    "${_me_jni_verify_classfile}")
         add_dependencies(media_engine_jni_classes media_engine_jni)
 
         # jni_load_smoke: no-args MediaEngine.main() — prints version
@@ -88,6 +99,24 @@ if(ME_BUILD_TESTS)
                          -cp "${_me_jni_classdir}"
                          io.mediaengine.MediaEngine)
         set_tests_properties(jni_load_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  20)
+
+        # jni_version_assert_smoke: pin nativeVersion()'s return to the
+        # build-time C version macros (PROJECT_VERSION_MAJOR/MINOR/PATCH
+        # + ME_GIT_SHA — same values that feed src/core/version.inl.in).
+        # Catches drift where a future engine-version bump or git_sha
+        # field rename leaves the JNI side returning stale data.
+        add_test(NAME jni_version_assert_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.VersionAssert
+                         "${PROJECT_VERSION_MAJOR}"
+                         "${PROJECT_VERSION_MINOR}"
+                         "${PROJECT_VERSION_PATCH}"
+                         "${ME_GIT_SHA}")
+        set_tests_properties(jni_version_assert_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
 

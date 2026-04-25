@@ -243,6 +243,12 @@ configure_file(
   @ONLY
 )
 
+# Promote the resolved SHA to the parent scope so siblings under
+# the top-level CMakeLists (notably bindings/jni/'s
+# jni_version_assert_smoke ctest) can compare nativeVersion()'s
+# git_sha field against the same value that fed version.inl.
+set(ME_GIT_SHA "${ME_GIT_SHA}" PARENT_SCOPE)
+
 # STATIC explicitly: without this the library follows BUILD_SHARED_LIBS,
 # which OCIO's own CMakeLists defaults ON when we FetchContent it. Once
 # flipped to shared, our hidden-by-default visibility would require
