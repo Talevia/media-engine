@@ -126,6 +126,31 @@ if(ME_BUILD_TESTS)
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
 
+        # ---- jni_version_assert: setup fixture --------------------
+        # ME_GIT_SHA is computed at cmake configure time and embedded
+        # into version.inl. version.cpp gets recompiled when version
+        # .inl changes, but libmedia_engine.a is static + the JNI
+        # .dylib was linked previously against the old version.cpp.o.
+        # Incremental builds that touch a *non-JNI* target (e.g.
+        # `cmake --build build --target test_bench_harness`) rebuild
+        # media_engine but NOT media_engine_jni — the .dylib still
+        # holds the prior cycle's git_sha, and jni_version_assert
+        # below tripped a false-positive failure on cycle 77.
+        #
+        # Fix: ctest fixture that runs `cmake --build` against the
+        # JNI lib target before the assert. Adds ~0.5 s when the
+        # lib is already current (no-op rebuild check) and ~3-5 s
+        # when version.cpp.o needs to be re-linked into the .dylib.
+        # Either way the assert sees the lib that matches the
+        # configure-time SHA.
+        add_test(NAME jni_version_assert_setup
+                 COMMAND ${CMAKE_COMMAND}
+                         --build ${CMAKE_BINARY_DIR}
+                         --target media_engine_jni)
+        set_tests_properties(jni_version_assert_setup PROPERTIES
+            FIXTURES_SETUP jni_lib_fresh
+            TIMEOUT 60)
+
         # jni_version_assert_smoke: pin nativeVersion()'s return to the
         # build-time C version macros (PROJECT_VERSION_MAJOR/MINOR/PATCH
         # + ME_GIT_SHA — same values that feed src/core/version.inl.in).
@@ -141,8 +166,9 @@ if(ME_BUILD_TESTS)
                          "${PROJECT_VERSION_PATCH}"
                          "${ME_GIT_SHA}")
         set_tests_properties(jni_version_assert_smoke PROPERTIES
-            DEPENDS  media_engine_jni_classes
-            TIMEOUT  20)
+            DEPENDS           media_engine_jni_classes
+            FIXTURES_REQUIRED jni_lib_fresh
+            TIMEOUT           20)
 
         # jni_last_status_smoke: load malformed JSON, expect
         # MediaEngineException with status == ME_E_PARSE (-5). Pins

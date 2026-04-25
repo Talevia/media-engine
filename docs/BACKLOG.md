@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **debt-jni-version-rebuild-discipline** — Cycle 77 incident: `cmake --build build --target test_bench_harness` 不重 link libmedia_engine_jni.dylib，jni_version_assert_smoke 与 ME_GIT_SHA mismatch。CMake 依赖图正确（test_bench_harness depends on media_engine 经 alias）但 incremental single-target 不传到 JNI lib。**方向：** 在 bindings/jni/CMakeLists.txt 加 `add_dependencies(jni_version_assert_smoke media_engine_jni)`（语法上是 set_tests_properties FIXTURES_REQUIRED），或在 README 写 "ctest 前先 cmake --build build (no target)"；选其中一即可。Milestone §M7-debt，Rubric §5.3。
 
 
 ## P2（未来，当前 milestone 不挤占）
