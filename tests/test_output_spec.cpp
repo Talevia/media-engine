@@ -86,6 +86,101 @@ me_status_t run_with_null_container(me_engine_t* eng, me_timeline_t* tl,
 
 }  // namespace
 
+TEST_CASE("me_render_start: null-arg validation rejects with ME_E_INVALID_ARG") {
+    /* `src/api/render.cpp:40` validates engine / timeline / output /
+     * out_job pointers up front and returns ME_E_INVALID_ARG without
+     * touching the orchestrator. Pin that contract — a regression
+     * that crashes on null engine (deref into thread-local error
+     * slot) or that returns ME_OK with a stale out_job would slip
+     * through silently. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping: fixture not available");
+        return;
+    }
+
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    TimelineHandle tl;
+    const std::string js = single_clip_timeline(fixture_path);
+    REQUIRE(me_timeline_load_json(eng.p, js.data(), js.size(), &tl.p) == ME_OK);
+
+    me_output_spec_t spec{};
+    spec.path        = "/tmp/me_render_start_arg_validation.mp4";
+    spec.container   = "mp4";
+    spec.video_codec = "passthrough";
+    spec.audio_codec = "passthrough";
+
+    me_render_job_t* job = nullptr;
+
+    SUBCASE("null engine") {
+        const me_status_t s = me_render_start(nullptr, tl.p, &spec, nullptr, nullptr, &job);
+        CHECK(s == ME_E_INVALID_ARG);
+        CHECK(job == nullptr);
+    }
+    SUBCASE("null timeline") {
+        const me_status_t s = me_render_start(eng.p, nullptr, &spec, nullptr, nullptr, &job);
+        CHECK(s == ME_E_INVALID_ARG);
+        CHECK(job == nullptr);
+    }
+    SUBCASE("null output spec") {
+        const me_status_t s = me_render_start(eng.p, tl.p, nullptr, nullptr, nullptr, &job);
+        CHECK(s == ME_E_INVALID_ARG);
+        CHECK(job == nullptr);
+    }
+    SUBCASE("null out_job") {
+        const me_status_t s = me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, nullptr);
+        CHECK(s == ME_E_INVALID_ARG);
+    }
+}
+
+TEST_CASE("me_render_start: spec.{width,height,frame_rate.den}=0 inherits from timeline") {
+    /* render.h:39-43 documents: "If width/height == 0 or
+     * frame_rate.den == 0, inherit from timeline." Pin the inherit
+     * path — a regression that propagated 0 to the encoder (dividing
+     * by frame_rate.den or sizing a 0x0 output) would crash inside
+     * the worker. The existing single-clip passthrough test
+     * implicitly covers this since run_with_null_container leaves
+     * width=height=0 + frame_rate={0,0}; this case asserts the
+     * documented "inherit" behavior explicitly so a future
+     * regression that adds a "spec.width must be > 0" guard breaks
+     * the test instead of host code. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    if (fixture_path.empty() || !fs::exists(fixture_path)) {
+        MESSAGE("skipping: fixture not available");
+        return;
+    }
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+    TimelineHandle tl;
+    const std::string js = single_clip_timeline(fixture_path);
+    REQUIRE(me_timeline_load_json(eng.p, js.data(), js.size(), &tl.p) == ME_OK);
+
+    const fs::path out_path = fs::temp_directory_path() /
+                               "me_render_spec_inherit.mp4";
+    fs::remove(out_path);
+
+    me_output_spec_t spec{};
+    spec.path           = out_path.c_str();
+    spec.container      = "mp4";
+    spec.video_codec    = "passthrough";
+    spec.audio_codec    = "passthrough";
+    spec.width          = 0;
+    spec.height         = 0;
+    spec.frame_rate.num = 0;
+    spec.frame_rate.den = 0;
+
+    me_render_job_t* job = nullptr;
+    const me_status_t start_s = me_render_start(eng.p, tl.p, &spec, nullptr, nullptr, &job);
+    REQUIRE(start_s == ME_OK);
+    JobHandle jh{job};
+    const me_status_t wait_s = me_render_wait(jh.p);
+    CHECK(wait_s == ME_OK);
+    CHECK(fs::exists(out_path));
+    fs::remove(out_path);
+}
+
 TEST_CASE("me_output_spec.container=NULL + '.mp4' path: libav infers mp4 muxer") {
     const std::string fixture_path = ME_TEST_FIXTURE_MP4;
     if (fixture_path.empty() || !fs::exists(fixture_path)) {
