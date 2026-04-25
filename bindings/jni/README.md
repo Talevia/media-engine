@@ -80,9 +80,13 @@ Progress callbacks deliver `kind / ratio / message` to a Java
 thread; the trampoline in `me_jni.cpp` attaches via
 `AttachCurrentThread` and detaches before returning.
 
-Not exposed yet: `me_render_frame` (frame server), `me_thumbnail_*`
-(scrub-row API). See backlog `examples-jni-thumbnail-jvm-demo` for
-the planned thumbnail JVM bridge.
+`me_thumbnail_png` is exposed via `MediaEngine.thumbnail(uri, tNum,
+tDen, maxWidth, maxHeight) → byte[]` (cycle 76 PNG bytes path);
+`me_render_frame` via `MediaEngine.frame(timeline, tNum, tDen) →
+Frame{width, height, byte[] rgba}` (cycle 92 raw-pixels path).
+The two cover complementary scrub-UI patterns: PNG for cards /
+file-picker thumbnails (cheap to cache), raw RGBA for live-render
+canvases (skips PNG encode).
 
 ## FFmpeg licensing at deploy time
 

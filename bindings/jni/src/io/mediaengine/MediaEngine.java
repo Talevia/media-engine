@@ -86,6 +86,15 @@ public final class MediaEngine implements AutoCloseable {
         return nativeThumbnail(handle, uri, tNum, tDen, maxWidth, maxHeight);
     }
 
+    /** Render a single RGBA8 frame from `tl` at timeline time `tNum/tDen`.
+     *  Returns null on failure (caller reads lastStatus()/lastError()).
+     *  The returned Frame.rgba is a freshly-allocated copy — the engine's
+     *  underlying me_frame_t is destroyed before this method returns,
+     *  so hosts may retain Frame indefinitely. */
+    public Frame frame(Timeline tl, long tNum, long tDen) {
+        return nativeRenderFrame(handle, tl.handle, tNum, tDen);
+    }
+
     @Override
     public void close() {
         nativeDestroy(handle);
@@ -134,6 +143,13 @@ public final class MediaEngine implements AutoCloseable {
 
     public record Version(int major, int minor, int patch, String gitSha) {}
 
+    /** Decoded RGBA8 frame returned by {@link #frame(Timeline,long,long)}.
+     *  Pixels are row-major, stride == width * 4. The byte[] is safe to
+     *  retain — it's a Java-managed copy of the engine's underlying
+     *  me_frame_t pixel buffer (destroyed before this record is
+     *  constructed). */
+    public record Frame(int width, int height, byte[] rgba) {}
+
     /** Thrown by the wrapper when a native* call returns a failure
      *  sentinel. Carries the structured me_status_t code so hosts
      *  can `switch (e.status)` on retry logic instead of
@@ -169,6 +185,8 @@ public final class MediaEngine implements AutoCloseable {
             long engine, String uri,
             long tNum, long tDen,
             int maxWidth, int maxHeight);
+    private static native Frame   nativeRenderFrame(
+            long engine, long timeline, long tNum, long tDen);
 
     /* ------------------------------------------------------------------
      * Demo entry point:

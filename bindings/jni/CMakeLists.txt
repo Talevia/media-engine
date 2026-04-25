@@ -65,6 +65,8 @@ if(ME_BUILD_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/LastStatusAssert.java")
         set(_me_jni_throw_src
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/ProgressThrow.java")
+        set(_me_jni_frame_src
+            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/FrameFetch.java")
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
         set(_me_jni_classfile
             "${_me_jni_classdir}/io/mediaengine/MediaEngine.class")
@@ -80,6 +82,8 @@ if(ME_BUILD_TESTS)
             "${_me_jni_classdir}/io/mediaengine/example/LastStatusAssert.class")
         set(_me_jni_throw_classfile
             "${_me_jni_classdir}/io/mediaengine/example/ProgressThrow.class")
+        set(_me_jni_frame_classfile
+            "${_me_jni_classdir}/io/mediaengine/example/FrameFetch.class")
 
         # Compile MediaEngine.java + the example runners together; the
         # runners depend on the wrapper class. Re-runs only when any
@@ -93,6 +97,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_cancel_classfile}"
                     "${_me_jni_status_classfile}"
                     "${_me_jni_throw_classfile}"
+                    "${_me_jni_frame_classfile}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_me_jni_classdir}"
             COMMAND ${Java_JAVAC_EXECUTABLE}
                     -d "${_me_jni_classdir}"
@@ -103,6 +108,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_cancel_src}"
                     "${_me_jni_status_src}"
                     "${_me_jni_throw_src}"
+                    "${_me_jni_frame_src}"
             DEPENDS "${_me_jni_java_src}"
                     "${_me_jni_run_src}"
                     "${_me_jni_verify_src}"
@@ -110,6 +116,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_cancel_src}"
                     "${_me_jni_status_src}"
                     "${_me_jni_throw_src}"
+                    "${_me_jni_frame_src}"
             COMMENT "javac MediaEngine.java + example runners -> ${_me_jni_classdir}")
 
         add_custom_target(media_engine_jni_classes
@@ -119,7 +126,8 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_thumb_classfile}"
                     "${_me_jni_cancel_classfile}"
                     "${_me_jni_status_classfile}"
-                    "${_me_jni_throw_classfile}")
+                    "${_me_jni_throw_classfile}"
+                    "${_me_jni_frame_classfile}")
         add_dependencies(media_engine_jni_classes media_engine_jni)
 
         # jni_load_smoke: no-args MediaEngine.main() — prints version
@@ -256,6 +264,21 @@ if(ME_BUILD_TESTS)
         set_tests_properties(jni_passthrough_smoke_validate PROPERTIES
             DEPENDS jni_passthrough_smoke
             TIMEOUT 5)
+
+        # jni_frame_smoke: fetch a single RGBA frame at t=0.5s through
+        # the me_render_frame JNI bridge + write a PPM. Catches
+        # nativeRenderFrame signature drift + Frame record contract +
+        # the byte[] copy semantics.
+        add_test(NAME jni_frame_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.FrameFetch
+                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${CMAKE_CURRENT_BINARY_DIR}/jni_frame_smoke_out.ppm")
+        set_tests_properties(jni_frame_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  20)
 
         # jni_thumbnail_smoke: pull a 160x120 PNG thumbnail at t=0.5s
         # from the determinism fixture via the JNI bridge. Catches

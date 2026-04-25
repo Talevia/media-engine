@@ -228,6 +228,52 @@ Java_io_mediaengine_MediaEngine_nativeLastError(JNIEnv* env, jclass, jlong h) {
     return env->NewStringUTF(msg ? msg : "");
 }
 
+JNIEXPORT jobject JNICALL
+Java_io_mediaengine_MediaEngine_nativeRenderFrame(JNIEnv* env, jclass,
+                                                   jlong eng_h,
+                                                   jlong tl_h,
+                                                   jlong t_num,
+                                                   jlong t_den) {
+    auto* eng = reinterpret_cast<me_engine_t*>(eng_h);
+    auto* tl  = reinterpret_cast<me_timeline_t*>(tl_h);
+    me_rational_t t{static_cast<int64_t>(t_num),
+                    static_cast<int64_t>(t_den)};
+    me_frame_t* frame = nullptr;
+    me_status_t s = me_render_frame(eng, tl, t, &frame);
+    g_jni_last_status = s;
+    if (s != ME_OK || !frame) {
+        if (frame) me_frame_destroy(frame);
+        return nullptr;
+    }
+    const int w = me_frame_width(frame);
+    const int h = me_frame_height(frame);
+    const std::uint8_t* px = me_frame_pixels(frame);
+    if (w <= 0 || h <= 0 || !px) {
+        me_frame_destroy(frame);
+        return nullptr;
+    }
+    const std::size_t nbytes = static_cast<std::size_t>(w) *
+                                static_cast<std::size_t>(h) * 4u;
+    jbyteArray rgba = env->NewByteArray(static_cast<jsize>(nbytes));
+    if (rgba) {
+        env->SetByteArrayRegion(rgba, 0, static_cast<jsize>(nbytes),
+                                 reinterpret_cast<const jbyte*>(px));
+    }
+    me_frame_destroy(frame);
+
+    /* Construct MediaEngine.Frame(int width, int height, byte[] rgba). */
+    jclass cls = env->FindClass("io/mediaengine/MediaEngine$Frame");
+    if (!cls) return nullptr;
+    jmethodID ctor = env->GetMethodID(cls, "<init>", "(II[B)V");
+    if (!ctor) { env->DeleteLocalRef(cls); return nullptr; }
+    jobject obj = env->NewObject(cls, ctor,
+                                  static_cast<jint>(w),
+                                  static_cast<jint>(h),
+                                  rgba);
+    env->DeleteLocalRef(cls);
+    return obj;
+}
+
 JNIEXPORT jbyteArray JNICALL
 Java_io_mediaengine_MediaEngine_nativeThumbnail(JNIEnv* env, jclass,
                                                  jlong   eng_h,
