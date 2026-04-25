@@ -41,23 +41,7 @@ public final class Cancel {
         final String source = args[0];
         final String output = args[1];
 
-        final String json = ""
-            + "{\n"
-            + "  \"schemaVersion\": 1,\n"
-            + "  \"frameRate\":  {\"num\":30,\"den\":1},\n"
-            + "  \"resolution\": {\"width\":160,\"height\":120},\n"
-            + "  \"colorSpace\": {\"primaries\":\"bt709\",\"transfer\":\"bt709\","
-                                + "\"matrix\":\"bt709\",\"range\":\"limited\"},\n"
-            + "  \"assets\": [{\"id\":\"a0\",\"uri\":\"file://" + source + "\"}],\n"
-            + "  \"compositions\": [{\"id\":\"main\",\"tracks\":[{\n"
-            + "    \"id\":\"v0\",\"kind\":\"video\",\"clips\":[{\n"
-            + "      \"id\":\"c0\",\"type\":\"video\",\"assetId\":\"a0\",\n"
-            + "      \"timeRange\":  {\"start\":{\"num\":0,\"den\":1},\"duration\":{\"num\":2,\"den\":1}},\n"
-            + "      \"sourceRange\":{\"start\":{\"num\":0,\"den\":1},\"duration\":{\"num\":2,\"den\":1}}\n"
-            + "    }]\n"
-            + "  }]}],\n"
-            + "  \"output\": {\"compositionId\":\"main\"}\n"
-            + "}\n";
+        final String json = Timelines.passthrough("file://" + source);
 
         try (MediaEngine eng = new MediaEngine();
              Timeline tl    = eng.loadTimeline(json)) {

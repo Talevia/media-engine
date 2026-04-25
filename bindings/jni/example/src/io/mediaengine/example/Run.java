@@ -39,7 +39,7 @@ public final class Run {
         System.out.println("media-engine " + v.major() + "." + v.minor()
                 + "." + v.patch() + " (" + (v.gitSha().isEmpty() ? "<unknown>" : v.gitSha()) + ")");
 
-        final String json = passthroughTimelineJson("file://" + source);
+        final String json = Timelines.passthrough("file://" + source);
 
         /* Counts events per kind so the post-render assertion can pin
          * the trampoline contract: a successful render must deliver at
@@ -105,28 +105,4 @@ public final class Run {
         }
     }
 
-    /* Build a single-clip passthrough timeline from `uri`. Container
-     * defaults to mp4; the C side uses extension inference + the spec
-     * codec strings to pick the passthrough copy path. Frame rate /
-     * resolution are nominal here — passthrough copies the source's
-     * stream params verbatim. */
-    private static String passthroughTimelineJson(String uri) {
-        return ""
-            + "{\n"
-            + "  \"schemaVersion\": 1,\n"
-            + "  \"frameRate\":  {\"num\":30,\"den\":1},\n"
-            + "  \"resolution\": {\"width\":160,\"height\":120},\n"
-            + "  \"colorSpace\": {\"primaries\":\"bt709\",\"transfer\":\"bt709\","
-                                + "\"matrix\":\"bt709\",\"range\":\"limited\"},\n"
-            + "  \"assets\": [{\"id\":\"a0\",\"uri\":\"" + uri + "\"}],\n"
-            + "  \"compositions\": [{\"id\":\"main\",\"tracks\":[{\n"
-            + "    \"id\":\"v0\",\"kind\":\"video\",\"clips\":[{\n"
-            + "      \"id\":\"c0\",\"type\":\"video\",\"assetId\":\"a0\",\n"
-            + "      \"timeRange\":  {\"start\":{\"num\":0,\"den\":1},\"duration\":{\"num\":2,\"den\":1}},\n"
-            + "      \"sourceRange\":{\"start\":{\"num\":0,\"den\":1},\"duration\":{\"num\":2,\"den\":1}}\n"
-            + "    }]\n"
-            + "  }]}],\n"
-            + "  \"output\": {\"compositionId\":\"main\"}\n"
-            + "}\n";
-    }
 }

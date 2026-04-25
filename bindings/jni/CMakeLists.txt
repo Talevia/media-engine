@@ -67,6 +67,8 @@ if(ME_BUILD_TESTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/ProgressThrow.java")
         set(_me_jni_frame_src
             "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/FrameFetch.java")
+        set(_me_jni_timelines_src
+            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Timelines.java")
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
         set(_me_jni_classfile
             "${_me_jni_classdir}/io/mediaengine/MediaEngine.class")
@@ -84,6 +86,8 @@ if(ME_BUILD_TESTS)
             "${_me_jni_classdir}/io/mediaengine/example/ProgressThrow.class")
         set(_me_jni_frame_classfile
             "${_me_jni_classdir}/io/mediaengine/example/FrameFetch.class")
+        set(_me_jni_timelines_classfile
+            "${_me_jni_classdir}/io/mediaengine/example/Timelines.class")
 
         # Compile MediaEngine.java + the example runners together; the
         # runners depend on the wrapper class. Re-runs only when any
@@ -98,6 +102,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_status_classfile}"
                     "${_me_jni_throw_classfile}"
                     "${_me_jni_frame_classfile}"
+                    "${_me_jni_timelines_classfile}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_me_jni_classdir}"
             COMMAND ${Java_JAVAC_EXECUTABLE}
                     -d "${_me_jni_classdir}"
@@ -109,6 +114,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_status_src}"
                     "${_me_jni_throw_src}"
                     "${_me_jni_frame_src}"
+                    "${_me_jni_timelines_src}"
             DEPENDS "${_me_jni_java_src}"
                     "${_me_jni_run_src}"
                     "${_me_jni_verify_src}"
@@ -117,6 +123,7 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_status_src}"
                     "${_me_jni_throw_src}"
                     "${_me_jni_frame_src}"
+                    "${_me_jni_timelines_src}"
             COMMENT "javac MediaEngine.java + example runners -> ${_me_jni_classdir}")
 
         add_custom_target(media_engine_jni_classes
@@ -127,7 +134,8 @@ if(ME_BUILD_TESTS)
                     "${_me_jni_cancel_classfile}"
                     "${_me_jni_status_classfile}"
                     "${_me_jni_throw_classfile}"
-                    "${_me_jni_frame_classfile}")
+                    "${_me_jni_frame_classfile}"
+                    "${_me_jni_timelines_classfile}")
         add_dependencies(media_engine_jni_classes media_engine_jni)
 
         # jni_load_smoke: no-args MediaEngine.main() — prints version

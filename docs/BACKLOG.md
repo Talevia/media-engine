@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-test-jni-bridge-shared-fixture-helper** — `grep -c 'schemaVersion' bindings/jni/example/src/io/mediaengine/example/*.java` 显示 4 demos (Run/Cancel/ProgressThrow/FrameFetch) 各自 inline 同一份 passthrough timeline JSON template。下一个 demo 又要复制；改 schema 字段时要批量改 4 处。**方向：** 抽 `bindings/jni/example/src/io/mediaengine/example/Timelines.java` 类 → `static String passthrough(String fileUri)` 返回 JSON string；4 demos call 它。Milestone §M7-debt，Rubric §5.5。
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
