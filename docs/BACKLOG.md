@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-example-07-09-validate-mp4** — `tests/CMakeLists.txt:add_test(NAME example_07_compose_multitrack ...)` 和 example_09_text_clip 只验 exit 0；没像 example_08 (cycle 80) 那样有 companion file-existence/magic 检查。一次 muxer regression 把 0-byte 或 truncated MP4 写出去，ctest 仍 pass。**方向：** 仿 cycle 88 jni_passthrough_smoke_validate 的 dd | test = ftyp 模式：新 example_07_compose_validate + example_09_text_clip_validate ctest companions DEPENDS on respective runner。Milestone §M7-debt (coverage)，Rubric §5.3。
 - **debt-jni-frame-smoke-validate-ppm** — `bindings/jni/CMakeLists.txt:add_test(NAME jni_frame_smoke ...)` 跑 FrameFetch.java 写 921 KB PPM，但无 P6 magic check；同 cycle 80 / 87 / 88 patterns 不一致。**方向：** companion ctest `jni_frame_smoke_validate` — `head -c 2 <ppm> | grep -q '^P6$'`；DEPENDS jni_frame_smoke。Milestone §M7-debt (coverage)，Rubric §5.3。
 - **debt-test-jni-bridge-shared-fixture-helper** — `grep -c 'schemaVersion' bindings/jni/example/src/io/mediaengine/example/*.java` 显示 4 demos (Run/Cancel/ProgressThrow/FrameFetch) 各自 inline 同一份 passthrough timeline JSON template。下一个 demo 又要复制；改 schema 字段时要批量改 4 处。**方向：** 抽 `bindings/jni/example/src/io/mediaengine/example/Timelines.java` 类 → `static String passthrough(String fileUri)` 返回 JSON string；4 demos call 它。Milestone §M7-debt，Rubric §5.5。
 

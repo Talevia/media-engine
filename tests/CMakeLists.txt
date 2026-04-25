@@ -618,6 +618,18 @@ if(TARGET 07_compose_multitrack
   set_tests_properties(example_07_compose_multitrack PROPERTIES TIMEOUT 30)
   add_dependencies(07_compose_multitrack determinism_fixture)
 
+  # Companion check: verify the MP4 ftyp box at bytes 4-7 (matches
+  # cycle 88's jni_passthrough_smoke_validate pattern). A regression
+  # where the muxer flushed bytes that aren't a valid container
+  # would slip past exit-code-only validation.
+  add_test(NAME example_07_compose_multitrack_validate
+           COMMAND bash -c
+             "test \"$(dd if='${_me_example_out}/07_out.mp4' \
+                           bs=1 skip=4 count=4 status=none)\" = ftyp")
+  set_tests_properties(example_07_compose_multitrack_validate PROPERTIES
+    DEPENDS example_07_compose_multitrack
+    TIMEOUT 5)
+
   add_test(NAME example_08_frame_server_scrub
            COMMAND $<TARGET_FILE:08_frame_server_scrub>
                    "${_fixture_mp4}"
@@ -650,4 +662,15 @@ if(TARGET 07_compose_multitrack
                    "${_me_example_out}/09_out.mp4")
   set_tests_properties(example_09_text_clip PROPERTIES TIMEOUT 30)
   add_dependencies(09_text_clip determinism_fixture)
+
+  # Companion check: same ftyp box validation as example_07's; the
+  # text-overlay path goes through ComposeSink + h264 mux, so a
+  # regression in either would still produce non-MP4 bytes.
+  add_test(NAME example_09_text_clip_validate
+           COMMAND bash -c
+             "test \"$(dd if='${_me_example_out}/09_out.mp4' \
+                           bs=1 skip=4 count=4 status=none)\" = ftyp")
+  set_tests_properties(example_09_text_clip_validate PROPERTIES
+    DEPENDS example_09_text_clip
+    TIMEOUT 5)
 endif()
