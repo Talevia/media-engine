@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **debt-bench-vfr-av-sync-output-doc** — `bench_vfr_av_sync` 在 ctest 跑（`grep -A 1 'add_test.*bench_vfr_av_sync' bench/CMakeLists.txt`）；但 source 内的 budget comment（`grep '1 ms / hour\|drift'` bench/bench_vfr_av_sync.cpp）没有最近测量 vs budget 的对照数据。一次 av-sync regression（off-by-one PTS rescale）只在 budget 被超时才触发；建议把当前实测 drift 数据加进 source comment 作 baseline。**方向：** 跑 bench 3 次取 max drift；写进 bench_vfr_av_sync.cpp 注释 + 收紧 budget 到 2x headroom（同 cycle 93 模式）。Milestone §M3-debt (cross)，Rubric §5.3。
 
 
 ## P2（未来，当前 milestone 不挤占）

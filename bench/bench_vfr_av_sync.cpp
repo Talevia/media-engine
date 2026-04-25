@@ -13,7 +13,16 @@
  * me_render_start (h264_videotoolbox + aac, the standard reencode
  * path); afterward the output's last-packet PTS is read back via
  * libavformat + libavcodec on each stream, and the scaled drift
- * per hour is compared to a 1 ms / hour budget.
+ * per hour is compared to a 0.1 ms / hour budget.
+ *
+ * Cycle 102 measurement (commit 1d6d211, 3 consecutive runs):
+ *   offset drift = 0.000000 ms / hour (all 3 runs)
+ * The remap_source_pts_to_output helper (cycle 23) keeps source
+ * PTS spacing intact via integer av_rescale_q math; on a CFR-
+ * shaped fixture the drift is bit-perfect zero. Budget tightened
+ * 10x from the original 1 ms / hour to 0.1 ms / hour so any future
+ * regression that introduces per-frame rounding (e.g. a switch to
+ * float seconds or a lossy CFR re-quantize) trips earlier.
  *
  * Exit code: 0 = pass, 1 = budget miss or setup error, 2 = skipped
  * (encoder unavailable). Runs from the build tree; no fixtures on
@@ -479,7 +488,9 @@ int main() {
      * Budget: 1 ms / hour = 1e-3 sec / hour (the vfr-av-sync
      * helper's unit-tested contract). */
     const double drift_per_hour = drift_sec * (3600.0 / duration_sec);
-    const double budget         = 1e-3;
+    /* 0.1 ms / hour — see file-header comment for the cycle 102
+     * measurement that justified the 10x tightening from 1 ms/hour. */
+    const double budget         = 1e-4;
 
     std::printf("bench_vfr_av_sync: input  v=%.6fs a=%.6fs offset=%+.6fs\n",
                 v_in, a_in, in_offset_sec);
