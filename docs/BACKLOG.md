@@ -14,9 +14,17 @@
 
 ## P0（必做，阻塞当前 milestone）
 
+- **debt-jni-thumbnail-validate-png** — `bindings/jni/CMakeLists.txt:add_test(NAME jni_thumbnail_smoke ...)` 跑 Thumbnail.java 写 ~15 KB 输出但无后续校验；`grep -rn 'PASS_REGULAR_EXPRESSION\|magic\|file -b' bindings/jni/CMakeLists.txt` 空。一次 nativeThumbnail regression 把 PNG 输出退化成空 byte[] / random bytes 都不会 trip ctest（exit 0 + 文件存在但内容垃圾）。**方向：** 仿 cycle 80 的 example_08 companion 模式：新 ctest `jni_thumbnail_smoke_validate` 跑 `bash -c 'head -c 8 <png> | od -An -tx1 | grep -q "89 50 4e 47"'` 验 PNG signature；DEPENDS jni_thumbnail_smoke。Milestone §M7-debt (coverage)，Rubric §5.3。
+- **debt-jni-passthrough-validate-mp4** — 同上 shape — `jni_passthrough_smoke` 写 ~246 KB MP4 但无 ftyp 校验。**方向：** companion ctest 验 file(1) magic 或读 4-7 字节匹配 ASCII "ftyp"（`bash -c 'dd if=<mp4> bs=1 skip=4 count=4 status=none | grep -q ftyp'`）。Milestone §M7-debt (coverage)，Rubric §5.3。
+- **debt-render-spec-arg-validation** — `me_render_start` 的 `me_output_spec_t.frame_rate.den == 0` 会触发 div-by-zero；`spec.width = 0` 行为未文档化；`grep -rn 'spec.frame_rate\|spec.width' tests/test_output_spec.cpp tests/test_render_*.cpp 2>/dev/null` 显示 test_compose_frame_convert.cpp:79 只测了 frame.width=0 (decode 端)。**方向：** test_output_spec.cpp 新 SUBCASE — `me_render_start(spec_with_zero_den)` 应返回 ME_E_INVALID_ARG 并写 last_error；同样验 width=0 / height=0。Milestone §M7-debt，Rubric §5.5。
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
+- **debt-split-reencode-segment-cpp** — `wc -l src/orchestrator/reencode_segment.cpp` = 375，repo 内最大 src 文件，距 §1a 阈值 25 行。下一个 reencode feature（per-segment audio mix or per-segment color override）几乎必触发 P0 split。**方向：** 走 cycle 72/73/81 的 _impl 模式 — 根据文件实际结构（先 grep 结构）抽 inner-loop body 或 setup helpers。Milestone §M7-debt (cross)，Rubric §5.3。
+- **debt-jni-progress-trampoline-exception-test** — `bindings/jni/me_jni.cpp:74` `if (env->ExceptionCheck()) env->ExceptionClear();`；comment 写 "callback impls shouldn't throw, but if they do, swallow"。`grep -rn 'throw new\|throws' bindings/jni/example/src/io/mediaengine/example/Run.java` 空，没测 Java listener throws → trampoline 静默 swallow + 不 corrupt JVM 的契约。**方向：** Run.java 加可选 `--throw` flag，listener 在第二次 FRAMES 时 throw RuntimeException；ctest 仍要 exit 0；新 jni_progress_throw_smoke 测试覆盖。Milestone §M7-debt，Rubric §5.5。
+- **examples-jni-frame-server-demo** — `bindings/jni/README.md:83` 自 admit "Not exposed yet: me_render_frame"；`grep -rn 'nativeRenderFrame\|me_render_frame' bindings/jni/` 只命中 README。host scrub-row UI 需要 frame-by-frame fetch (不能用 thumbnail，那是 PNG-encode 后)。**方向：** me_jni.cpp 加 `Java_..._nativeRenderFrame` 桥（返回 byte[] RGBA + W/H/stride 通过 Frame record），MediaEngine.java 新 `Frame frame(uri, t)`，新 example/FrameFetch.java 演示。Milestone §M7-debt，Rubric §5.5。
+- **debt-bench-thumbnail-budget-tightening** — `bench/bench_thumbnail_png.cpp:37` `kBudgetMs = 50.0`，dev box 实测 ~10 ms（5x headroom）。Loose budget catches 5x regressions 但 miss 2x ones。**方向：** 收紧到 25 ms (2.5x headroom)；如 ctest -j8 contention 下不稳，加 RUN_SERIAL（同 bench_text_paragraph cycle 50 模式）。Milestone §M7-debt，Rubric §5.3。
+- **examples-c-frame-server-seek-back** — `examples/08_frame_server_scrub/main.c:124` 只 forward scrub at t=0, 0.5, 1.0, 1.5；real scrub UI 跳跃 + 倒退 + 重复访问。`grep -n 'me_render_frame' examples/08_frame_server_scrub/main.c` 显示 single forward-only loop。**方向：** 新 example 11 或 enhance 08 — 加倒序访问 + 再访问 t=0.5 验 cache hit_count 增长（从 me_cache_stats 比较 before/after counts）。Milestone §M6-debt (cross)，Rubric §5.4。
 
 
 ## P2（未来，当前 milestone 不挤占）
