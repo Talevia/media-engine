@@ -1,19 +1,25 @@
 /*
- * 08_frame_server_scrub — scrubbing via me_render_frame.
+ * 08_frame_server_scrub — scrubbing via me_render_frame, with
+ * cache-hit verification.
  *
- * Builds a 1-clip timeline over `<source.mp4>`, pulls RGBA frames
- * at 5 distinct times (0.0, 0.25, 0.5, 0.75, 1.0 × clip duration),
- * writes each as a PPM under `<out-dir>`, and prints
- * me_cache_stats before / after to show hit/miss evolution.
+ * Builds a 1-clip timeline over `<source.mp4>`, scrubs forward
+ * across 4 times (0.0, 0.5, 1.0, 1.5 s), writes each as a PPM
+ * under `<out-dir>`. Then re-scrubs the same times in REVERSE
+ * order (1.5, 1.0, 0.5, 0.0) without writing PPMs — purely to
+ * exercise the cache-hit path. Prints me_cache_stats before /
+ * mid (after forward) / after (after reverse) so the host can
+ * observe hit_count climb on the reverse pass.
  *
  * Purpose: demo the M6 frame-server path hosts would use to
- * drive a scrubbing UI (thumbnail strip / preview panel). Uses
+ * drive a scrubbing UI (thumbnail strip / preview panel) +
+ * pin the cache contract: scrubbing back to a previously-
+ * fetched time should serve from cache, not re-decode. Uses
  * only the public C API.
  *
  * Usage:
  *   08_frame_server_scrub <source.mp4> <out-dir>
  *
- * Writes `<out-dir>/frame_0.ppm` ... `frame_4.ppm`.
+ * Writes `<out-dir>/frame_0.ppm` ... `frame_3.ppm`.
  */
 #include <media_engine.h>
 
@@ -116,11 +122,12 @@ int main(int argc, char** argv) {
 
     me_cache_stats_t before = {0};
     me_cache_stats(eng, &before);
-    print_stats("before", &before);
+    print_stats("before    ", &before);
 
-    /* 4 scrub points at 0, 0.5, 1.0, 1.5 s — strictly inside the
-     * 2-second clip's half-open [0, 2) range. t=2.0 would fall
-     * past the active-clip test and return ME_E_NOT_FOUND. */
+    /* Forward scrub — 4 points at 0, 0.5, 1.0, 1.5 s. Strictly
+     * inside the 2-second clip's half-open [0, 2) range; t=2.0
+     * would fall past the active-clip test and return
+     * ME_E_NOT_FOUND. Each call writes a PPM. */
     for (int i = 0; i < 4; ++i) {
         const me_rational_t t = { (int64_t)i, 2 };  /* 0, 1/2, 2/2, 3/2 */
         me_frame_t* frame = NULL;
@@ -139,9 +146,43 @@ int main(int argc, char** argv) {
         me_frame_destroy(frame);
     }
 
+    me_cache_stats_t mid = {0};
+    me_cache_stats(eng, &mid);
+    print_stats("after-fwd ", &mid);
+
+    /* Reverse scrub — same 4 times in reverse order (1.5, 1.0,
+     * 0.5, 0.0). PPMs already written; here we only re-fetch to
+     * exercise the cache-hit path. Each call should serve from
+     * the cache populated by the forward pass; hit_count should
+     * climb by ~4. */
+    for (int i = 3; i >= 0; --i) {
+        const me_rational_t t = { (int64_t)i, 2 };
+        me_frame_t* frame = NULL;
+        s = me_render_frame(eng, tl, t, &frame);
+        if (s != ME_OK) {
+            fprintf(stderr, "render_frame_back[%d]: %s (%s)\n",
+                    i, me_status_str(s), me_engine_last_error(eng));
+            continue;
+        }
+        me_frame_destroy(frame);
+    }
+
     me_cache_stats_t after = {0};
     me_cache_stats(eng, &after);
-    print_stats("after ", &after);
+    print_stats("after-rev ", &after);
+
+    /* Cache observability: hit_count should have climbed on the
+     * reverse pass. Diagnostic only — the example exits 0 either
+     * way; hosts use this signal pattern to wire their own perf
+     * dashboards. */
+    const long long hits_gained = (long long)(after.hit_count - mid.hit_count);
+    fprintf(stderr, "  cache hits gained on reverse pass: %lld\n",
+            hits_gained);
+    if (hits_gained <= 0) {
+        fprintf(stderr,
+                "  WARN: no cache hits on reverse — frame cache may be "
+                "disabled or not key-stable across scrub re-visits\n");
+    }
 
     me_timeline_destroy(tl);
     me_engine_destroy(eng);

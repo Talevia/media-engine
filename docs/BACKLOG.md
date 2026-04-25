@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **examples-c-frame-server-seek-back** — `examples/08_frame_server_scrub/main.c:124` 只 forward scrub at t=0, 0.5, 1.0, 1.5；real scrub UI 跳跃 + 倒退 + 重复访问。`grep -n 'me_render_frame' examples/08_frame_server_scrub/main.c` 显示 single forward-only loop。**方向：** 新 example 11 或 enhance 08 — 加倒序访问 + 再访问 t=0.5 验 cache hit_count 增长（从 me_cache_stats 比较 before/after counts）。Milestone §M6-debt (cross)，Rubric §5.4。
 
 
 ## P2（未来，当前 milestone 不挤占）
