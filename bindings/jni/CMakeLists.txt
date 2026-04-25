@@ -53,31 +53,35 @@ if(ME_BUILD_TESTS)
     if(Java_JAVAC_EXECUTABLE AND Java_JAVA_EXECUTABLE)
         set(_me_jni_java_src
             "${CMAKE_CURRENT_SOURCE_DIR}/src/io/mediaengine/MediaEngine.java")
+        set(_me_jni_run_src
+            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Run.java")
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
         set(_me_jni_classfile
             "${_me_jni_classdir}/io/mediaengine/MediaEngine.class")
+        set(_me_jni_run_classfile
+            "${_me_jni_classdir}/io/mediaengine/example/Run.class")
 
-        # Compile MediaEngine.java once at build time (re-runs only when
-        # the .java source changes). Keep the classes/ tree under the
-        # binary dir so a clean build wipes them.
+        # Compile MediaEngine.java + Run.java together (Run depends on
+        # the wrapper class). Re-runs only when either .java changes.
+        # Keep the classes/ tree under the binary dir so a clean build
+        # wipes it.
         add_custom_command(
-            OUTPUT  "${_me_jni_classfile}"
+            OUTPUT  "${_me_jni_classfile}" "${_me_jni_run_classfile}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_me_jni_classdir}"
             COMMAND ${Java_JAVAC_EXECUTABLE}
                     -d "${_me_jni_classdir}"
                     "${_me_jni_java_src}"
-            DEPENDS "${_me_jni_java_src}"
-            COMMENT "javac MediaEngine.java -> ${_me_jni_classdir}")
+                    "${_me_jni_run_src}"
+            DEPENDS "${_me_jni_java_src}" "${_me_jni_run_src}"
+            COMMENT "javac MediaEngine.java + Run.java -> ${_me_jni_classdir}")
 
         add_custom_target(media_engine_jni_classes
-            DEPENDS "${_me_jni_classfile}")
+            DEPENDS "${_me_jni_classfile}" "${_me_jni_run_classfile}")
         add_dependencies(media_engine_jni_classes media_engine_jni)
 
-        # The smoke test runs MediaEngine.main() with no args — that
-        # path prints version + creates / destroys an engine handle.
-        # Exit code 0 == JNI symbols resolved + handle round-trip
-        # succeeded. Anything else (UnsatisfiedLinkError, NoSuchMethod)
-        # bubbles out as a non-zero exit.
+        # jni_load_smoke: no-args MediaEngine.main() — prints version
+        # and creates / destroys an engine handle. Exit 0 == JNI
+        # symbols resolved + handle round-trip succeeded.
         add_test(NAME jni_load_smoke
                  COMMAND ${Java_JAVA_EXECUTABLE}
                          "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
@@ -86,6 +90,29 @@ if(ME_BUILD_TESTS)
         set_tests_properties(jni_load_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
+
+        # jni_passthrough_smoke: end-to-end render via the JNI bridge.
+        # io.mediaengine.example.Run builds a passthrough timeline JSON
+        # in-memory, calls renderStart → waitFor → close, and exits 0
+        # on success. Catches any signature drift in nativeRenderStart
+        # / nativeRenderWait + the progress callback trampoline that
+        # jni_load_smoke can't reach. Depends on the determinism
+        # fixture for a real source MP4. Add the dependency only when
+        # the fixture target is in scope (tests/CMakeLists evaluates
+        # AFTER bindings/jni/, so determinism_fixture won't exist yet).
+        # The check defers to the post-tests scope below.
+        set(_me_jni_passthrough_out
+            "${CMAKE_CURRENT_BINARY_DIR}/jni_passthrough_smoke_out.mp4")
+        add_test(NAME jni_passthrough_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.Run
+                         "${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4"
+                         "${_me_jni_passthrough_out}")
+        set_tests_properties(jni_passthrough_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  30)
 
         # ctest doesn't itself trigger the custom target build; wire
         # the classes target into the default build graph so a normal
@@ -97,6 +124,6 @@ if(ME_BUILD_TESTS)
         add_dependencies(me_default_build_helpers media_engine_jni_classes)
     else()
         message(STATUS "media_engine_jni: Java toolchain not found — "
-                       "skipping jni_load_smoke ctest")
+                       "skipping jni_load_smoke + jni_passthrough_smoke ctest")
     endif()
 endif()
