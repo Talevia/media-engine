@@ -51,91 +51,67 @@ endif()
 if(ME_BUILD_TESTS)
     find_package(Java COMPONENTS Development Runtime QUIET)
     if(Java_JAVAC_EXECUTABLE AND Java_JAVA_EXECUTABLE)
-        set(_me_jni_java_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/io/mediaengine/MediaEngine.java")
-        set(_me_jni_run_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Run.java")
-        set(_me_jni_verify_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/VersionAssert.java")
-        set(_me_jni_thumb_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Thumbnail.java")
-        set(_me_jni_cancel_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Cancel.java")
-        set(_me_jni_status_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/LastStatusAssert.java")
-        set(_me_jni_throw_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/ProgressThrow.java")
-        set(_me_jni_frame_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/FrameFetch.java")
-        set(_me_jni_timelines_src
-            "${CMAKE_CURRENT_SOURCE_DIR}/example/src/io/mediaengine/example/Timelines.java")
         set(_me_jni_classdir "${CMAKE_CURRENT_BINARY_DIR}/classes")
-        set(_me_jni_classfile
-            "${_me_jni_classdir}/io/mediaengine/MediaEngine.class")
-        set(_me_jni_run_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/Run.class")
-        set(_me_jni_verify_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/VersionAssert.class")
-        set(_me_jni_thumb_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/Thumbnail.class")
-        set(_me_jni_cancel_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/Cancel.class")
-        set(_me_jni_status_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/LastStatusAssert.class")
-        set(_me_jni_throw_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/ProgressThrow.class")
-        set(_me_jni_frame_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/FrameFetch.class")
-        set(_me_jni_timelines_classfile
-            "${_me_jni_classdir}/io/mediaengine/example/Timelines.class")
+
+        # All Java sources compiled together as one javac invocation.
+        # Each entry is the path under bindings/jni/ relative to the
+        # CMakeLists; the loop below derives the absolute .java path
+        # AND the matching .class output. Add new demos to this list
+        # only — no parallel _src/_classfile var pairs anymore.
+        #
+        # Path convention: every entry sits under either
+        #   src/io/mediaengine/<Class>.java          (wrapper)
+        # or
+        #   example/src/io/mediaengine/example/<Class>.java
+        # The .class output mirrors the package path:
+        #   classes/io/mediaengine/<Class>.class
+        # / classes/io/mediaengine/example/<Class>.class
+        set(_me_jni_java_sources
+            src/io/mediaengine/MediaEngine.java
+            example/src/io/mediaengine/example/Run.java
+            example/src/io/mediaengine/example/VersionAssert.java
+            example/src/io/mediaengine/example/Thumbnail.java
+            example/src/io/mediaengine/example/Cancel.java
+            example/src/io/mediaengine/example/LastStatusAssert.java
+            example/src/io/mediaengine/example/ProgressThrow.java
+            example/src/io/mediaengine/example/FrameFetch.java
+            example/src/io/mediaengine/example/Timelines.java
+        )
+
+        set(_me_jni_java_abs_sources)
+        set(_me_jni_class_outputs)
+        foreach(_rel_src IN LISTS _me_jni_java_sources)
+            list(APPEND _me_jni_java_abs_sources
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_rel_src}")
+            # Strip the source-tree prefix to get the package-relative
+            # path; both `src/` and `example/src/` map to the same
+            # output root. e.g.
+            #   src/io/mediaengine/MediaEngine.java
+            #     → io/mediaengine/MediaEngine.class
+            #   example/src/io/mediaengine/example/Run.java
+            #     → io/mediaengine/example/Run.class
+            string(REGEX REPLACE "^example/src/" "" _pkg_path "${_rel_src}")
+            string(REGEX REPLACE "^src/"         "" _pkg_path "${_pkg_path}")
+            string(REGEX REPLACE "\\.java$"      ".class" _class_rel "${_pkg_path}")
+            list(APPEND _me_jni_class_outputs
+                "${_me_jni_classdir}/${_class_rel}")
+        endforeach()
 
         # Compile MediaEngine.java + the example runners together; the
         # runners depend on the wrapper class. Re-runs only when any
         # .java in the input list changes. Keep the classes/ tree
         # under the binary dir so a clean build wipes it.
         add_custom_command(
-            OUTPUT  "${_me_jni_classfile}"
-                    "${_me_jni_run_classfile}"
-                    "${_me_jni_verify_classfile}"
-                    "${_me_jni_thumb_classfile}"
-                    "${_me_jni_cancel_classfile}"
-                    "${_me_jni_status_classfile}"
-                    "${_me_jni_throw_classfile}"
-                    "${_me_jni_frame_classfile}"
-                    "${_me_jni_timelines_classfile}"
+            OUTPUT  ${_me_jni_class_outputs}
             COMMAND ${CMAKE_COMMAND} -E make_directory "${_me_jni_classdir}"
             COMMAND ${Java_JAVAC_EXECUTABLE}
                     -d "${_me_jni_classdir}"
-                    "${_me_jni_java_src}"
-                    "${_me_jni_run_src}"
-                    "${_me_jni_verify_src}"
-                    "${_me_jni_thumb_src}"
-                    "${_me_jni_cancel_src}"
-                    "${_me_jni_status_src}"
-                    "${_me_jni_throw_src}"
-                    "${_me_jni_frame_src}"
-                    "${_me_jni_timelines_src}"
-            DEPENDS "${_me_jni_java_src}"
-                    "${_me_jni_run_src}"
-                    "${_me_jni_verify_src}"
-                    "${_me_jni_thumb_src}"
-                    "${_me_jni_cancel_src}"
-                    "${_me_jni_status_src}"
-                    "${_me_jni_throw_src}"
-                    "${_me_jni_frame_src}"
-                    "${_me_jni_timelines_src}"
+                    ${_me_jni_java_abs_sources}
+            DEPENDS ${_me_jni_java_abs_sources}
             COMMENT "javac MediaEngine.java + example runners -> ${_me_jni_classdir}")
 
         add_custom_target(media_engine_jni_classes
-            DEPENDS "${_me_jni_classfile}"
-                    "${_me_jni_run_classfile}"
-                    "${_me_jni_verify_classfile}"
-                    "${_me_jni_thumb_classfile}"
-                    "${_me_jni_cancel_classfile}"
-                    "${_me_jni_status_classfile}"
-                    "${_me_jni_throw_classfile}"
-                    "${_me_jni_frame_classfile}"
-                    "${_me_jni_timelines_classfile}")
+            DEPENDS ${_me_jni_class_outputs})
         add_dependencies(media_engine_jni_classes media_engine_jni)
 
         # jni_load_smoke: no-args MediaEngine.main() — prints version
