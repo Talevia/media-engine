@@ -1,111 +1,23 @@
 #include "orchestrator/previewer.hpp"
 
-#include "compose/frame_convert.hpp"
 #include "core/engine_impl.hpp"
 #include "core/frame_impl.hpp"
-#include "io/av_err.hpp"
-#include "io/ffmpeg_raii.hpp"
+#include "graph/eval_context.hpp"
+#include "graph/future.hpp"
+#include "graph/graph.hpp"
+#include "graph/types.hpp"
+#include "orchestrator/previewer_graph.hpp"
 #include "resource/asset_hash_cache.hpp"
 #include "resource/disk_cache.hpp"
+#include "scheduler/scheduler.hpp"
 #include "timeline/timeline_impl.hpp"
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/mathematics.h>
-}
-
+#include <exception>
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace me::orchestrator {
-
-namespace {
-
-std::string strip_file_scheme(const std::string& uri) {
-    const std::string prefix = "file://";
-    if (uri.size() > prefix.size() && uri.substr(0, prefix.size()) == prefix) {
-        return uri.substr(prefix.size());
-    }
-    return uri;
-}
-
-/* Decode forward from the seek position until we hit a frame with
- * pts ≥ target_pts_stb. On EOF without reaching target, returns
- * the latest frame we got (target is past stream end). */
-me_status_t decode_frame_at(AVFormatContext*             fmt,
-                             int                          video_stream_idx,
-                             AVCodecContext*              dec,
-                             int64_t                      target_pts_stb,
-                             me::io::AvFramePtr&          out_frame,
-                             std::string*                 err) {
-    me::io::AvPacketPtr pkt(av_packet_alloc());
-    me::io::AvFramePtr  fr(av_frame_alloc());
-
-    for (;;) {
-        int rc = av_read_frame(fmt, pkt.get());
-        if (rc == AVERROR_EOF) {
-            rc = avcodec_send_packet(dec, nullptr);
-            if (rc < 0 && rc != AVERROR_EOF) {
-                if (err) *err = "send flush: " + me::io::av_err_str(rc);
-                return ME_E_DECODE;
-            }
-            for (;;) {
-                rc = avcodec_receive_frame(dec, fr.get());
-                if (rc == AVERROR_EOF || rc == AVERROR(EAGAIN)) {
-                    if (out_frame) return ME_OK;
-                    if (err) *err = "drained without producing a frame";
-                    return ME_E_NOT_FOUND;
-                }
-                if (rc < 0) {
-                    if (err) *err = "receive(flush): " + me::io::av_err_str(rc);
-                    return ME_E_DECODE;
-                }
-                out_frame.reset(av_frame_clone(fr.get()));
-                av_frame_unref(fr.get());
-            }
-        }
-        if (rc < 0) {
-            if (err) *err = "read_frame: " + me::io::av_err_str(rc);
-            return ME_E_IO;
-        }
-        if (pkt->stream_index != video_stream_idx) {
-            av_packet_unref(pkt.get());
-            continue;
-        }
-        rc = avcodec_send_packet(dec, pkt.get());
-        av_packet_unref(pkt.get());
-        if (rc < 0 && rc != AVERROR(EAGAIN)) {
-            if (err) *err = "send_packet: " + me::io::av_err_str(rc);
-            return ME_E_DECODE;
-        }
-        for (;;) {
-            rc = avcodec_receive_frame(dec, fr.get());
-            if (rc == AVERROR(EAGAIN)) break;
-            if (rc == AVERROR_EOF) {
-                if (out_frame) return ME_OK;
-                if (err) *err = "EOF before target";
-                return ME_E_NOT_FOUND;
-            }
-            if (rc < 0) {
-                if (err) *err = "receive_frame: " + me::io::av_err_str(rc);
-                return ME_E_DECODE;
-            }
-            const int64_t frame_pts =
-                (fr->pts != AV_NOPTS_VALUE) ? fr->pts : fr->best_effort_timestamp;
-            if (frame_pts != AV_NOPTS_VALUE && frame_pts < target_pts_stb) {
-                out_frame.reset(av_frame_clone(fr.get()));
-                av_frame_unref(fr.get());
-                continue;
-            }
-            out_frame.reset(av_frame_clone(fr.get()));
-            av_frame_unref(fr.get());
-            return ME_OK;
-        }
-    }
-}
-
-}  // namespace
 
 me_status_t Previewer::frame_at(me_rational_t time, me_frame** out_frame) {
     if (!out_frame) return ME_E_INVALID_ARG;
@@ -119,7 +31,8 @@ me_status_t Previewer::frame_at(me_rational_t time, me_frame** out_frame) {
 
     /* Find the bottom track's active clip at t. Phase-1 single-
      * track frame server — multi-track compose via the full
-     * compose_decode_loop path is a follow-up cycle. */
+     * compose_decode_loop path is a follow-up cycle
+     * (previewer-multi-track-compose-graph). */
     const std::string& bottom_id = tl_->tracks[0].id;
     const me::Clip*   active = nullptr;
     me_rational_t     clip_local_t{0, 1};
@@ -161,18 +74,21 @@ me_status_t Previewer::frame_at(me_rational_t time, me_frame** out_frame) {
     /* Asset lookup. */
     auto a_it = tl_->assets.find(active->asset_id);
     if (a_it == tl_->assets.end()) return ME_E_NOT_FOUND;
-    const std::string path = strip_file_scheme(a_it->second.uri);
+    const std::string& uri = a_it->second.uri;
 
-    /* Cache lookup before decoding. Key = `<asset_hash>:<source_num>:
-     * <source_den>` so the same (asset, timeline-local moment)
-     * returns the cached frame, and all entries for a given asset
-     * share a common prefix (me_cache_invalidate_asset walks on
-     * prefix). Asset hash comes from AssetHashCache (seeded by the
-     * loader from JSON contentHash, or computed lazily on first
-     * lookup). Empty hash → skip cache (can't key). */
+    /* DiskCache peek (persistent across processes). Key =
+     * `<asset_hash>:<source_num>:<source_den>` so the same (asset,
+     * timeline-local moment) returns the cached frame and all entries
+     * for a given asset share a common prefix
+     * (me_cache_invalidate_asset walks on prefix). The in-process
+     * scheduler.cache (phase 2) handles same-process repeat fetches;
+     * disk_cache survives process restarts and is what
+     * me_cache_stats / me_cache_clear / me_cache_invalidate_asset
+     * (src/api/cache.cpp) report on. Both layers are kept (D3 in the
+     * implementation plan). Empty asset_hash → skip cache (can't key). */
     std::string asset_hash;
     if (engine_ && engine_->asset_hashes) {
-        asset_hash = engine_->asset_hashes->get_or_compute(a_it->second.uri);
+        asset_hash = engine_->asset_hashes->get_or_compute(uri);
     }
     std::string cache_key;
     if (!asset_hash.empty()) {
@@ -193,77 +109,51 @@ me_status_t Previewer::frame_at(me_rational_t time, me_frame** out_frame) {
         }
     }
 
-    /* Open input + find video stream + spin up decoder. */
-    AVFormatContext* fmt = nullptr;
-    int rc = avformat_open_input(&fmt, path.c_str(), nullptr, nullptr);
-    if (rc < 0) return ME_E_IO;
-    rc = avformat_find_stream_info(fmt, nullptr);
-    if (rc < 0) { avformat_close_input(&fmt); return ME_E_DECODE; }
+    /* Build + evaluate the per-frame decode graph. The scheduler's
+     * OutputCache handles in-process repeat fetches; on miss the
+     * graph runs end-to-end (open → decode → sws_scale → RGBA8). */
+    if (!engine_ || !engine_->scheduler) return ME_E_INTERNAL;
 
-    const int vs = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
-    /* LEGIT: source file has no video stream — frame server can't
-     * produce a frame. Non-stub. */
-    if (vs < 0) { avformat_close_input(&fmt); return ME_E_UNSUPPORTED; }
-    AVStream* vstream = fmt->streams[vs];
-    const AVCodec* dec_codec = avcodec_find_decoder(vstream->codecpar->codec_id);
-    /* LEGIT: FFmpeg build missing a decoder for this stream's codec. */
-    if (!dec_codec) { avformat_close_input(&fmt); return ME_E_UNSUPPORTED; }
+    auto [g, term] = compile_frame_graph(uri, source_t);
 
-    auto dec = (engine_ && engine_->codecs)
-        ? engine_->codecs->allocate(dec_codec)
-        : me::resource::CodecPool::Ptr(nullptr, me::resource::CodecPool::Deleter{nullptr});
-    if (!dec) { avformat_close_input(&fmt); return ME_E_OUT_OF_MEMORY; }
+    graph::EvalContext ctx;
+    ctx.frames = engine_->frames.get();
+    ctx.codecs = engine_->codecs.get();
+    ctx.time   = source_t;   /* time_invariant kernels ignore; cache mixer uses for non-invariant nodes */
 
-    rc = avcodec_parameters_to_context(dec.get(), vstream->codecpar);
-    if (rc < 0) { avformat_close_input(&fmt); return ME_E_INTERNAL; }
-    dec->pkt_timebase = vstream->time_base;
-    rc = avcodec_open2(dec.get(), dec_codec, nullptr);
-    if (rc < 0) { avformat_close_input(&fmt); return ME_E_DECODE; }
-
-    /* Seek to source_t in AV_TIME_BASE_Q units. */
-    const int64_t target_us = av_rescale_q(
-        source_t.num,
-        AVRational{1, static_cast<int>(source_t.den)},
-        AV_TIME_BASE_Q);
-    rc = avformat_seek_file(fmt, -1, INT64_MIN, target_us, target_us,
-                             AVSEEK_FLAG_BACKWARD);
-    if (rc < 0 && target_us > AV_TIME_BASE) {
-        avformat_close_input(&fmt);
-        return ME_E_IO;
+    std::shared_ptr<graph::RgbaFrameData> rgba;
+    try {
+        auto fut = engine_->scheduler->evaluate_port<
+                       std::shared_ptr<graph::RgbaFrameData>>(g, term, ctx);
+        rgba = fut.await();
+    } catch (const std::exception& ex) {
+        me::detail::set_error(engine_, ex.what());
+        return ME_E_DECODE;
     }
-    avcodec_flush_buffers(dec.get());
+    if (!rgba) return ME_E_DECODE;
 
-    const int64_t target_pts_stb = av_rescale_q(
-        source_t.num,
-        AVRational{1, static_cast<int>(source_t.den)},
-        vstream->time_base);
-
-    me::io::AvFramePtr fr;
-    std::string err;
-    const me_status_t ds = decode_frame_at(fmt, vs, dec.get(),
-                                            target_pts_stb, fr, &err);
-    if (ds != ME_OK || !fr) {
-        avformat_close_input(&fmt);
-        return ds;
-    }
-
-    /* Convert to tightly-packed RGBA8. */
+    /* Wrap into the public me_frame. We move the bytes out of the
+     * cache value so the consumer owns them; subsequent OutputCache
+     * hits will copy via shared_ptr's clone-on-modify pattern (since
+     * the cache stored a shared_ptr that may be aliased — see note). */
     auto mf = std::make_unique<me_frame>();
-    mf->width  = fr->width;
-    mf->height = fr->height;
-    mf->stride = mf->width * 4;
+    mf->width  = rgba->width;
+    mf->height = rgba->height;
+    mf->stride = rgba->stride;
+    /* shared_ptr inside the cache may still alias these bytes; copy
+     * to be safe (the consumer owns + may free out-of-order). The
+     * extra copy on the cache-hit path is the price of pure-data
+     * RgbaFrameData; a future bullet can switch to a refcounted
+     * me_frame if scrubbing pressure shows up. */
+    mf->rgba = rgba->rgba;
 
-    const me_status_t cs = me::compose::frame_to_rgba8(fr.get(), mf->rgba, &err);
-    avformat_close_input(&fmt);
-    if (cs != ME_OK) return cs;
-
-    /* Write to disk cache (best-effort; failures don't affect the
-     * render path). Same key we probed above; skip when cache is
-     * disabled or asset_hash unavailable. */
+    /* DiskCache write-through (persistent layer). Best-effort —
+     * failures don't affect the render path. */
     if (!cache_key.empty() &&
         engine_ && engine_->disk_cache && engine_->disk_cache->enabled()) {
         engine_->disk_cache->put(cache_key, mf->rgba.data(),
-                                  mf->width, mf->height, mf->stride);
+                                  mf->width, mf->height,
+                                  static_cast<int>(mf->stride));
     }
 
     *out_frame = mf.release();

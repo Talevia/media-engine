@@ -327,6 +327,7 @@ add_library(media_engine STATIC
   orchestrator/frame_puller.cpp
   orchestrator/exporter.cpp
   orchestrator/previewer.cpp
+  orchestrator/previewer_graph.cpp
   orchestrator/composition_thumbnailer.cpp
   api/engine.cpp
   api/timeline.cpp
