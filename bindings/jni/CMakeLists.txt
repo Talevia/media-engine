@@ -79,6 +79,7 @@ if(ME_BUILD_TESTS)
             example/src/io/mediaengine/example/Run.java
             example/src/io/mediaengine/example/VersionAssert.java
             example/src/io/mediaengine/example/Thumbnail.java
+            example/src/io/mediaengine/example/ThumbnailBatch.java
             example/src/io/mediaengine/example/Cancel.java
             example/src/io/mediaengine/example/LastStatusAssert.java
             example/src/io/mediaengine/example/ProgressThrow.java
@@ -208,6 +209,40 @@ if(ME_BUILD_TESTS)
         set_tests_properties(jni_last_status_smoke PROPERTIES
             DEPENDS  media_engine_jni_classes
             TIMEOUT  20)
+
+        # jni_thumbnail_batch_smoke: scrub-row pattern — fetch 5
+        # PNGs across the source's first 2 seconds, write each.
+        # Verifies engine handle reuse + per-thumbnail status across
+        # repeated calls (the cycle 76 jni_thumbnail_smoke only
+        # tested one fetch).
+        set(_me_jni_thumb_batch_out
+            "${CMAKE_CURRENT_BINARY_DIR}/jni_thumbnail_batch_smoke_out")
+        add_test(NAME jni_thumbnail_batch_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.ThumbnailBatch
+                         "${_me_jni_test_fixture_mp4}"
+                         "${_me_jni_thumb_batch_out}")
+        set_tests_properties(jni_thumbnail_batch_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  20)
+
+        # Companion check: verify all 5 PNG files were written with
+        # PNG signature. Same magic-byte pattern as cycle 87's
+        # jni_thumbnail_smoke_validate.
+        add_test(NAME jni_thumbnail_batch_smoke_validate
+                 COMMAND bash -c
+                   "for i in 0 1 2 3 4; do \
+                      head -c 8 '${_me_jni_thumb_batch_out}/thumb_'$i'.png' \
+                        | od -An -tx1 \
+                        | tr -s ' ' \
+                        | grep -q '89 50 4e 47 0d 0a 1a 0a' \
+                        || { echo missing-or-bad-png: thumb_$i; exit 1; }; \
+                    done")
+        set_tests_properties(jni_thumbnail_batch_smoke_validate PROPERTIES
+            DEPENDS jni_thumbnail_batch_smoke
+            TIMEOUT 5)
 
         # Companion check: jni_thumbnail_smoke writes a PNG file but
         # only validates exit code. A regression that returned ME_OK
