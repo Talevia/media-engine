@@ -100,7 +100,23 @@ me_status_t me_render_frame(
 void           me_frame_destroy(me_frame_t* frame);
 int            me_frame_width(const me_frame_t* f);
 int            me_frame_height(const me_frame_t* f);
-/* RGBA8, row-major, stride == width * 4. Valid until me_frame_destroy. */
+
+/* Decoded RGBA8 pixels.
+ *
+ * Layout: row-major, byte order {R, G, B, A} per pixel — byte 0 is
+ *   the red channel, byte 3 is alpha. No padding between pixels or
+ *   rows: stride is exactly width*4, total length is width*height*4.
+ *
+ * Origin: top-left. x grows right, y grows down. Pixel (x, y) lives
+ *   at byte offset (y * width + x) * 4.
+ *
+ * Color space: the engine targets the timeline's declared color
+ *   space (TIMELINE_SCHEMA.md §colorSpace) — sRGB primaries + sRGB
+ *   transfer for SDR Rec.709 by default; HDR (PQ / HLG) returns
+ *   linear-light values when enabled by the timeline.
+ *
+ * Lifetime: pointer is valid until the matching me_frame_destroy.
+ *   Hosts that need long-lived ownership must copy. */
 const uint8_t* me_frame_pixels(const me_frame_t* f);
 
 #ifdef __cplusplus

@@ -143,11 +143,41 @@ public final class MediaEngine implements AutoCloseable {
 
     public record Version(int major, int minor, int patch, String gitSha) {}
 
-    /** Decoded RGBA8 frame returned by {@link #frame(Timeline,long,long)}.
-     *  Pixels are row-major, stride == width * 4. The byte[] is safe to
-     *  retain — it's a Java-managed copy of the engine's underlying
-     *  me_frame_t pixel buffer (destroyed before this record is
-     *  constructed). */
+    /** Decoded frame returned by {@link #frame(Timeline,long,long)}.
+     *
+     *  <p><b>Pixel layout.</b> RGBA8 row-major. Each pixel is exactly
+     *  4 bytes in {R, G, B, A} order — byte 0 is the red channel,
+     *  byte 3 is the alpha channel. There is <em>no padding</em>
+     *  between pixels or rows; stride is always {@code width * 4}.
+     *  Total array length is {@code width * height * 4}.
+     *
+     *  <p><b>Pixel access.</b> To read pixel {@code (x, y)} (origin
+     *  top-left, x grows right, y grows down):
+     *  <pre>{@code
+     *    int i = (y * frame.width() + x) * 4;
+     *    int r = rgba[i]     & 0xFF;
+     *    int g = rgba[i + 1] & 0xFF;
+     *    int b = rgba[i + 2] & 0xFF;
+     *    int a = rgba[i + 3] & 0xFF;
+     *  }</pre>
+     *  Java's {@code byte} is signed, so the {@code & 0xFF} mask is
+     *  required when widening to int. To convert to a JavaFX
+     *  {@code WritableImage} or AWT {@code BufferedImage} of type
+     *  {@code TYPE_4BYTE_ABGR}, byte-swap channels (R↔A, G↔B) per
+     *  pixel; the C side delivers RGBA, not ABGR.
+     *
+     *  <p><b>Color space.</b> The engine targets the timeline's
+     *  declared {@code colorSpace} field (see TIMELINE_SCHEMA.md);
+     *  by convention sRGB primaries + sRGB transfer for SDR Rec.709
+     *  output. HDR (PQ / HLG) returns linear-light values when
+     *  enabled by the timeline. The Frame record itself doesn't
+     *  carry color-space metadata — hosts that mix outputs from
+     *  multiple timelines should track it on their side.
+     *
+     *  <p><b>Lifetime.</b> The {@code byte[]} is a Java-managed
+     *  copy of the engine's underlying {@code me_frame_t} pixel
+     *  buffer (destroyed before this record is constructed). Hosts
+     *  may retain Frame indefinitely; no JNI handle is held. */
     public record Frame(int width, int height, byte[] rgba) {}
 
     /** Thrown by the wrapper when a native* call returns a failure
