@@ -16,7 +16,7 @@
 
 find_package(JNI REQUIRED)
 
-add_library(media_engine_jni SHARED me_jni.cpp)
+add_library(media_engine_jni SHARED me_jni.cpp me_jni_progress.cpp)
 
 target_include_directories(media_engine_jni PRIVATE
     ${JNI_INCLUDE_DIRS}
