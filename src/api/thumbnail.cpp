@@ -1,4 +1,5 @@
 #include "media_engine/thumbnail.h"
+#include "api/thumbnail_encode_png.hpp"
 #include "core/engine_impl.hpp"
 #include "io/av_err.hpp"
 #include "io/ffmpeg_raii.hpp"
@@ -14,7 +15,6 @@ extern "C" {
 
 #include <algorithm>
 #include <cstdlib>
-#include <cstring>
 #include <exception>
 #include <memory>
 #include <string>
@@ -249,58 +249,17 @@ me_status_t probe_and_render(me_engine_t*  engine,
         return ME_E_INTERNAL;
     }
 
-    /* --- PNG encode via libavcodec AV_CODEC_ID_PNG ----------------------- */
-    const AVCodec* png_enc = avcodec_find_encoder(AV_CODEC_ID_PNG);
-    if (!png_enc) {
-        me::detail::set_error(engine, "PNG encoder not available");
-        avformat_close_input(&fmt);
-        /* LEGIT: PNG encoder is always shipped with stock FFmpeg, but
-         * custom builds may strip it; this path surfaces that cleanly
-         * instead of crashing in the encoder open call. */
-        return ME_E_UNSUPPORTED;
+    /* --- PNG encode (extracted to thumbnail_encode_png.cpp) -------------- */
+    {
+        std::string enc_err;
+        const me_status_t s = me::detail::encode_rgb_to_png(
+            rgb, out_w, out_h, engine->codecs.get(), out_png, out_size, &enc_err);
+        if (s != ME_OK) {
+            if (!enc_err.empty()) me::detail::set_error(engine, std::move(enc_err));
+            avformat_close_input(&fmt);
+            return s;
+        }
     }
-    CodecCtxPtr enc = engine->codecs
-        ? engine->codecs->allocate(png_enc)
-        : CodecCtxPtr{nullptr, me::resource::CodecPool::Deleter{nullptr}};
-    if (!enc) { avformat_close_input(&fmt); return ME_E_OUT_OF_MEMORY; }
-    enc->width      = out_w;
-    enc->height     = out_h;
-    enc->pix_fmt    = AV_PIX_FMT_RGB24;
-    enc->time_base  = AVRational{1, 25};         /* PNG is single image; any tb works */
-    rc = avcodec_open2(enc.get(), png_enc, nullptr);
-    if (rc < 0) {
-        me::detail::set_error(engine, "open PNG encoder: " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_ENCODE;
-    }
-
-    rc = avcodec_send_frame(enc.get(), rgb.get());
-    if (rc < 0) {
-        me::detail::set_error(engine, "send_frame(png): " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_ENCODE;
-    }
-    /* Flush so PNG encoder emits its single packet. */
-    avcodec_send_frame(enc.get(), nullptr);
-
-    PacketPtr pkt(av_packet_alloc());
-    rc = avcodec_receive_packet(enc.get(), pkt.get());
-    if (rc < 0) {
-        me::detail::set_error(engine, "receive_packet(png): " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_ENCODE;
-    }
-
-    /* Copy PNG bytes into a malloc'd buffer so me_buffer_free(→ std::free)
-     * can release it symmetrically. */
-    auto* buf = static_cast<uint8_t*>(std::malloc(static_cast<size_t>(pkt->size)));
-    if (!buf) {
-        avformat_close_input(&fmt);
-        return ME_E_OUT_OF_MEMORY;
-    }
-    std::memcpy(buf, pkt->data, static_cast<size_t>(pkt->size));
-    *out_png  = buf;
-    *out_size = static_cast<size_t>(pkt->size);
 
     avformat_close_input(&fmt);
     return ME_OK;
