@@ -32,6 +32,19 @@
 
 namespace {
 
+/* Per-thread last me_status_t captured when a native* call returns
+ * a failure status. Without this, the Java side only sees the "0
+ * = failure" sentinel from each long-returning native; status code
+ * fidelity is lost (ME_E_PARSE vs ME_E_INVALID_ARG vs ME_E_IO etc.
+ * all collapse to "RuntimeException: <error string>"). Hosts that
+ * want graceful retry-vs-bail logic need the structured code.
+ *
+ * Thread-local because native* calls can interleave across threads
+ * in JVM hosts; one engine handle may be touched from multiple JVM
+ * threads. Keeps the last-status discipline analogous to
+ * me_engine_last_error's thread-local storage. */
+thread_local me_status_t g_jni_last_status = ME_OK;
+
 struct JavaCallback {
     JavaVM*   jvm      = nullptr;
     jobject   listener = nullptr;   /* global ref */
@@ -85,7 +98,9 @@ extern "C" {
 JNIEXPORT jlong JNICALL
 Java_io_mediaengine_MediaEngine_nativeCreate(JNIEnv*, jclass) {
     me_engine_t* eng = nullptr;
-    if (me_engine_create(nullptr, &eng) != ME_OK) return 0;
+    me_status_t s = me_engine_create(nullptr, &eng);
+    g_jni_last_status = s;
+    if (s != ME_OK) return 0;
     return reinterpret_cast<jlong>(eng);
 }
 
@@ -104,6 +119,7 @@ Java_io_mediaengine_MediaEngine_nativeLoadTimeline(JNIEnv* env, jclass,
     me_status_t s = me_timeline_load_json(eng, json_c,
                                            static_cast<std::size_t>(json_len), &tl);
     env->ReleaseStringUTFChars(json, json_c);
+    g_jni_last_status = s;
     if (s != ME_OK) return 0;
     return reinterpret_cast<jlong>(tl);
 }
@@ -168,6 +184,7 @@ Java_io_mediaengine_MediaEngine_nativeRenderStart(
     if (vcod_c) env->ReleaseStringUTFChars(video_codec, vcod_c);
     if (acod_c) env->ReleaseStringUTFChars(audio_codec, acod_c);
 
+    g_jni_last_status = s;
     if (s != ME_OK) {
         if (cb) {
             env->DeleteGlobalRef(cb->listener);
@@ -228,6 +245,7 @@ Java_io_mediaengine_MediaEngine_nativeThumbnail(JNIEnv* env, jclass,
     me_status_t s = me_thumbnail_png(eng, uri_c, t, max_width, max_height,
                                       &png, &nlen);
     env->ReleaseStringUTFChars(uri, uri_c);
+    g_jni_last_status = s;
     if (s != ME_OK || !png || nlen == 0) {
         if (png) me_buffer_free(png);
         return nullptr;
@@ -239,6 +257,15 @@ Java_io_mediaengine_MediaEngine_nativeThumbnail(JNIEnv* env, jclass,
     }
     me_buffer_free(png);
     return out;
+}
+
+JNIEXPORT jint JNICALL
+Java_io_mediaengine_MediaEngine_nativeLastStatus(JNIEnv*, jclass) {
+    /* Engine handle isn't passed because g_jni_last_status is
+     * thread-local. Hosts that hop threads between a native* call
+     * and lastStatus() must read the status on the same thread that
+     * made the call — same discipline as me_engine_last_error. */
+    return static_cast<jint>(g_jni_last_status);
 }
 
 JNIEXPORT jobject JNICALL

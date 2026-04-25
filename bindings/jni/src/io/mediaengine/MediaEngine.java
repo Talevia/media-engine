@@ -31,14 +31,16 @@ public final class MediaEngine implements AutoCloseable {
     public MediaEngine() {
         this.handle = nativeCreate();
         if (handle == 0L) {
-            throw new RuntimeException("me_engine_create failed");
+            throw new MediaEngineException(nativeLastStatus(),
+                    "me_engine_create failed");
         }
     }
 
     public Timeline loadTimeline(String json) {
         long h = nativeLoadTimeline(handle, json);
         if (h == 0L) {
-            throw new RuntimeException("me_timeline_load_json failed: " + nativeLastError(handle));
+            throw new MediaEngineException(nativeLastStatus(),
+                    "me_timeline_load_json failed: " + nativeLastError(handle));
         }
         return new Timeline(h);
     }
@@ -52,13 +54,28 @@ public final class MediaEngine implements AutoCloseable {
                 spec.frameRateNum, spec.frameRateDen,
                 listener);
         if (jh == 0L) {
-            throw new RuntimeException("me_render_start failed: " + nativeLastError(handle));
+            throw new MediaEngineException(nativeLastStatus(),
+                    "me_render_start failed: " + nativeLastError(handle));
         }
         return new RenderJob(jh);
     }
 
     public String lastError() {
         return nativeLastError(handle);
+    }
+
+    /** Last me_status_t captured by the JNI bridge on the calling
+     *  thread. Mirrors the values in include/media_engine/types.h
+     *  (ME_OK=0, ME_E_INVALID_ARG=-1, ME_E_OUT_OF_MEMORY=-2,
+     *  ME_E_IO=-3, ME_E_PARSE=-4, ME_E_DECODE=-5, ME_E_ENCODE=-6,
+     *  ME_E_UNSUPPORTED=-7, ME_E_CANCELLED=-8, ME_E_NOT_FOUND=-9,
+     *  ME_E_INTERNAL=-100).
+     *
+     *  Hosts use this to make graceful retry-vs-bail decisions
+     *  without parsing the lastError() string (e.g. retry on
+     *  ME_E_IO, bail on ME_E_PARSE / ME_E_INVALID_ARG). */
+    public static int lastStatus() {
+        return nativeLastStatus();
     }
 
     /** Render a single frame at `tNum/tDen` from `uri` as a PNG byte array.
@@ -117,6 +134,18 @@ public final class MediaEngine implements AutoCloseable {
 
     public record Version(int major, int minor, int patch, String gitSha) {}
 
+    /** Thrown by the wrapper when a native* call returns a failure
+     *  sentinel. Carries the structured me_status_t code so hosts
+     *  can `switch (e.status)` on retry logic instead of
+     *  string-matching the message.  */
+    public static final class MediaEngineException extends RuntimeException {
+        public final int status;
+        MediaEngineException(int status, String message) {
+            super(message);
+            this.status = status;
+        }
+    }
+
     /* ------------------------------------------------------------------
      * Native bridges — implementations in me_jni.cpp. */
     private static native long    nativeCreate();
@@ -134,6 +163,7 @@ public final class MediaEngine implements AutoCloseable {
     private static native void    nativeRenderCancel(long job);
     private static native void    nativeRenderJobDestroy(long job);
     private static native String  nativeLastError(long engine);
+    private static native int     nativeLastStatus();
     private static native Version nativeVersion();
     private static native byte[]  nativeThumbnail(
             long engine, String uri,
