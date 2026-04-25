@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-jni-progress-callback-test** — `bindings/jni/example/src/io/mediaengine/example/Run.java:52-59` 监听 progress 但不 assert "至少收到 1 个事件"；progress trampoline 静默失败时 ctest 仍 pass（rc=ME_OK）。**方向：** Run.java 改成 progress 计数器 + 程序末尾 `assert count > 0` 或 `System.exit(1)` if zero；catches AttachCurrentThread / GetMethodID / CallVoidMethod 任意环节静默 swallow。Milestone §M7-debt，Rubric §5.5。
 - **examples-08-frame-server-asserts** — `tests/CMakeLists.txt:add_test(NAME example_08_frame_server_scrub ...)` 只 verify exit 0；example writes `frame_0..3.ppm` 但 ctest 不 check 文件存在 / 大小合理。一次 me_render_frame 静默 produce empty output 不会触发回归。**方向：** ctest 加 `set_tests_properties(... PASS_REGULAR_EXPRESSION "wrote.*frame_3\\.ppm")`，或单独 add_test 跑 `test -s build/examples/_test_output/08_frames/frame_3.ppm`。Milestone §M7-debt (coverage)，Rubric §5.3。
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）

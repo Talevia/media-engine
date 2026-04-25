@@ -23,6 +23,8 @@ import io.mediaengine.MediaEngine.RenderJob;
 import io.mediaengine.MediaEngine.Timeline;
 import io.mediaengine.MediaEngine.Version;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 public final class Run {
 
     public static void main(String[] args) throws Exception {
@@ -39,6 +41,20 @@ public final class Run {
 
         final String json = passthroughTimelineJson("file://" + source);
 
+        /* Counts events per kind so the post-render assertion can pin
+         * the trampoline contract: a successful render must deliver at
+         * least one STARTED (kind 0) and at least one COMPLETED
+         * (kind 2). A regression in progress_trampoline (e.g. failed
+         * AttachCurrentThread, missing GetMethodID, callback swallowed
+         * by ExceptionClear) would leave these counters at zero
+         * without affecting the render rc — exit code stays 0 and the
+         * test silently passes. The counter promotes that bug to a
+         * test failure. */
+        final AtomicInteger startedCount   = new AtomicInteger();
+        final AtomicInteger framesCount    = new AtomicInteger();
+        final AtomicInteger completedCount = new AtomicInteger();
+        final AtomicInteger failedCount    = new AtomicInteger();
+
         try (MediaEngine eng = new MediaEngine();
              Timeline tl   = eng.loadTimeline(json)) {
 
@@ -51,10 +67,15 @@ public final class Run {
             try (RenderJob job = eng.renderStart(tl, spec, (kind, ratio, msg) -> {
                 /* Progress kinds: 0=STARTED 1=FRAMES 2=COMPLETED 3=FAILED. */
                 if (kind == 0) {
+                    startedCount.incrementAndGet();
                     System.out.println("started");
+                } else if (kind == 1) {
+                    framesCount.incrementAndGet();
                 } else if (kind == 2) {
+                    completedCount.incrementAndGet();
                     System.out.printf("done (%s)%n", msg == null ? "" : msg);
                 } else if (kind == 3) {
+                    failedCount.incrementAndGet();
                     System.err.println("failed: " + (msg == null ? "<no msg>" : msg));
                 }
             })) {
@@ -65,6 +86,22 @@ public final class Run {
                     System.exit(1);
                 }
             }
+        }
+
+        /* Trampoline assertion: at least one STARTED and one COMPLETED
+         * for a successful render. FRAMES count varies with fixture
+         * length; not asserted. Any drop here means the JNI progress
+         * path is broken even though the render itself succeeded — the
+         * exact regression class this assertion exists to catch. */
+        System.out.printf("progress counts: started=%d frames=%d completed=%d failed=%d%n",
+                startedCount.get(), framesCount.get(),
+                completedCount.get(), failedCount.get());
+        if (startedCount.get() < 1 || completedCount.get() < 1) {
+            System.err.println("progress trampoline regression: "
+                    + "STARTED + COMPLETED both required, "
+                    + "got started=" + startedCount.get()
+                    + " completed=" + completedCount.get());
+            System.exit(1);
         }
     }
 
