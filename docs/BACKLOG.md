@@ -17,7 +17,6 @@
 
 ## P1（强烈建议，M7 主线 / 跨 milestone debt）
 
-- **debt-test-bench-harness-coverage** — `bench/bench_harness.hpp` (cycle 68) 只有两个 bench 间接使用，`grep -rn 'measure_avg_sec\|me::bench::' tests/` 空。template 的 "iters <= warmup → 返回 0.0" 边界契约没显式覆盖；将来回归（如把 0.0 改成 NaN 或 -1）只能等 bench 跑挂才发现。**方向：** 新 `tests/test_bench_harness.cpp` doctest TEST_CASE: (a) iters>warmup happy path，验 work 调用次数 + 返回 ≈ sleep 时长，(b) iters<=warmup 返回 0.0，(c) work 是 lambda capturing 计数 verify call count = iters。Milestone §M7-debt (cross)，Rubric §5.3。
 
 
 ## P2（未来，当前 milestone 不挤占）

@@ -78,6 +78,7 @@ set(_test_suites
   test_font_fallback
   test_frame_server
   test_disk_cache
+  test_bench_harness
 )
 
 foreach(_suite ${_test_suites})
@@ -110,6 +111,11 @@ target_include_directories(test_timeline_schema_transitions
 # test_timeline_segment calls me::timeline::segment() on hand-built
 # Timeline IR — same src/-as-include pattern as test_timeline_schema.
 target_include_directories(test_timeline_segment PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_bench_harness includes bench/bench_harness.hpp directly to test
+# the template's behaviour in isolation (the two bench targets only
+# exercise the happy path transitively).
+target_include_directories(test_bench_harness PRIVATE ${CMAKE_SOURCE_DIR}/bench)
 
 # test_compose_alpha_over drives me::compose::alpha_over() from
 # `src/compose/alpha_over.hpp` with known RGBA8 triples to pin the
