@@ -11,6 +11,7 @@
 #include "media_engine/engine.h"
 #include "media_engine/timeline.h"
 #include "media_engine/render.h"
+#include "media_engine/player.h"
 #include "media_engine/probe.h"
 #include "media_engine/thumbnail.h"
 #include "media_engine/cache.h"

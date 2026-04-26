@@ -329,9 +329,13 @@ add_library(media_engine STATIC
   orchestrator/previewer.cpp
   orchestrator/previewer_graph.cpp
   orchestrator/composition_thumbnailer.cpp
+  orchestrator/playback_clock.cpp
+  orchestrator/video_frame_ring.cpp
+  orchestrator/player.cpp
   api/engine.cpp
   api/timeline.cpp
   api/render.cpp
+  api/player.cpp
   api/probe.cpp
   api/thumbnail.cpp
   api/thumbnail_encode_png.cpp
