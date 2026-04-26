@@ -25,6 +25,8 @@
  */
 #pragma once
 
+#include "audio/mixer.hpp"
+#include "io/demux_context.hpp"
 #include "media_engine/player.h"
 #include "media_engine/types.h"
 #include "orchestrator/playback_clock.hpp"
@@ -37,6 +39,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 struct me_engine;
 
@@ -68,6 +71,7 @@ private:
     /* Thread bodies. */
     void producer_loop();
     void pacer_loop();
+    void audio_producer_loop();
 
     /* Ask the producer thread to wake (state changed: play / pause /
      * seek / shutdown). */
@@ -90,6 +94,18 @@ private:
                             std::shared_ptr<me::graph::RgbaFrameData>*    out,
                             std::string*                                  err) const;
 
+    /* Open one DemuxContext per audio clip via the IoDemux kernel
+     * (mirrors Exporter's per-clip demux fan-out at exporter.cpp:215).
+     * Slot is null for non-audio clips. Lifetime spans the player —
+     * AudioMixer + AudioTrackFeed hold shared_ptr into this vector. */
+    me_status_t open_audio_demuxes(std::string* err);
+
+    /* Build (or rebuild) the AudioMixer from `audio_demuxes_` using the
+     * configured audio_out spec as the mixer's target format. Caller
+     * is responsible for stalling audio_producer_ across the rebuild
+     * (Phase 5 will use this on seek). */
+    me_status_t setup_audio_mixer(std::string* err);
+
     me_engine*                              engine_     = nullptr;
     std::shared_ptr<const me::Timeline>     tl_;
     me_player_config_t                      cfg_{};
@@ -100,6 +116,21 @@ private:
 
     PlaybackClock                           clock_;
     VideoFrameRing                          ring_;
+
+    /* Audio path. Built lazily in ctor when:
+     *   - audio_out.sample_rate > 0, AND
+     *   - the timeline has at least one Audio track with clips.
+     * `audio_mixer_` null otherwise → audio_producer_loop early-exits.
+     * `audio_demuxes_` is parallel to tl_->clips (size match); audio
+     * clips have non-null entries, others null. */
+    std::vector<std::shared_ptr<me::io::DemuxContext>> audio_demuxes_;
+    std::unique_ptr<me::audio::AudioMixer>             audio_mixer_;
+    /* Cumulative samples this Player has dispatched to the host's
+     * audio cb. chunk_start = audio_dispatched_samples_ / sample_rate.
+     * Independent of AudioMixer's internal samples_emitted_ counter
+     * so seek (Phase 5) can reset the host-facing timestamp without
+     * touching the mixer. */
+    int64_t                                            audio_dispatched_samples_ = 0;
 
     /* State protected by mu_. */
     mutable std::mutex                      mu_;
@@ -114,9 +145,13 @@ private:
     me_player_audio_cb                      audio_cb_     = nullptr;
     void*                                   audio_user_   = nullptr;
 
-    /* Worker threads — started in ctor, joined in dtor. */
+    /* Worker threads — started in ctor, joined in dtor. The
+     * audio_producer_ thread is spawned only if audio_mixer_ was
+     * built; otherwise it stays default-constructed (joinable() is
+     * false → dtor's join is a no-op). */
     std::thread                             producer_;
     std::thread                             pacer_;
+    std::thread                             audio_producer_;
 };
 
 }  // namespace me::orchestrator
