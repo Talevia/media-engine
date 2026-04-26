@@ -29,6 +29,13 @@ namespace me::orchestrator {
 struct VideoFrameSlot {
     me_rational_t                                 present_at{0, 1};
     std::shared_ptr<me::graph::RgbaFrameData>     rgba;
+    /* The Player's seek_epoch_ at the time the producer captured
+     * its cursor for this frame. The pacer drops slots whose epoch
+     * doesn't match the current seek_epoch_ — covers the
+     * narrow race where a seek arrives between the producer's
+     * post-await stale-check and the push, leaving a frame for
+     * the old cursor in a ring that the seek already cleared. */
+    int64_t                                       seek_epoch = 0;
 };
 
 class VideoFrameRing {

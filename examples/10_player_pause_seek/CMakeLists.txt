@@ -1,0 +1,1 @@
+me_add_example(10_player_pause_seek)

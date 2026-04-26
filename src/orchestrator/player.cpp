@@ -21,8 +21,10 @@ extern "C" {
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <exception>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <utility>
 
@@ -40,7 +42,16 @@ namespace {
 me_rational_t r_add(me_rational_t a, me_rational_t b) {
     if (a.den <= 0) a.den = 1;
     if (b.den <= 0) b.den = 1;
-    return me_rational_t{ a.num * b.den + b.num * a.den, a.den * b.den };
+    int64_t num = a.num * b.den + b.num * a.den;
+    int64_t den = a.den * b.den;
+    /* Reduce to keep iterated addition (producer cursor advances by
+     * frame_period each frame) from exploding the denominator —
+     * 30 fps × 60 s would otherwise overflow int64 by frame ~12. */
+    if (den != 0) {
+        const int64_t g = std::gcd(num < 0 ? -num : num, den);
+        if (g > 1) { num /= g; den /= g; }
+    }
+    return me_rational_t{ num, den };
 }
 
 /* sign(a - b) */
@@ -553,14 +564,25 @@ void Player::producer_loop() {
         /* Submit the per-frame graph. Stash a copy of the Future on
          * the player so seek() can cancel it; producer awaits its
          * own local copy. Both share the EvalInstance via shared_ptr
-         * so cancel from either side reaches the running kernel. */
+         * so cancel from either side reaches the running kernel.
+         *
+         * The Graph object MUST outlive the await — sched::EvalInstance
+         * stores it by const reference (eval_instance.hpp:66), so a
+         * graph that goes out of scope before await returns leaves
+         * the EvalInstance reading garbage memory (kernels would see
+         * TaskKindId 0 / "no kernel registered"). Keep `g` in this
+         * outer scope so its lifetime spans the entire submit + await. */
         std::shared_ptr<me::graph::RgbaFrameData> rgba;
-        VideoFuture fut;
-        bool        submit_failed = false;
-        std::string err;
+        VideoFuture          fut;
+        me::graph::Graph     g;
+        me::graph::PortRef   term{};
+        bool                 submit_failed = false;
+        std::string          err;
         try {
             if (!engine_ || !engine_->scheduler) throw std::runtime_error("no scheduler");
-            auto [g, term] = compile_frame_graph(uri, source_t);
+            auto pair = compile_frame_graph(uri, source_t);
+            g    = std::move(pair.first);
+            term = pair.second;
             me::graph::EvalContext ctx;
             ctx.frames = engine_->frames.get();
             ctx.codecs = engine_->codecs.get();
@@ -573,16 +595,23 @@ void Player::producer_loop() {
         }
 
         if (!submit_failed) {
+            bool epoch_skipped = false;
             {
                 std::lock_guard<std::mutex> lk(mu_);
                 /* If a seek raced past us between epoch capture and
-                 * submit, drop the work before await + don't even
-                 * publish the future (seek already missed it). */
+                 * submit, the work is for an old cursor. Cancel +
+                 * skip publishing — but still await below so the
+                 * taskflow drains its tasks before `fut` (and the
+                 * EvalInstance it owns by shared_ptr) goes out of
+                 * scope. Skipping the await would let tasks run
+                 * with a dangling EvalInstance pointer and crash
+                 * inside the executor's worker thread. */
                 if (seek_epoch_ != epoch_start) {
                     fut.cancel();
-                    continue;
+                    epoch_skipped = true;
+                } else {
+                    in_flight_video_ = fut;
                 }
-                in_flight_video_ = fut;
             }
             try {
                 rgba = fut.await();
@@ -596,6 +625,7 @@ void Player::producer_loop() {
                 std::lock_guard<std::mutex> lk(mu_);
                 in_flight_video_.reset();
             }
+            if (epoch_skipped) continue;
         }
 
         /* Re-check epoch. If seek bumped it during await, the rgba
@@ -620,6 +650,7 @@ void Player::producer_loop() {
         VideoFrameSlot slot;
         slot.present_at = cursor;
         slot.rgba       = std::move(rgba);
+        slot.seek_epoch = epoch_start;
         if (!ring_.push(std::move(slot))) {
             /* Ring closed — shutdown in flight. */
             return;
@@ -644,6 +675,21 @@ void Player::pacer_loop() {
             return;   /* closed */
         }
 
+        /* Drop slots that came from a pre-seek epoch. Without this
+         * check, a frame produced just before seek but pushed after
+         * ring_.clear (the producer's stale-check + push aren't
+         * atomic under mu_) would surface as a "ghost" frame at the
+         * old cursor minutes after the seek — the pacer would wait
+         * for the master clock to reach the old slot.present_at,
+         * which never happens cleanly post-seek and confuses host
+         * UI. */
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (slot.seek_epoch != seek_epoch_) {
+                continue;
+            }
+        }
+
         /* Wait until the master clock reaches `slot.present_at`.
          * Polled in short intervals so a pause / seek wakes us via
          * state_cv_ within ≤ 5 ms. */
@@ -651,6 +697,15 @@ void Player::pacer_loop() {
             {
                 std::lock_guard<std::mutex> lk(mu_);
                 if (shutdown_) return;
+                /* Re-check the epoch each loop turn — seek may have
+                 * fired AFTER the initial epoch check at pop time
+                 * but BEFORE this slot was actually presented. The
+                 * slot's present_at is then for an old playhead the
+                 * post-seek clock will never naturally reach, so we
+                 * have to drop here rather than waiting forever. */
+                if (slot.seek_epoch != seek_epoch_) {
+                    break;
+                }
             }
 
             const me_rational_t now = clock_.current();
@@ -671,12 +726,15 @@ void Player::pacer_loop() {
              * therefore apply to both modes uniformly; only the
              * source of the truth changes.
              *
-             * Half-frame_period in micros. ½ × den/num seconds →
-             * micros = (den × 500'000) / num. */
+             * frame_period stores {num, den} = num/den seconds, so
+             * ½ frame_period in micros = num × 500'000 / den. (For
+             * 30 fps: frame_period = {1, 30} → 16'666 us — sane.
+             * Earlier code had num/den swapped which produced 15 s
+             * thresholds and effectively disabled pacing.) */
             const int64_t half_us =
-                frame_period_.num > 0
-                    ? static_cast<int64_t>(frame_period_.den) * 500'000
-                          / static_cast<int64_t>(frame_period_.num)
+                frame_period_.den > 0
+                    ? static_cast<int64_t>(frame_period_.num) * 500'000
+                          / static_cast<int64_t>(frame_period_.den)
                     : 16'000;
 
             if (!clock_.is_playing()) {

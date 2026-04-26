@@ -81,6 +81,7 @@ set(_test_suites
   test_bench_harness
   test_decode_kernels
   test_scheduler_cache
+  test_player
 )
 
 foreach(_suite ${_test_suites})
@@ -541,6 +542,15 @@ endif()
 # → RGBA8 me_frame). Pure C API consumption — no src/ include.
 add_dependencies(test_frame_server determinism_fixture)
 target_compile_definitions(test_frame_server PRIVATE
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+
+# test_player drives me_player_t through play / pause / seek /
+# audio-playhead-injection against the same determinism fixture as
+# test_frame_server. Pure C API consumption — no src/ include. The
+# AUDIO master-clock test never produces real audio (timeline has
+# no audio track) so no with-audio fixture is needed here.
+add_dependencies(test_player determinism_fixture)
+target_compile_definitions(test_player PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
 # test_disk_cache exercises DiskCache (filesystem-backed frame
