@@ -50,7 +50,7 @@ cmake --build build
     - `task/` = kernel registry + TaskContext + schema (kernels are free functions registered by TaskKindId, **never** attached to Node instances)
     - `scheduler/` = Task runtime (Task is a short-lived scheduler-internal object; kernels do NOT capture resources, all injection via TaskContext)
     - `resource/` = FramePool / CodecPool / GpuCtx / Budget (injected into TaskContext at dispatch)
-    - `orchestrator/` = Previewer / Exporter / CompositionThumbnailer — hold Timeline, compile per-segment Graphs; they do NOT own Nodes, do NOT define kernels, and they are NOT editors (interactive editing is host-side). The asset-level `me_thumbnail_png` C API lives in `src/api/` and does NOT go through `CompositionThumbnailer` (two roles, two paths — see `docs/PAIN_POINTS.md` 2026-04-23)
+    - `orchestrator/` = Player / Previewer / Exporter / CompositionThumbnailer — hold Timeline, compile per-segment Graphs; they do NOT own Nodes, do NOT define kernels, and they are NOT editors (interactive editing is host-side). Two-roles-two-paths pattern recurs (see `docs/PAIN_POINTS.md` 2026-04-26): Previewer (stateless single-frame, behind `me_render_frame`) and Player (stateful playback session with internal A/V sync, behind `me_player_*`) are siblings, not merged — both compile the same per-frame video graph via `compile_frame_graph`; same shape as asset-level `me_thumbnail_png` vs `CompositionThumbnailer`. Player **承担**播放会话（时钟、状态机、A/V sync）but **不画 UI surface**——窗口 / widget / 绘制目标 still host-side.
 
 ## Anti-requirements — don't do these
 
@@ -63,7 +63,7 @@ Red lines. If a task requires any of these, stop and challenge per VISION §"发
 - ❌ Add OpenGL as the **primary** GPU backend (fallback-only allowed)
 - ❌ Add a dependency without updating `ARCHITECTURE.md` dependency table
 - ❌ Add an OTIO / AAF / EDL import/export path — VISION §4 forbids non-native interchange formats
-- ❌ Ship a GUI / editor / preview-window inside media-engine — hosts do UI
+- ❌ Ship a GUI / editor / preview-window inside media-engine — hosts do UI surface. (Engine-internal **playback session** with clock + A/V sync is in scope per VISION §4 — see `Player` orchestrator. The line is "no surface", not "no playback semantics".)
 - ❌ Downgrade `-Wall -Wextra -Werror` to placate a warning; fix the warning
 - ❌ `git add -A` / `--force` / `--amend` on pushed commits (see iterate-gap hard rules)
 

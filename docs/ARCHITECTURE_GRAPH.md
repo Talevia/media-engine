@@ -11,6 +11,7 @@ The runtime engine inside media-engine is organized around five modules with cle
               │  + timeline::segment() —— 按时间切成段
               ▼
               ┌─────── orchestrator/ ───────┐
+              │ Player(Timeline)            │  ← 播放会话，A/V sync
               │ Previewer(Timeline)         │  ← 单帧，latency-first
               │ Exporter(Timeline)          │  ← 批编码，throughput-first
               │ CompositionThumbnailer(Tl)  │  ← 单帧 PNG（合成后）
@@ -48,9 +49,9 @@ The runtime engine inside media-engine is organized around five modules with cle
 
 Read `docs/VISION.md` first if you haven't. This file is *how the engine actually executes*; VISION is *why*.
 
-## 两种执行模型
+## 三种执行模型
 
-本文件描述的 five-module 架构（graph / task / scheduler / resource / orchestrator）只是 media-engine 里**两种**执行模型中的一种。实际代码库里**两种并存**，选哪条路径由 output 的**状态性（statefulness）**决定。不区分清楚会让新 orchestrator 作者把 encoder lifecycle 塞进 Node kernel，破坏纯函数约束。
+本文件描述的 five-module 架构（graph / task / scheduler / resource / orchestrator）只是 media-engine 里**三种**执行模型中的一种。实际代码库里**三种并存**，选哪条路径由 output 的**状态性（statefulness）+ 是否承担时钟**决定。不区分清楚会让新 orchestrator 作者把 encoder lifecycle 塞进 Node kernel，破坏纯函数约束。
 
 ### (a) Graph per-frame + scheduler —— stateless per-frame
 
@@ -76,21 +77,38 @@ Read `docs/VISION.md` first if you haven't. This file is *how the engine actuall
 
 M1 的 `01_passthrough` / `05_reencode` 走这条。主实现在 `src/orchestrator/muxer_state.cpp`（passthrough）+ `src/orchestrator/reencode_pipeline.cpp` / `reencode_audio.cpp` / `reencode_video.cpp`（re-encode）。
 
+### (c) Orchestrator playback session —— 组合 (a) + (b) + 时钟
+
+用于 **timeline preview player**——"持有 Timeline 与播放头，对外承担 play/pause/seek 状态机与 A/V sync，把每一刻该显示的视频帧 + 该播放的音频 chunk 通过 callback 推给宿主"。
+
+- Player（`src/orchestrator/player.cpp`）持 `(current_time, rate, is_playing)` 状态；起 Producer + Pacer 两条线程：Producer 用 (a) 路径每帧 `evaluate_port` 取 video，用 (b) 路径调 `AudioMixer::pull_next_mixed_frame` 拉混音 chunk；Pacer 按 master clock 决定何时调 callback。
+- **Master clock**：timeline 含音频时默认 AUDIO（宿主在自己的音频设备 callback 里把当前 playhead 通过 `me_player_report_audio_playhead` 注入），否则 WALL（`std::chrono::steady_clock`）；`ME_CLOCK_EXTERNAL` 预留。
+- **A/V sync**："video chases audio"——video frame 的 timeline 时间与 master clock 比较，差 `> +½ frame_period` 等待、`< -½ frame_period` 丢弃、否则 present-now。漂移上限沿用 M4 export 路径的 < 1 ms / 小时（见 `docs/MILESTONES.md`）。
+- **不画 UI surface**——宿主负责把 callback 收到的 frame / audio chunk 上屏 / 喂音频设备；Player 只承担"此刻该是哪一帧 / 哪段音频"。这是和 VISION §4 的边界：会话语义在引擎内、绘制目标在宿主。
+- **判别特征**：必须**维持播放头状态 + 跨调用时钟**，且对外承担 A/V sync。export 不走这条（export 不需要"此刻"——它要的是"下一帧"，那是 (b)）。
+- (b) 路径的 `AudioMixer + AudioTrackFeed` 跨调用样本累计 + per-track FIFO 状态正是 Player 需要的——所以 Player 直接复用 ComposeSink 用的 `build_audio_mixer_for_timeline`，不重写。
+
+主实现在 `src/orchestrator/player.cpp` + `playback_clock.cpp` + `video_frame_ring.cpp` + `audio_chunk_queue.cpp`；C API 在 `include/media_engine/player.h`。
+
 ### 何时选哪种
 
-| 输出性质 | per-frame (a) | streaming (b) |
-|---|---|---|
-| 单帧 PNG / thumbnail | ✅ | ❌ |
-| 完整 MP4 export | ❌（encoder state 无处放） | ✅ |
-| Scrubbing / preview | ✅ | ❌ |
-| Multi-clip concat / reencode | ❌ | ✅ |
-| Future frame-server `me_render_frame` | ✅ | ❌ |
-| GPU effect chain on single frame | ✅ | ❌ |
-| Audio mixing over a timeline | ❌ | ✅ |
+| 输出性质 | per-frame (a) | streaming (b) | playback (c) |
+|---|---|---|---|
+| 单帧 PNG / thumbnail | ✅ | ❌ | ❌ |
+| 完整 MP4 export | ❌（encoder state 无处放） | ✅ | ❌ |
+| Scrubbing（host-paced）/ `me_render_frame` 单帧拉取 | ✅ | ❌ | ❌ |
+| Multi-clip concat / reencode | ❌ | ✅ | ❌ |
+| GPU effect chain on single frame | ✅ | ❌ | ❌ |
+| Audio mixing over a timeline | ❌ | ✅ | ❌ |
+| **Timeline 预览播放（play/pause/seek + A/V sync）** | ❌（无时钟） | ❌（不知何时呈现） | ✅ |
 
-一句话判别：**"合法的 encoder / muxer / FIFO state 必须在两次调用之间持续"——有，就 streaming；无，就 per-frame。** 这条规则直接决定新 orchestrator 挂哪条路径。越界（例如想在 Previewer 里流式保留 encoder）→ 停下来重想；不是 path 选错就是 feature 设计错。
+一句话判别：
+- **要不要跨调用持有 encoder / muxer / FIFO / 累积样本计数？** 有 → (b) streaming；无 → (a) per-frame。
+- **要不要承担"现在该呈现哪一帧 / 哪段音频"？** 要 → (c) playback，组合 (a)+(b)+ 内部时钟；不要 → 只在 (a)/(b) 里选。
 
-两条路径**共用** `resource::FramePool / CodecPool / AssetHashCache`（资源层不区分消费者）和 `timeline::Timeline / timeline::segment()`（IR 是两条路径的共同输入）。分歧只在：状态如何跨调用持续，以及 Task 是否被 scheduler 物化。
+越界（例如想在 Previewer 里流式保留 encoder、或想让 (b) 自己决定播放节拍）→ 停下来重想；不是 path 选错就是 feature 设计错。
+
+三条路径**共用** `resource::FramePool / CodecPool / AssetHashCache`（资源层不区分消费者）和 `timeline::Timeline / timeline::segment()`（IR 是三条路径的共同输入）。分歧在：状态如何跨调用持续、Task 是否被 scheduler 物化、以及是否承担时钟。(c) 不是 (a) 与 (b) 之外的第四种执行原语，而是把两者**组合**起来再加一层 master clock + state machine——所以 (a) (b) 的纯函数约束 / streaming 状态约束在 (c) 内部依然成立。
 
 ## 关键理念（本文件的不可让步点）
 
@@ -98,7 +116,7 @@ M1 的 `01_passthrough` / `05_reencode` 走这条。主实现在 `src/orchestrat
 2. **多输入多输出是 Node 的一等特性**——Port 类型化 + 命名。`demux` 的 outputs 是 `{video_packets, audio_packets, metadata}`；`compose` 的 inputs 是 N 个 layer。
 3. **Kernel 独立注册**——按 `TaskKindId` 在 `task::registry` 里查；同一 kind 可有多 variant（CPU / GPU / HW），scheduler 按 affinity 挑。
 4. **Task 是短命运行时对象**——由 scheduler 在调度某个 Node 的某次求值时 new 出来；所需状态和资源由 `TaskContext` **动态注入**，执行完即丢。
-5. **Graph 只描述单段单帧**——时间是 `EvalContext.time`，不是 Graph 状态；Timeline 按时间切分成 Segments，每段 compile 出一个 Graph。
+5. **Graph 只描述单段单帧**——时间是 `EvalContext.time`，不是 Graph 状态；Timeline 按时间切分成 Segments，每段 compile 出一个 Graph。Player（执行模型 c）把多次单帧 evaluate 拼成一条播放流，但每一次单独的 evaluate 仍满足这条——播放头 / 时钟住在 Player，不会渗进 Graph。
 6. **Orchestrator 持 Timeline**——按需 compile + 缓存 per-segment Graph；各自带状态（encoder / muxer / throttle），不污染 Graph。
 7. **子图复用通过 builder helpers**——函数组合形式，compile 后 Graph 天然扁平；**没有 "Graph 嵌套 Graph" 运行时类型**。
 8. **Future 是 lazy、scheduler-driven**——由 `scheduler.evaluate_port(graph, terminal, ctx)` 返回；`await()` 时才触发 Task 派发。不是 `std::future` 的 eager 语义。
@@ -120,27 +138,38 @@ M1 的 `01_passthrough` / `05_reencode` 走这条。主实现在 `src/orchestrat
 ```cpp
 namespace me::orchestrator {
 
-class Previewer {
+class Previewer {                                        // (a) 单帧拉取
 public:
     Previewer(me_engine_t*, std::shared_ptr<const timeline::Timeline>);
     Future<resource::FrameHandle> frame_at(me_rational_t time);
 };
 
-class Exporter {
+class Exporter {                                         // (b) 流式编码
 public:
     Exporter(me_engine_t*, std::shared_ptr<const timeline::Timeline>);
     Future<void> export_to(const OutputSpec&, ProgressCb);
 };
 
-class CompositionThumbnailer {
+class CompositionThumbnailer {                            // (a) 单帧 PNG
 public:
     CompositionThumbnailer(me_engine_t*, std::shared_ptr<const timeline::Timeline>);
     Future<Bytes> png_at(me_rational_t time, int max_w, int max_h);
 };
+
+class Player {                                            // (c) 播放会话
+public:
+    Player(me_engine_t*, std::shared_ptr<const timeline::Timeline>, PlayerConfig);
+    void play(float rate);                                // 本期仅支持 1.0
+    void pause();
+    void seek(me_rational_t time);
+    void report_audio_playhead(me_rational_t t);          // AUDIO master clock
+    void set_video_callback(VideoCb, void* user);
+    void set_audio_callback(AudioCb, void* user);
+};
 }
 ```
 
-三个都接收 Timeline（不是 Graph）——因为同一 Timeline 按时间对应多个 Graph，orchestrator 按需 compile + 缓存。
+四个都接收 Timeline（不是 Graph）——同一 Timeline 按时间对应多个 Graph，orchestrator 按需 compile + 缓存。Player 与 Previewer 共用 `compile_frame_graph` 但状态模型不同：Previewer 无状态、调用即返一帧；Player 有状态（current_time / rate / is_playing）、长寿命、对外承担时钟。
 
 ### 中层（Timeline 切段 + Graph 构建）
 

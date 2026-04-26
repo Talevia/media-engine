@@ -80,6 +80,21 @@
 - [x] JVM JNI 样例（macOS / Linux）
 - [ ] 在 talevia 内建一个 `platform-impls/video-media-engine-jvm` 最小 wrapper，跑通 passthrough 替代 shell-out FFmpeg
 
-## M8+ — 待定
+## M8 — Playback session（preview player + A/V sync）
+
+**目标**：Previewer 从单帧 frame-server 升级为 timeline 预览播放——引擎内部持有时钟、A/V sync、play/pause/seek 状态机，宿主只负责把帧 / 音频 chunk 上屏 / 喂音频设备。`me_render_frame` 单帧路径保持兼容。
+
+### Exit criteria
+
+- [ ] `me_player_t` C API：create / destroy / play / pause / seek / set_video_callback / set_audio_callback / report_audio_playhead / current_time / is_playing
+- [ ] Producer + Pacer 两线程结构跑通，pause / resume / seek 在 100 ms 内响应
+- [ ] AUDIO master clock：宿主报 audio playhead 后视频帧跟随，drift P99 < ½ frame_period（沿用 M4 对 export 的 < 1 ms / 小时口径）
+- [ ] WALL master clock：timeline 无音频或 `audio_out.sample_rate == 0` 时回退，play 5 s 漂移 < 1 frame
+- [ ] seek 不污染 `OutputCache` / `disk_cache`（回扫旧时间命中），`AudioMixer` 销毁重建正确
+- [ ] `examples/09_player_pause_seek` 演示主线程 1 s 后 pause / 1 s resume / seek t=2 s / pause 全流程
+- [ ] 现有 `tests/test_frame_server*` / `examples/08_frame_server_scrub` 不 regression
+- [ ] `docs/ARCHITECTURE_GRAPH.md` §三种执行模型 (c) 已就位（已在 docs(vision) commit 落定）
+
+## M9+ — 待定
 
 HDR（PQ/HLG）、OpenFX host、Android/iOS 打包与 HW 编码路径、网络源（http streaming）、OCIO v2 升级等——等前置里程碑落地再展开。
