@@ -135,6 +135,12 @@ Player::~Player() {
     {
         std::lock_guard<std::mutex> lk(mu_);
         shutdown_ = true;
+        /* Cancel any in-flight video evaluation so the producer's
+         * await unblocks immediately rather than waiting out a slow
+         * decode. Same pattern as seek() — Future::cancel is the
+         * cooperative signal; the kernel checks ctx.cancel and
+         * returns early. */
+        if (in_flight_video_) in_flight_video_->cancel();
     }
     state_cv_.notify_all();
     ring_.close();   /* unblocks producer (push) and pacer (pop) */
@@ -175,31 +181,41 @@ me_status_t Player::seek(me_rational_t time) {
     if (time.den <= 0) time.den = 1;
     if (time.num <  0) time.num = 0;
     clock_.seek(time);
-    /* Drop the produced backlog — it's all stale relative to the new
-     * playhead. The pacer's "drop if too far behind" check absorbs
-     * any frame that escaped through the ring before we got here, so
-     * Phase-2 seek correctness doesn't yet rely on cooperative cancel
-     * (added in Phase 5). */
-    ring_.clear();
+
+    /* Cooperative cancel of any in-flight video evaluation. Future::
+     * cancel sets the EvalInstance's cancel flag; the active kernel
+     * checks ctx.cancel between node boundaries and aborts, surfacing
+     * as a thrown await(). Combined with seek_epoch_ bumping below,
+     * this covers both the "decode running" case (cancel wakes await)
+     * and the "between iterations" case (producer's epoch check at
+     * the start of the next iteration drops stale work). */
     {
         std::lock_guard<std::mutex> lk(mu_);
+        if (in_flight_video_) in_flight_video_->cancel();
+        ++seek_epoch_;
         produce_cursor_ = time;
         /* Re-anchor the audio dispatch cursor at `time` so the
          * throttle in audio_producer_loop reasons about the new
          * playhead. The AudioMixer's internal samples_emitted_
-         * counter is NOT reset this phase — its content is stale
-         * post-seek (host hears audio from the pre-seek position
-         * with timestamps that *claim* to be at the new playhead).
-         * Phase 5 fixes content-correctness by rebuilding the mixer
-         * + reseeking demuxes; Phase-3 ships with this known
-         * degradation (ok for "press play" use cases, broken for
-         * scrubbing audio). */
+         * counter is NOT reset (no demux re-seek primitive in this
+         * codebase yet — `av_seek_frame` + AudioTrackFeed flush is a
+         * follow-up backlog item). Practical effect: post-seek
+         * audio content plays from wherever the demuxes were
+         * pointing pre-seek, with timestamps rebased to the new
+         * playhead. Acceptable for press-play / pause UX; broken
+         * for scrub-audio (documented in BACKLOG as
+         * `player-audio-seek-rebuild`). */
         const int sr = cfg_.audio_out.sample_rate;
         audio_dispatched_samples_ = sr > 0
             ? (time.num * static_cast<int64_t>(sr)) / time.den
             : 0;
         notify_state_changed_locked();
     }
+    /* Drop the produced backlog — it's all stale relative to the new
+     * playhead. Done after the lock release so producer threads
+     * blocked on push() wake up without contending mu_ at the same
+     * time as the cancel notify. */
+    ring_.clear();
     return ME_OK;
 }
 
@@ -288,32 +304,6 @@ me_status_t Player::resolve_active_clip(me_rational_t       t,
         active->source_start.den * clip_local.den,
     };
     return ME_OK;
-}
-
-/* ------------------------------------------------------------ render */
-
-me_status_t Player::render_one(const std::string&                            uri,
-                                me_rational_t                                  source_t,
-                                std::shared_ptr<me::graph::RgbaFrameData>*    out,
-                                std::string*                                  err) const {
-    if (!engine_ || !engine_->scheduler) return ME_E_INTERNAL;
-
-    auto [g, term] = compile_frame_graph(uri, source_t);
-
-    me::graph::EvalContext ctx;
-    ctx.frames = engine_->frames.get();
-    ctx.codecs = engine_->codecs.get();
-    ctx.time   = source_t;
-
-    try {
-        auto fut = engine_->scheduler->evaluate_port<
-                       std::shared_ptr<me::graph::RgbaFrameData>>(g, term, ctx);
-        *out = fut.await();
-    } catch (const std::exception& ex) {
-        if (err) *err = ex.what();
-        return ME_E_DECODE;
-    }
-    return *out ? ME_OK : ME_E_DECODE;
 }
 
 /* ---------------------------------------------------- audio setup */
@@ -510,6 +500,7 @@ void Player::audio_producer_loop() {
 void Player::producer_loop() {
     while (true) {
         me_rational_t cursor;
+        int64_t       epoch_start;
         {
             std::unique_lock<std::mutex> lk(mu_);
             /* Wait for: shutdown OR cursor inside the timeline (so we
@@ -526,12 +517,14 @@ void Player::producer_loop() {
                 return r_cmp(produce_cursor_, tl_->duration) < 0;
             });
             if (shutdown_) return;
-            cursor = produce_cursor_;
+            cursor      = produce_cursor_;
+            epoch_start = seek_epoch_;
         }
 
-        /* Compile + evaluate. resolve_active_clip + render_one are
-         * both blocking; the slow piece is render_one (decode +
-         * sws_scale). The scheduler's OutputCache absorbs repeats. */
+        /* Compile + evaluate. resolve_active_clip + the inline
+         * scheduler submission below are both blocking; the slow
+         * piece is the await on the decode + sws_scale graph. The
+         * scheduler's OutputCache absorbs repeats. */
         std::string  uri;
         me_rational_t source_t{0, 1};
         const me_status_t lookup = resolve_active_clip(cursor, &uri, &source_t);
@@ -541,7 +534,8 @@ void Player::producer_loop() {
              * again — the timeline's clip layout will eventually
              * either cover the new cursor or push us past duration. */
             std::lock_guard<std::mutex> lk(mu_);
-            if (r_cmp(produce_cursor_, cursor) == 0) {
+            if (seek_epoch_ == epoch_start &&
+                r_cmp(produce_cursor_, cursor) == 0) {
                 produce_cursor_ = r_add(produce_cursor_, frame_period_);
             }
             continue;
@@ -556,14 +550,68 @@ void Player::producer_loop() {
             continue;
         }
 
+        /* Submit the per-frame graph. Stash a copy of the Future on
+         * the player so seek() can cancel it; producer awaits its
+         * own local copy. Both share the EvalInstance via shared_ptr
+         * so cancel from either side reaches the running kernel. */
         std::shared_ptr<me::graph::RgbaFrameData> rgba;
+        VideoFuture fut;
+        bool        submit_failed = false;
         std::string err;
-        const me_status_t r = render_one(uri, source_t, &rgba, &err);
-        if (r != ME_OK || !rgba) {
-            if (engine_) me::detail::set_error(engine_, std::move(err));
-            /* Skip this frame, advance, keep going. */
+        try {
+            if (!engine_ || !engine_->scheduler) throw std::runtime_error("no scheduler");
+            auto [g, term] = compile_frame_graph(uri, source_t);
+            me::graph::EvalContext ctx;
+            ctx.frames = engine_->frames.get();
+            ctx.codecs = engine_->codecs.get();
+            ctx.time   = source_t;
+            fut = engine_->scheduler->evaluate_port<
+                       std::shared_ptr<me::graph::RgbaFrameData>>(g, term, ctx);
+        } catch (const std::exception& ex) {
+            err = ex.what();
+            submit_failed = true;
+        }
+
+        if (!submit_failed) {
+            {
+                std::lock_guard<std::mutex> lk(mu_);
+                /* If a seek raced past us between epoch capture and
+                 * submit, drop the work before await + don't even
+                 * publish the future (seek already missed it). */
+                if (seek_epoch_ != epoch_start) {
+                    fut.cancel();
+                    continue;
+                }
+                in_flight_video_ = fut;
+            }
+            try {
+                rgba = fut.await();
+            } catch (const std::exception& ex) {
+                /* Cancellation lands here as ME_E_CANCELLED-from-
+                 * EvalInstance + thrown by Future::await; treat
+                 * identically to other failures (drop + retry). */
+                err = ex.what();
+            }
+            {
+                std::lock_guard<std::mutex> lk(mu_);
+                in_flight_video_.reset();
+            }
+        }
+
+        /* Re-check epoch. If seek bumped it during await, the rgba
+         * we got is for a stale cursor — drop. */
+        bool stale = false;
+        {
             std::lock_guard<std::mutex> lk(mu_);
-            if (r_cmp(produce_cursor_, cursor) == 0) {
+            stale = (seek_epoch_ != epoch_start);
+        }
+        if (stale) continue;
+
+        if (submit_failed || !rgba) {
+            if (engine_ && !err.empty()) me::detail::set_error(engine_, std::move(err));
+            std::lock_guard<std::mutex> lk(mu_);
+            if (seek_epoch_ == epoch_start &&
+                r_cmp(produce_cursor_, cursor) == 0) {
                 produce_cursor_ = r_add(produce_cursor_, frame_period_);
             }
             continue;
@@ -580,7 +628,8 @@ void Player::producer_loop() {
         /* Advance only if no seek raced us. Otherwise the seek
          * already updated produce_cursor_ to the seek target. */
         std::lock_guard<std::mutex> lk(mu_);
-        if (r_cmp(produce_cursor_, cursor) == 0) {
+        if (seek_epoch_ == epoch_start &&
+            r_cmp(produce_cursor_, cursor) == 0) {
             produce_cursor_ = r_add(produce_cursor_, frame_period_);
         }
     }

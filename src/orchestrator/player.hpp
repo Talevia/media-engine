@@ -26,6 +26,8 @@
 #pragma once
 
 #include "audio/mixer.hpp"
+#include "graph/future.hpp"
+#include "graph/types.hpp"
 #include "io/demux_context.hpp"
 #include "media_engine/player.h"
 #include "media_engine/types.h"
@@ -38,6 +40,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -87,13 +90,6 @@ private:
                                      std::string*       out_uri,
                                      me_rational_t*     out_source_t) const;
 
-    /* Render one video frame at clip-local time `source_t` for `uri`.
-     * Wraps compile_frame_graph + scheduler.evaluate_port. */
-    me_status_t render_one(const std::string&                            uri,
-                            me_rational_t                                  source_t,
-                            std::shared_ptr<me::graph::RgbaFrameData>*    out,
-                            std::string*                                  err) const;
-
     /* Open one DemuxContext per audio clip via the IoDemux kernel
      * (mirrors Exporter's per-clip demux fan-out at exporter.cpp:215).
      * Slot is null for non-audio clips. Lifetime spans the player —
@@ -137,6 +133,23 @@ private:
     std::condition_variable                 state_cv_;
     me_rational_t                           produce_cursor_{0, 1};
     bool                                    shutdown_     = false;
+
+    /* Bumped on every seek. Producer captures the value at the start
+     * of an iteration; if seek_epoch_ has changed by the time the
+     * graph evaluation finishes, the produced frame is for a stale
+     * cursor and gets dropped before push. Pairs with the
+     * cooperative Future::cancel below — together they cover both
+     * "seek arrived after submit" (cancel wakes await) and
+     * "seek arrived after compile but before submit" (epoch check). */
+    int64_t                                 seek_epoch_   = 0;
+
+    /* Held while the producer's video graph evaluation is in flight.
+     * seek() calls cancel() on this so any blocking await unblocks
+     * with ME_E_CANCELLED instead of finishing decode for a frame
+     * we'll throw away. Reset by the producer as soon as await
+     * returns (success or otherwise). */
+    using VideoFuture = me::graph::Future<std::shared_ptr<me::graph::RgbaFrameData>>;
+    std::optional<VideoFuture>              in_flight_video_;
 
     /* Callbacks may be replaced at runtime. video_cb_ / audio_cb_ are
      * read by the pacer; mu_ guards reassignment. */
