@@ -205,6 +205,15 @@ me_status_t Player::seek(me_rational_t time) {
 
 me_status_t Player::report_audio_playhead(me_rational_t t) {
     clock_.report_audio_playhead(t);
+    /* Wake the pacer + audio_producer so they re-evaluate against
+     * the fresh playhead. notify_all without re-acquiring mu_ is
+     * intentional: this method is meant to be called from the
+     * host's real-time audio device callback, where blocking on
+     * mu_ would jeopardise audio-output stability. CV semantics
+     * tolerate the un-locked notify because the readers re-check
+     * clock_.current() (which has its own lock inside
+     * PlaybackClock) on every wake-up. */
+    state_cv_.notify_all();
     return ME_OK;
 }
 
@@ -598,8 +607,23 @@ void Player::pacer_loop() {
             const me_rational_t now = clock_.current();
             const int64_t diff_us   = r_micros_diff(slot.present_at, now);
 
-            /* Half-frame_period in micros. ½ × den/num seconds → in
-             * micros = (den * 500'000) / num. */
+            /* Chase-master-clock thresholds (Phase 4):
+             *
+             *   diff_us > +half_us     → frame is in the future, wait
+             *   |diff_us| ≤ half_us    → present-now
+             *   diff_us < -half_us     → past, drop (chase forward)
+             *
+             * `now` is whichever master clock the player was created
+             * with: AUDIO when the host has been calling
+             * me_player_report_audio_playhead (so video chases the
+             * host's audio device), WALL otherwise (or AUDIO that
+             * hasn't received a report yet — falls back through
+             * PlaybackClock::current). The drop / wait branches
+             * therefore apply to both modes uniformly; only the
+             * source of the truth changes.
+             *
+             * Half-frame_period in micros. ½ × den/num seconds →
+             * micros = (den × 500'000) / num. */
             const int64_t half_us =
                 frame_period_.num > 0
                     ? static_cast<int64_t>(frame_period_.den) * 500'000
@@ -622,8 +646,12 @@ void Player::pacer_loop() {
 
             if (diff_us > half_us) {
                 /* Frame is too early. Sleep until close to present_at,
-                 * but cap the wait so a pause / seek wakes us
-                 * promptly via state_cv_. */
+                 * but cap the wait so a pause / seek / new audio
+                 * playhead report wakes us promptly via state_cv_.
+                 * Cap is 10 ms — at AUDIO master clock that's also
+                 * the typical inter-report interval from a host's
+                 * audio device callback (~10 ms buffer durations are
+                 * common), so we wake near every report. */
                 std::unique_lock<std::mutex> lk(mu_);
                 if (shutdown_) return;
                 const auto budget = std::chrono::microseconds(
@@ -632,11 +660,15 @@ void Player::pacer_loop() {
                 if (shutdown_) return;
                 continue;
             }
-            if (diff_us < -half_us * 3) {
-                /* Stale — produced before a seek that already
-                 * advanced the clock past us, or pacer fell badly
-                 * behind. Drop it; chase-audio in Phase 4 will
-                 * formalise the threshold. */
+            if (diff_us < -half_us) {
+                /* Stale — either produced before a seek that already
+                 * advanced the clock past us, or pacer fell behind
+                 * the audio playhead under decode pressure. Drop and
+                 * pop the next slot. The producer will catch up if
+                 * decode can keep pace with playback; otherwise the
+                 * host sees frames stutter, which is the right
+                 * signal that the timeline is too heavy for live
+                 * preview. */
                 break;
             }
             /* Within half-period of `now` — present. */
