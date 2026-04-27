@@ -46,6 +46,24 @@ typedef struct me_engine_config {
      * 0.0.2 — zero-init existing callers get unlimited behaviour,
      * matching the pre-cap contract. */
     int64_t disk_cache_bytes;
+
+    /* Optional path to an OpenColorIO config (.ocio) file. NULL or
+     * empty selects the engine's built-in ACES CG config. When set,
+     * the path takes precedence over the `OCIO` environment
+     * variable. Resolution order at OcioPipeline construction:
+     *
+     *   1. `ocio_config_path` (this field), if non-NULL and non-empty.
+     *   2. `$OCIO` environment variable, if non-empty
+     *      (libOpenColorIO's standard config-locator env var).
+     *   3. Engine's built-in config.
+     *
+     * The string is borrowed (not copied) at `me_engine_create`
+     * time and consumed lazily when the first OcioPipeline is
+     * constructed (per-render). Callers must keep the string alive
+     * at least until `me_render_start` returns. Appended to the
+     * struct in 0.0.3 — zero-init existing callers get the
+     * pre-existing env-var-or-builtin behaviour. */
+    const char* ocio_config_path;
 } me_engine_config_t;
 
 /* Create an engine. Pass NULL config for defaults. */

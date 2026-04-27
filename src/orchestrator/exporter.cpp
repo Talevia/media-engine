@@ -162,6 +162,14 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
     common.container = spec.container ? spec.container : "";
     common.cancel    = &job->cancel;
     if (cb) common.on_ratio = progress_cb;
+    /* Engine-level OCIO config override
+     * (`me_engine_config_t.ocio_config_path`). Borrowed pointer at
+     * config time; deep-copy here so the worker thread isn't tied
+     * to the host's lifetime for the original char buffer. Empty
+     * = inherit `$OCIO` env var or fall through to the built-in. */
+    if (engine_ && engine_->config.ocio_config_path) {
+        common.ocio_config_path = engine_->config.ocio_config_path;
+    }
     /* Timeline-level working / output color space stays default-
      * UNSPECIFIED today: `me::Timeline` doesn't carry a top-level
      * color_space field (only per-Asset; see timeline_impl.hpp:77).

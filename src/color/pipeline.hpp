@@ -74,7 +74,12 @@ public:
  * is avoided by moving the body out-of-line).
  *
  * ME_HAS_OCIO branch returns an `OcioPipeline`; otherwise
- * `IdentityPipeline`. */
-std::unique_ptr<Pipeline> make_pipeline();
+ * `IdentityPipeline`.
+ *
+ * `config_path` is forwarded to `OcioPipeline`'s constructor on the
+ * ME_HAS_OCIO branch — see `ocio_pipeline.hpp` for the resolution
+ * order (explicit path → `$OCIO` env var → built-in). NULL or empty
+ * = follow env / builtin. Ignored on the IdentityPipeline branch. */
+std::unique_ptr<Pipeline> make_pipeline(const char* config_path = nullptr);
 
 }  // namespace me::color

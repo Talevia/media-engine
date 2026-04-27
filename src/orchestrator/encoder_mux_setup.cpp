@@ -99,7 +99,8 @@ me_status_t setup_h264_aac_encoder_mux(
     out_shared.cancel         = opts.cancel;
     out_shared.on_ratio       = opts.on_ratio;
     out_shared.total_us       = total_output_us_local(opts.segments);
-    out_shared.color_pipeline = me::color::make_pipeline();
+    out_shared.color_pipeline = me::color::make_pipeline(
+        opts.ocio_config_path.empty() ? nullptr : opts.ocio_config_path.c_str());
     out_shared.target_color_space = opts.target_color_space;
 
     CodecCtxPtr venc, aenc;

@@ -33,12 +33,27 @@ namespace me::color {
 
 class OcioPipeline final : public Pipeline {
 public:
-    /* Creates an OcioPipeline wrapping OCIO's built-in ACES CG
-     * config. Throws std::runtime_error if OCIO rejects the config
-     * identifier — not expected in practice (OCIO ships the config
-     * in-tree). Construction cost is small (~ms); callers can
-     * stand one up per engine. */
-    OcioPipeline();
+    /* Creates an OcioPipeline. Resolution order for which OCIO
+     * config to load:
+     *
+     *   1. `config_path` (this argument), if non-empty: load that
+     *      file. A failure here throws — the caller asked for that
+     *      file specifically, silent fallback would mask their
+     *      intent (and likely render with the wrong primaries).
+     *   2. `$OCIO` environment variable, if non-empty: load the
+     *      file it points at. libOpenColorIO's standard config
+     *      locator. A failure throws with the env value in the
+     *      diagnostic.
+     *   3. Built-in `cg-config-v2.1.0_aces-v1.3_ocio-v2.3` (ACES CG
+     *      with Rec.709 output) — small, ships in-tree, and
+     *      includes the role names the existing
+     *      bt709 ↔ sRGB ↔ linear mapping table relies on.
+     *
+     * Throws std::runtime_error on any load failure (with the
+     * source — explicit path, `$OCIO`, or builtin — named in the
+     * message). Construction cost is small (~ms) when the config
+     * file is local; callers can stand one up per engine. */
+    explicit OcioPipeline(std::string config_path = "");
     ~OcioPipeline() override;
 
     me_status_t apply(void*                   buffer,

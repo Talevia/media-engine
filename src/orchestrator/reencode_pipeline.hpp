@@ -89,6 +89,13 @@ struct ReencodeOptions {
      * UNSPECIFIED (identity / no-op on the IdentityPipeline path). */
     me::ColorSpace target_color_space {};
 
+    /* Engine-level OCIO config path override (forwarded from
+     * `SinkCommon::ocio_config_path`, which is sourced from
+     * `me_engine_config_t.ocio_config_path`). Passed to
+     * `make_pipeline()` inside `setup_h264_aac_encoder_mux`.
+     * Empty = follow `$OCIO` env var or built-in. */
+    std::string    ocio_config_path;
+
     /* When true, `setup_h264_aac_encoder_mux` creates only an audio
      * stream + encoder; any video stream present in the sample
      * demux is ignored and no video encoder is opened. Used by

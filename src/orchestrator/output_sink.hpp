@@ -46,6 +46,17 @@ struct SinkCommon {
      * Default-constructed ColorSpace means UNSPECIFIED (IdentityPipeline
      * ignores; OcioPipeline treats as pass-through). */
     me::ColorSpace             target_color_space {};
+
+    /* Engine-level OCIO config path override
+     * (`me_engine_config_t.ocio_config_path`). Empty = inherit
+     * from `$OCIO` env var or fall through to the built-in ACES
+     * CG config. Threaded through to `make_pipeline()` at
+     * encoder-mux setup time (encoder_mux_setup.cpp). The
+     * exporter copies the engine config's `const char*` into a
+     * `std::string` here so the worker thread sees a stable
+     * value regardless of the host's lifetime for the original
+     * pointer. */
+    std::string                ocio_config_path;
 };
 
 /* Per-clip time window. Paired positionally with the DemuxContexts that

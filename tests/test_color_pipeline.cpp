@@ -17,7 +17,9 @@
 #include "timeline/timeline_impl.hpp"
 
 #include <cstdint>
+#include <cstdlib>   /* setenv / unsetenv / getenv for OCIO env tests */
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -188,5 +190,93 @@ TEST_CASE("OcioPipeline: null buffer for non-identity returns ME_E_INVALID_ARG")
     dst.transfer = me::ColorSpace::Transfer::SRGB;
 
     CHECK(p->apply(nullptr, 16, src, dst, nullptr) == ME_E_INVALID_ARG);
+}
+
+/* --- M10 OCIO config resolution: explicit path > $OCIO env > builtin --- */
+
+TEST_CASE("OcioPipeline: explicit invalid config_path throws with path mentioned") {
+    /* Caller asked for a specific file; no silent fallback to env or
+     * builtin. The diagnostic must name the explicit path so the
+     * host can fix the typo. */
+    bool threw = false;
+    std::string what;
+    try {
+        (void)me::color::make_pipeline("/nonexistent/no-such.ocio");
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        what  = e.what();
+    }
+    CHECK(threw);
+    CHECK(what.find("explicit path") != std::string::npos);
+    CHECK(what.find("no-such.ocio") != std::string::npos);
+}
+
+TEST_CASE("OcioPipeline: $OCIO env pointing at invalid file throws with env value") {
+    /* When `ocio_config_path` is empty but $OCIO is set, that env
+     * value is the next resolution step. An invalid file there
+     * also throws — the alternative (silent fallback to builtin)
+     * would mask a host config bug. */
+    const char* prev = std::getenv("OCIO");
+    setenv("OCIO", "/nonexistent/env-config.ocio", /*overwrite=*/1);
+
+    bool threw = false;
+    std::string what;
+    try {
+        (void)me::color::make_pipeline(nullptr);
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        what  = e.what();
+    }
+
+    /* Restore env regardless of test outcome. */
+    if (prev) setenv("OCIO", prev, 1);
+    else      unsetenv("OCIO");
+
+    CHECK(threw);
+    CHECK(what.find("$OCIO=") != std::string::npos);
+    CHECK(what.find("env-config.ocio") != std::string::npos);
+}
+
+TEST_CASE("OcioPipeline: explicit config_path takes precedence over $OCIO env") {
+    /* Both set, both invalid (different paths) — diagnostic must
+     * cite the explicit path, not the env, proving precedence. */
+    const char* prev = std::getenv("OCIO");
+    setenv("OCIO", "/should/not/be/seen.ocio", 1);
+
+    bool threw = false;
+    std::string what;
+    try {
+        (void)me::color::make_pipeline("/explicit/wins.ocio");
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        what  = e.what();
+    }
+
+    if (prev) setenv("OCIO", prev, 1);
+    else      unsetenv("OCIO");
+
+    CHECK(threw);
+    CHECK(what.find("/explicit/wins.ocio") != std::string::npos);
+    CHECK(what.find("should/not/be/seen") == std::string::npos);
+}
+
+TEST_CASE("OcioPipeline: NULL config_path + unset $OCIO falls through to builtin") {
+    /* Default path — what every existing caller hits. Must continue
+     * to succeed (no throw) so the env-or-builtin fallback chain
+     * stays compatible with the pre-resolution-order behaviour. */
+    const char* prev = std::getenv("OCIO");
+    unsetenv("OCIO");
+
+    bool threw = false;
+    try {
+        auto p = me::color::make_pipeline(nullptr);
+        REQUIRE(p != nullptr);
+    } catch (...) {
+        threw = true;
+    }
+
+    if (prev) setenv("OCIO", prev, 1);
+
+    CHECK_FALSE(threw);
 }
 #endif  /* ME_HAS_OCIO */

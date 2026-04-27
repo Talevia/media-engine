@@ -101,6 +101,7 @@ public:
         opts.on_ratio            = common_.on_ratio;
         opts.pool                = pool_;
         opts.target_color_space  = common_.target_color_space;
+        opts.ocio_config_path    = common_.ocio_config_path;
         opts.segments.reserve(demuxes.size());
         for (size_t i = 0; i < demuxes.size(); ++i) {
             if (!demuxes[i]) {

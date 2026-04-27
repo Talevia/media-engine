@@ -5,6 +5,7 @@
 
 #include <OpenColorIO/OpenColorIO.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 
@@ -16,21 +17,58 @@ struct OcioPipeline::Impl {
     OCIO::ConstConfigRcPtr config;
 };
 
-OcioPipeline::OcioPipeline()
+namespace {
+
+/* Built-in config identifier. ACES CG is OCIO's recommended
+ * "default scene-referred with Rec.709 output" — small (ships in
+ * the OCIO library itself), and includes the role names
+ * `Rec.709`, `sRGB`, `lin_rec709` that the existing
+ * `to_ocio_name` mapping table relies on. */
+constexpr const char* kBuiltinConfig =
+    "cg-config-v2.1.0_aces-v1.3_ocio-v2.3";
+
+/* Stringify which source attempt is in flight — used to make
+ * load-failure diagnostics actionable. */
+std::string describe_source(const std::string& explicit_path,
+                              const char*       env_value) {
+    if (!explicit_path.empty()) {
+        return "explicit path '" + explicit_path + "'";
+    }
+    if (env_value && *env_value) {
+        return std::string("$OCIO='") + env_value + "'";
+    }
+    return std::string("builtin config '") + kBuiltinConfig + "'";
+}
+
+}  // namespace
+
+OcioPipeline::OcioPipeline(std::string config_path)
     : impl_(std::make_unique<Impl>()) {
-    /* ACES CG is OCIO's recommended "default scene-referred with
-     * Rec.709 output" config — small (ships in-tree as YAML) and
-     * includes the role names `Rec.709`, `sRGB`, `lin_rec709` that
-     * the forthcoming ocio-colorspace-conversions cycle will map
-     * me::ColorSpace tags onto. */
+    /* Resolution order: explicit `config_path` (caller asked for
+     * a specific file) → `$OCIO` env var (libOpenColorIO's
+     * convention) → built-in. Any failure on a non-builtin source
+     * throws with that source named — silent fallback would mask
+     * the caller's intent and likely render with the wrong
+     * primaries / TRC. */
+    const char* env_value = std::getenv("OCIO");
+
     try {
-        impl_->config = OCIO::Config::CreateFromBuiltinConfig(
-            "cg-config-v2.1.0_aces-v1.3_ocio-v2.3");
+        if (!config_path.empty()) {
+            impl_->config = OCIO::Config::CreateFromFile(config_path.c_str());
+        } else if (env_value && *env_value) {
+            impl_->config = OCIO::Config::CreateFromFile(env_value);
+        } else {
+            impl_->config = OCIO::Config::CreateFromBuiltinConfig(kBuiltinConfig);
+        }
     } catch (const OCIO::Exception& e) {
-        throw std::runtime_error(std::string("OcioPipeline: failed to load builtin config: ") + e.what());
+        throw std::runtime_error(
+            "OcioPipeline: failed to load OCIO config from " +
+            describe_source(config_path, env_value) + ": " + e.what());
     }
     if (!impl_->config) {
-        throw std::runtime_error("OcioPipeline: built-in config returned null");
+        throw std::runtime_error(
+            "OcioPipeline: OCIO config from " +
+            describe_source(config_path, env_value) + " returned null");
     }
 }
 

@@ -11,10 +11,12 @@
 
 namespace me::color {
 
-std::unique_ptr<Pipeline> make_pipeline() {
+std::unique_ptr<Pipeline> make_pipeline(const char* config_path) {
 #if ME_HAS_OCIO
-    return std::make_unique<OcioPipeline>();
+    return std::make_unique<OcioPipeline>(
+        (config_path && *config_path) ? std::string(config_path) : std::string{});
 #else
+    (void)config_path;
     return std::make_unique<IdentityPipeline>();
 #endif
 }
