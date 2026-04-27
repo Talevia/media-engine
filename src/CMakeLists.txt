@@ -351,6 +351,7 @@ add_library(media_engine STATIC
   api/probe.cpp
   api/thumbnail.cpp
   api/cache.cpp
+  $<$<BOOL:${ME_WITH_INFERENCE}>:${CMAKE_CURRENT_SOURCE_DIR}/api/ml.cpp>
 )
 add_library(media_engine::media_engine ALIAS media_engine)
 
@@ -399,6 +400,17 @@ endif()
 if(ME_WITH_SOUNDTOUCH)
   target_link_libraries(media_engine PRIVATE SoundTouch)
   target_compile_definitions(media_engine PRIVATE ME_HAS_SOUNDTOUCH=1)
+endif()
+
+# M11 ML inference runtime gate. Unlike ME_HAS_OCIO/SoundTouch (which
+# guard internal-only headers), ME_HAS_INFERENCE gates a PUBLIC
+# header (`include/media_engine/ml.h`) — the C-API surface for the
+# host model fetcher callback. Mark INTERFACE so consumers linking
+# against media_engine see the same definition the engine was built
+# with: ON-build → consumers see the symbols, OFF-build → ml.h is
+# empty for them too.
+if(ME_WITH_INFERENCE)
+  target_compile_definitions(media_engine PUBLIC ME_HAS_INFERENCE=1)
 endif()
 
 # libass link — SubtitleRenderer uses ass_library_init /

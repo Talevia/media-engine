@@ -32,6 +32,7 @@ set(_test_suites
   test_timeline_schema_clip_attributes
   test_timeline_schema_color_space
   test_timeline_schema_ml_asset
+  test_engine_ml
   test_timeline_schema_effects
   test_timeline_schema_transitions
   test_content_hash

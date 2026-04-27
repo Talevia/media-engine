@@ -14,7 +14,12 @@
 #include "resource/stateful_pool.hpp"
 #endif
 
+#ifdef ME_HAS_INFERENCE
+#include "media_engine/ml.h"
+#endif
+
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -48,6 +53,19 @@ struct me_engine {
         tempo_pool;
 #endif
     std::unique_ptr<me::sched::Scheduler>          scheduler;
+
+#ifdef ME_HAS_INFERENCE
+    /* Host-supplied model fetcher (M11 ml-model-lazy-load-callback).
+     * Stored verbatim by `me_engine_set_model_fetcher`; consulted by
+     * the inference runtime when an ML effect references a model
+     * via {model_id, model_version, quantization}. Pre-runtime
+     * cycles, the storage is exercised but the callback is never
+     * invoked. Mutex protects races between host registration and
+     * runtime fetch (both can happen from any thread). */
+    std::mutex          model_fetcher_mu;
+    me_model_fetcher_t  model_fetcher_cb   = nullptr;
+    void*               model_fetcher_user = nullptr;
+#endif
 };
 
 namespace me::detail {
