@@ -120,7 +120,7 @@
 - [ ] encode 路径：HEVC Main 10 via VideoToolbox（HW HDR），软件 fallback 走 LGPL-clean 编码器（SVT-HEVC Apache 2.0 候选；libx265 GPL 排除）；SW 路径标记非确定性 + 受限输出（1080p 上限 / 失败时显式错）
 - [x] `me_probe` 抽取 HDR metadata：MaxCLL / MaxFALL / MasterDisplay primaries + luminance（合并 BACKLOG `me-probe-hdr-metadata`）
 - [x] OCIO 升级：内置 + 可注入 PQ / HLG / ACES config（合并 BACKLOG `ocio-config-env-override`）
-- [ ] SDR ↔ HDR 互转：tonemap (HDR → SDR via Hable / Reinhard / ACES，显式 effect kind)、inverse-tonemap stub（标记非确定性，仅 HDR 输出场景使用）
+- [x] SDR ↔ HDR 互转：tonemap (HDR → SDR via Hable / Reinhard / ACES，显式 effect kind)、inverse-tonemap stub（标记非确定性，仅 HDR 输出场景使用）
 - [ ] bench: `bench_hdr_roundtrip` HDR → HDR 透传位精度 + HDR → SDR tonemap 漂移预算
 - [ ] tests: `test_hdr_metadata_propagate`（probe → timeline → encode → probe 链上不丢字段）、`test_pq_hlg_roundtrip`（解 → 渲 → 编后像素与原始误差 < ε）
 - [ ] §5.7-5 lib_size_budget 跟随实际链入的 codec 路径调整（commit body 解释）
