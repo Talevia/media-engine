@@ -140,8 +140,23 @@ me_status_t me_player_set_audio_callback(
 
 /* --- Transport ----------------------------------------------------------- */
 
-/* Begin or resume playback at `rate`. This milestone supports
- * `rate == 1.0f` only; other rates return ME_E_UNSUPPORTED. */
+/* Begin or resume playback at `rate`.
+ *
+ *   rate ==  1.0f      → normal playback.
+ *   rate ∈ [0.5, 2.0]  → variable-rate forward playback. The master
+ *                        clock projects elapsed wall-clock time × rate;
+ *                        the pacer drops/holds frames against the
+ *                        scaled clock — slow-motion holds each frame
+ *                        for longer; fast-forward drops behind frames.
+ *                        Only allowed when the timeline has no audio
+ *                        track and the master clock is not ME_CLOCK_AUDIO;
+ *                        audio + variable rate without time-stretching
+ *                        would desync against the host audio device.
+ *   rate <= 0          → ME_E_INVALID_ARG (zero is what pause() is for;
+ *                        negative is reverse playback, a separate
+ *                        follow-up needing reverse demux).
+ *   rate outside [0.5, 2.0] OR
+ *   audio + rate ≠ 1   → ME_E_UNSUPPORTED. */
 me_status_t me_player_play(me_player_t* p, float rate);
 
 /* Pause playback. Producer thread parks; the current frame stays

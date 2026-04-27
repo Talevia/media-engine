@@ -22,6 +22,7 @@ extern "C" {
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <memory>
@@ -106,13 +107,36 @@ Player::~Player() {
 /* ---------------------------------------------------------- transport */
 
 me_status_t Player::play(float rate) {
-    /* Rate ≠ 1.0 needs SoundTouch tempo + frame skip/repeat — separate
-     * milestone. Reject up front so a host doesn't silently end up at
-     * 1× when asking for 2×. */
-    // STUB: player-rate-not-one — backlog P2 bullet defines the
-    // 0.5..2.0 forward variable-rate impl (skip/repeat + audio
-    // tempo); negative rate is its own follow-up.
-    if (rate != 1.0f) return ME_E_UNSUPPORTED;
+    /* Rate gating, in three tiers:
+     *
+     *   1. Hard ABI invariants — non-finite or non-positive rate is
+     *      always wrong (zero is what pause() is for; negative is a
+     *      reverse-playback follow-up that needs reverse demux + frame
+     *      queue, tracked separately).
+     *   2. Forward variable-rate window — 0.5..2.0 inclusive. Outside
+     *      this window the master clock's projection still works (it's
+     *      pure float math) but tonal artefacts and frame-drop ratios
+     *      grow large enough that bound-by-design beats best-effort.
+     *   3. Audio-bearing timelines — audio output is wired at the
+     *      timeline's native sample rate; rate ≠ 1.0 desyncs against a
+     *      host audio device unless we time-stretch via SoundTouch.
+     *      That wiring is `debt-player-rate-audio-tempo` (this cycle's
+     *      append). Until it lands, reject the combo so the host gets
+     *      an explicit failure rather than silent A/V drift.
+     *
+     * The pacer (pacer_loop) and PlaybackClock (wall_project_locked)
+     * already handle rate-aware projection — clock_.current()
+     * advances at `rate ×` wall-clock seconds, and the pacer's
+     * "diff_us > half_us → wait / diff_us < -half_us → drop" branches
+     * naturally produce slow-motion (frame held longer) and fast-
+     * forward (frames dropped) without explicit skip/repeat in the
+     * producer. Only the play() admission gate needed to relax. */
+    if (!std::isfinite(rate) || rate <= 0.0f) return ME_E_INVALID_ARG;
+    if (rate < 0.5f || rate > 2.0f)            return ME_E_UNSUPPORTED;
+    if (rate != 1.0f &&
+        (has_audio_track_ || clock_.kind() == ME_CLOCK_AUDIO)) {
+        return ME_E_UNSUPPORTED;
+    }
     clock_.play(rate);
     {
         std::lock_guard<std::mutex> lk(mu_);

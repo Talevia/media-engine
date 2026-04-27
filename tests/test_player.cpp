@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -147,17 +148,73 @@ TEST_CASE("me_player: create + play + pause delivers frames during play, freezes
     CHECK(cap.count.load() <= frames_after_play + 1);
 }
 
-TEST_CASE("me_player: play(rate != 1.0) is rejected with ME_E_UNSUPPORTED") {
+TEST_CASE("me_player: play(rate) gating — invalid / out-of-window / audio combo") {
+    PlayerFixture f;
+    me_player_config_t pc{};
+    pc.audio_out.sample_rate = 0;          /* video-only WALL clock */
+    pc.master_clock          = ME_CLOCK_WALL;
+    REQUIRE(f.make_player(&pc) == ME_OK);
+
+    /* Hard ABI invariants — non-finite, zero, negative all rejected
+     * with INVALID_ARG (pause() is what zero is for; negative is
+     * reverse-playback, a separate follow-up). */
+    CHECK(me_player_play(f.player, -1.0f) == ME_E_INVALID_ARG);
+    CHECK(me_player_play(f.player,  0.0f) == ME_E_INVALID_ARG);
+    CHECK(me_player_play(f.player,
+                          std::numeric_limits<float>::infinity()) == ME_E_INVALID_ARG);
+    CHECK(me_player_play(f.player,
+                          std::numeric_limits<float>::quiet_NaN()) == ME_E_INVALID_ARG);
+
+    /* Out-of-window forward rate — rejected with UNSUPPORTED. */
+    CHECK(me_player_play(f.player, 0.25f) == ME_E_UNSUPPORTED);
+    CHECK(me_player_play(f.player, 4.0f)  == ME_E_UNSUPPORTED);
+
+    /* In-window video-only WALL → all OK. */
+    CHECK(me_player_play(f.player, 0.5f) == ME_OK);
+    CHECK(me_player_play(f.player, 1.0f) == ME_OK);
+    CHECK(me_player_play(f.player, 2.0f) == ME_OK);
+}
+
+TEST_CASE("me_player: play(rate ≠ 1.0) on audio timeline is rejected (audio-tempo deferred)") {
+    /* Same fixture but with sample_rate > 0 — the timeline determinism
+     * fixture has no audio track, so has_audio_track_ stays false and
+     * the audio-rate gate is exercised through the ME_CLOCK_AUDIO
+     * master path instead. Any of: ME_CLOCK_AUDIO master + rate ≠ 1
+     * OR has_audio_track_ + rate ≠ 1 trips UNSUPPORTED. */
+    PlayerFixture f;
+    me_player_config_t pc{};
+    pc.audio_out.sample_rate = 48000;
+    pc.master_clock          = ME_CLOCK_AUDIO;   /* explicit, even if track-less */
+    REQUIRE(f.make_player(&pc) == ME_OK);
+
+    CHECK(me_player_play(f.player, 2.0f) == ME_E_UNSUPPORTED);
+    CHECK(me_player_play(f.player, 0.5f) == ME_E_UNSUPPORTED);
+    CHECK(me_player_play(f.player, 1.0f) == ME_OK);
+}
+
+TEST_CASE("me_player: play(2.0) advances the master clock at 2× wall rate") {
     PlayerFixture f;
     me_player_config_t pc{};
     pc.audio_out.sample_rate = 0;
     pc.master_clock          = ME_CLOCK_WALL;
     REQUIRE(f.make_player(&pc) == ME_OK);
 
-    CHECK(me_player_play(f.player, 2.0f)  == ME_E_UNSUPPORTED);
-    CHECK(me_player_play(f.player, 0.5f)  == ME_E_UNSUPPORTED);
-    CHECK(me_player_play(f.player, -1.0f) == ME_E_UNSUPPORTED);
-    CHECK(me_player_play(f.player, 1.0f)  == ME_OK);
+    REQUIRE(me_player_play(f.player, 2.0f) == ME_OK);
+
+    /* Sample current_time() at two points 100 ms apart. At rate 2.0
+     * the clock should advance ~0.2 s in 0.1 s wall. The bound
+     * accommodates ±25 % scheduling jitter (0.15..0.25) — generous
+     * because this assertion runs under doctest's single-thread
+     * harness and CI may park us. The point is "advanced faster than
+     * 1× would have, by a clearly nonzero margin", not "exact 2×". */
+    const me_rational_t t0 = me_player_current_time(f.player);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const me_rational_t t1 = me_player_current_time(f.player);
+
+    const double dt = rat_to_sec(t1) - rat_to_sec(t0);
+    MESSAGE("rate=2.0 dt across 100ms wall = " << dt << " s");
+    CHECK(dt >= 0.15);
+    CHECK(dt <= 0.25);
 }
 
 TEST_CASE("me_player: destroy mid-playback joins cleanly") {
