@@ -1,5 +1,5 @@
 /* Low-level timeline IR parameter types — ColorSpace + Transform +
- * clip-level parameter POD structs + Effect variant.
+ * clip-level parameter POD structs + Effect variant umbrella.
  *
  * Scope: types referenced by `Clip` / `Asset` / `Timeline` but not
  * by one another (outside this header). Split off
@@ -10,12 +10,32 @@
  * transitively via `timeline_impl.hpp`; TUs that only need the
  * params (e.g. loader_helpers parsers) may include this header
  * directly.
+ *
+ * Effect-param sub-headers (debt-split-timeline-ir-params).
+ * Each typed-effect-param struct lives in its own header under
+ * `timeline/effect_params/`; this umbrella re-includes them so
+ * existing call sites (`#include "timeline/timeline_ir_params.hpp"`)
+ * continue to see the full set. The `EffectKind` enum + the
+ * `EffectSpec::params` `std::variant` alias stay here because
+ * the variant-index ↔ EffectKind ordering invariant is more
+ * locally maintainable when the variant is one declaration that
+ * names every member. New effect kinds add a sub-header + an
+ * include here + an enum entry + a variant slot — same blast
+ * radius, smaller per-cycle TU edits.
  */
 #pragma once
 
 #include "media_engine/types.h"
 #include "timeline/animated_color.hpp"
 #include "timeline/animated_number.hpp"
+#include "timeline/effect_params/blur.hpp"
+#include "timeline/effect_params/body_alpha_key.hpp"
+#include "timeline/effect_params/color.hpp"
+#include "timeline/effect_params/face_mosaic.hpp"
+#include "timeline/effect_params/face_sticker.hpp"
+#include "timeline/effect_params/inverse_tonemap.hpp"
+#include "timeline/effect_params/lut.hpp"
+#include "timeline/effect_params/tonemap.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -196,9 +216,10 @@ struct SubtitleClipParams {
 /* Typed effect parameter tagged union.
  *
  * VISION §3.2 forbids `Map<String, Float>`-shaped effect parameter
- * APIs. Each EffectKind has its own POD parameter struct; EffectSpec
+ * APIs. Each EffectKind has its own POD parameter struct living in
+ * its own sub-header (see top-of-file include block); EffectSpec
  * holds a std::variant over them so add-a-new-kind is a variant
- * extension + a parse branch, not a map entry.
+ * extension + a sub-header + a parse branch, not a map entry.
  *
  * Params are plain numbers (not AnimatedNumber) today — keyframed
  * effect params arrive with the `effect-param-animated` cycle once
@@ -208,212 +229,6 @@ struct SubtitleClipParams {
  * Ranges documented here are *semantic* and not loader-enforced —
  * downstream GPU effects clamp to their shader's valid domain.
  * Loader only enforces "required params present, types correct". */
-struct ColorEffectParams {
-    double brightness = 0.0;   /* ~[-1, +1]; 0 = identity */
-    double contrast   = 1.0;   /* ~[0, 2];   1 = identity */
-    double saturation = 1.0;   /* ~[0, 2];   1 = identity */
-};
-
-struct BlurEffectParams {
-    double radius = 0.0;       /* pixels; 0 = identity */
-};
-
-struct LutEffectParams {
-    std::string path;          /* .cube file path / URI; asset_ref
-                                * resolution deferred to LUT effect */
-};
-
-/* HDR → SDR tonemap effect parameters. Three industry-standard
- * curves; the host picks one + a target white point. M10 exit
- * criterion 6 (`tonemap-effect-hable`).
- *
- * Algorithms (all pure functions of the per-channel sample value;
- * no spatial neighbourhood read so they're trivially deterministic
- * and independent of stride/dimensions):
- *
- *   Hable    — Hable filmic ("Uncharted 2") curve. Strong
- *              highlight roll-off + gentle shadow lift; the
- *              colour-grader-favourite default.
- *   Reinhard — `x / (1 + x)`. Simplest, very gentle roll-off,
- *              good when the input is mildly over-bright but
- *              not aggressively HDR.
- *   ACES     — ACES filmic approximation (Knarkowicz fit).
- *              Closer to industry-standard ACES output but
- *              slightly clippy on saturated reds.
- *
- * `target_nits` (≈ 100 cd/m² for SDR Rec.709 displays) sets the
- * mapping reference: input values are interpreted as linear
- * luminance in [0, target_nits / 100] before the curve, then
- * scaled back to RGBA8 [0, 255]. Values > 0 only.
- *
- * Engine note. The compose path's working buffer is RGBA8 (per
- * `me::compose::frame_to_rgba8`), so this effect operates on
- * already-quantised SDR samples — it's a creative-look operation
- * within the SDR domain, with `target_nits` controlling how
- * aggressively highlights roll off. True HDR-precision (linear-
- * light float / RGBA16) tonemapping waits on the working-buffer
- * upgrade in M11+. The output is byte-identical for the same
- * input + algo + target_nits, so the deterministic-software-path
- * contract (VISION §3.1 / §5.3) holds today. */
-struct TonemapEffectParams {
-    enum class Algo : uint8_t {
-        Hable    = 0,
-        Reinhard = 1,
-        ACES     = 2,
-    };
-    Algo   algo        = Algo::Hable;
-    double target_nits = 100.0;   /* SDR Rec.709 display reference */
-};
-
-/* SDR → HDR inverse-tonemap effect parameters. The dual of
- * `TonemapEffectParams`. Per M10 exit criterion 6, the inverse
- * effect must be a REGISTERED kind even when the implementation
- * is intentionally deferred — so timeline JSON authoring tools
- * can include it ahead of the impl and the schema doesn't churn
- * later. The deferred impl is tracked under
- * `inverse-tonemap-effect-impl` (P2 backlog).
- *
- * Why this is non-deterministic. Inverse tonemap fundamentally
- * INVENTS information that the SDR input doesn't contain (specular
- * highlight detail collapsed onto byte 255, deep shadow texture
- * crushed into the bottom octave). Real implementations (HDR boost,
- * Dolby Content Mapping, etc.) use heuristics + neural networks
- * that are non-deterministic by construction; output depends on
- * GPU non-determinism, model weights at the time of call, etc.
- * `apply_inverse_tonemap_inplace` therefore returns
- * ME_E_UNSUPPORTED today (see kernel header) — VISION §3.1's
- * deterministic-software-path contract requires us NOT to ship a
- * non-deterministic op into the default chain.
- *
- * `target_peak_nits` (≈ 1000 nits is a typical HDR10 mastering
- * peak) sets where SDR byte 255 maps to in the linear luminance
- * domain. `algo` reserves space for future curve choices —
- * starting with `Hable` as the inverse of the M10 `tonemap`
- * default, plus a `Linear` that's a no-op identity for testing
- * the registration path before any real expansion lands. */
-struct InverseTonemapEffectParams {
-    enum class Algo : uint8_t {
-        Linear = 0,    /* identity passthrough — registers the kind without
-                        * doing any expansion (still ME_E_UNSUPPORTED today
-                        * per the determinism rule). */
-        Hable  = 1,    /* future: inverse of `TonemapEffectParams::Algo::Hable`. */
-    };
-    Algo   algo             = Algo::Linear;
-    double target_peak_nits = 1000.0;   /* HDR10 mastering peak default. */
-};
-
-/* M11 face-sticker effect — deferred impl. Consumes a Landmark asset
- * (Asset.kind == AssetKind::Landmark from cycle 28's IR work) by
- * `landmark_asset_id` reference plus a sticker image URI; positions
- * the sticker at face landmarks with optional scale/offset.
- *
- * Why deferred. The actual kernel needs an inference runtime that
- * consumes the landmark asset, plus a sticker-decoder kernel + a
- * compose-graph stage that overlays the sticker onto the RGBA8
- * frame. None of those exist pre-cycle 30. The registration here
- * lands the IR + JSON shape so timeline JSON authoring tools can
- * target `kind: "face_sticker"` ahead of the impl — same
- * registered-but-deferred pattern as `inverse_tonemap`'s pre-cycle
- * 24 state. The deferred impl is tracked as `face-sticker-impl` in
- * the P2 backlog (cycle 30 append).
- *
- * Defaults are "no-op"-ish so a misconfigured spec doesn't surprise
- * consumers: scale 1.0 means "use sticker's native size", offset 0
- * means "anchor at landmark centroid". When the impl lands, it
- * needs to define landmark-anchor-point semantics — typical
- * choices are landmark-bbox-centre (face_sticker style) or a
- * specific landmark index (e.g. nose-tip for nose-glasses
- * alignment). */
-struct FaceStickerEffectParams {
-    /* References an Asset.id with kind == AssetKind::Landmark.
-     * Loader does not validate the cross-reference at parse time —
-     * compose-time consumer resolves + rejects on miss. */
-    std::string landmark_asset_id;
-
-    /* Sticker image URI (PNG / WebP with alpha). Loaded lazily by
-     * the impl; format detection via libavformat's probe at first
-     * use. */
-    std::string sticker_uri;
-
-    /* Scale factor relative to the landmark bounding box. 1.0 =
-     * sticker fits the bbox; > 1 oversize, < 1 undersize. Independent
-     * X/Y so non-uniform stretching is possible (rarely useful but
-     * canonical). */
-    double      scale_x = 1.0;
-    double      scale_y = 1.0;
-
-    /* Pixel offset from landmark anchor (typically bbox centre).
-     * Positive X = rightward, positive Y = downward (image-space). */
-    double      offset_x = 0.0;
-    double      offset_y = 0.0;
-};
-
-/* M11 face-mosaic effect — deferred impl. Privacy-focused
- * counterpart to face_sticker: applies a per-block mosaic
- * (pixelation or blur) to the landmark's bounding-box region.
- * Common use: anonymise faces in user-uploaded video.
- *
- * Same registered-but-deferred shape as face_sticker (cycle 30).
- * Tracked under `face-mosaic-impl` in the BACKLOG. The compose
- * impl will resolve the landmark stream → bbox per frame →
- * apply pixelate/blur within the bbox; the algorithms themselves
- * are deterministic byte-math (mean over block × replicate, or
- * box-filter blur) so VISION §3.1 byte-identity holds. */
-struct FaceMosaicEffectParams {
-    enum class Kind : uint8_t {
-        Pixelate = 0,   /* mean over `block_size_px²` × replicate (mosaic look). */
-        Blur     = 1,   /* box filter at radius `block_size_px / 2`. */
-    };
-
-    /* References an Asset.id with kind == AssetKind::Landmark.
-     * Compose-time consumer resolves + rejects on miss. */
-    std::string landmark_asset_id;
-
-    /* Block size in pixels. Both algorithms use this as the unit
-     * size — Pixelate = mean of `block_size_px × block_size_px`
-     * tile replicated within the tile; Blur = effective radius
-     * `block_size_px / 2`. Default 16 = noticeable mosaic at
-     * face-sized bboxes (~200 px wide → 12 blocks across the
-     * face) without over-blurring at small bboxes. */
-    int  block_size_px = 16;
-
-    Kind kind          = Kind::Pixelate;
-};
-
-/* M11 body-alpha-key effect — deferred impl. Applies a portrait
- * segmentation mask (Asset.kind == AssetKind::Mask) as the
- * foreground alpha channel. Use case: green-screen-without-
- * greenscreen — drop the camera's natural background, composite
- * the subject onto a different layer.
- *
- * Different from face_sticker / face_mosaic: consumes a
- * `mask_asset_id` (AssetKind::Mask, cycle 28's IR work)
- * referencing a per-frame alpha sequence rather than landmarks.
- * Mask interpretation: 8-bit alpha per pixel; 0 = background
- * (output transparent), 255 = foreground (output opaque).
- *
- * Same registered-but-deferred shape as face_sticker / face_mosaic.
- * Tracked under `body-alpha-key-impl` in the BACKLOG. The compose
- * impl will: read mask[frame_t] → optionally invert → optionally
- * feather (box-blur the alpha edge by `feather_radius_px`) → write
- * mask × input.alpha into output.alpha. The byte-math is
- * deterministic; VISION §3.1 byte-identity holds. */
-struct BodyAlphaKeyEffectParams {
-    /* References an Asset.id with kind == AssetKind::Mask.
-     * Compose-time consumer resolves + rejects on miss. */
-    std::string mask_asset_id;
-
-    /* Soften the mask edge by box-blurring the alpha for this
-     * many pixels of radius. 0 = sharp edge (no feathering);
-     * common values 1..16 for screen-realistic anti-alias.
-     * Larger values smear the edge significantly. */
-    int  feather_radius_px = 0;
-
-    /* When true, invert the mask before applying — useful when
-     * the upstream segmentation labels foreground=0 instead of
-     * the convention here. */
-    bool invert            = false;
-};
 
 /* EffectKind enum. Stable once shipped — appending new kinds is ABI-
  * safe (new enum value + new variant alternative); reordering /
