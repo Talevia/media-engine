@@ -33,3 +33,18 @@ Debug=4194304
 Release=4194304
 RelWithDebInfo=4194304
 MinSizeRel=2097152
+
+# M11 ML inference runtime budget rows — sentinel scaffold from
+# cycle 27 (ml-inference-cmake-option). Active only when CMake is
+# configured with -DME_WITH_INFERENCE=ON; tests/CMakeLists.txt
+# appends the `_with_inference` suffix to $<CONFIG> in that case.
+# Sentinel ceilings (16 MB Release / 24 MB Debug) generous enough
+# for the planned CoreML adapter + ONNX-runtime CPU FP32 binding +
+# the engine's own bytes. Will tighten once the M11 runtime cycles
+# land and an actual measurement is recorded. Per the bumping
+# rule above, any ceiling adjustment requires a commit body
+# explaining the source of growth.
+Debug_with_inference=25165824
+Release_with_inference=16777216
+RelWithDebInfo_with_inference=16777216
+MinSizeRel_with_inference=8388608

@@ -86,6 +86,18 @@ option(ME_WITH_GPU       "Enable bgfx GPU backend (M3 Metal on macOS)" OFF)
 # expected `System.loadLibrary` contract.
 option(ME_BUILD_JNI      "Build JNI glue for JVM hosts (bindings/jni/)" OFF)
 
+# M11 ML inference runtime gate. OFF by default — keeps the core
+# link graph free of CoreML / ONNX-runtime / TFLite bytes when the
+# host doesn't need detection-driven effects. Flipping ON will
+# (when the M11 runtime cycles land) wire the inference runtime
+# selection (CoreML on macOS / iOS, ONNX-runtime cross-platform
+# CPU FP32 reference) and pull in the ml-asset schema + model
+# lazy-load callback. As of cycle 27 this is scaffolding only —
+# no inference code is gated by this flag yet; the option exists
+# so M11 work has a single switch to bind to + the lib_size_budget
+# guard reads `Release_with_inference` ceiling instead of `Release`.
+option(ME_WITH_INFERENCE "Enable ML inference runtime (M11)"            OFF)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
   if(ME_WERROR)

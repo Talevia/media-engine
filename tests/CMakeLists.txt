@@ -968,11 +968,22 @@ endif()
 # Skipped on Windows (bash-only script); the budget file is platform-
 # agnostic but the runner is not yet — Win-port is a follow-up.
 if(NOT WIN32)
+  # ME_WITH_INFERENCE selects an alternate budget row
+  # (Release_with_inference, etc.) so the M11 ML runtime can pull in
+  # CoreML / ONNX-runtime bytes without breaking the core-build
+  # ceiling. Single-config generators read CMAKE_BUILD_TYPE; multi-
+  # config (Xcode) substitutes via $<CONFIG>. Suffix is empty when
+  # the option is OFF — same row as today.
+  if(ME_WITH_INFERENCE)
+    set(_lib_size_config_suffix "_with_inference")
+  else()
+    set(_lib_size_config_suffix "")
+  endif()
   add_test(NAME lib_size_budget
            COMMAND bash
                    "${CMAKE_SOURCE_DIR}/tools/check_lib_size.sh"
                    "$<TARGET_FILE:media_engine>"
-                   "$<CONFIG>"
+                   "$<CONFIG>${_lib_size_config_suffix}"
                    "${CMAKE_SOURCE_DIR}/tools/lib_size_budget.txt")
   set_tests_properties(lib_size_budget PROPERTIES TIMEOUT 10)
 endif()
