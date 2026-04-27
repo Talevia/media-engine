@@ -10,8 +10,11 @@
 #include "orchestrator/reencode_audio.hpp"
 #include "orchestrator/reencode_video.hpp"
 
+#include <cstring>
+
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavcodec/packet.h>
 #include <libavformat/avformat.h>
 #include <libavutil/audio_fifo.h>
 #include <libavutil/mathematics.h>
@@ -120,6 +123,43 @@ me_status_t setup_h264_aac_encoder_mux(
 
         rc = avcodec_parameters_from_context(out_s->codecpar, venc.get());
         if (rc < 0) return fail(ME_E_INTERNAL, "params_from_context(video): " + me::io::av_err_str(rc));
+
+        /* Propagate HDR static metadata side data from the source
+         * stream's codecpar into the output stream's codecpar.
+         * `avcodec_parameters_from_context` (above) initialises
+         * `out_s->codecpar->coded_side_data` from the encoder's
+         * side data, which doesn't carry the source's mdcv / clli
+         * unless we explicitly attached it — for HEVC re-encode
+         * (cycle 11) we did NOT attach those, so the moov atom
+         * would lose `mdcv` / `clli` boxes vs. the input. Mirrors
+         * the side-data attachment that
+         * `tests/fixtures/gen_hdr_fixture.cpp` does on a fresh
+         * write; here we copy from the source side data instead.
+         *
+         * Limited to MASTERING_DISPLAY_METADATA + CONTENT_LIGHT_LEVEL
+         * — those are the two HDR static-metadata kinds the
+         * `me_hdr_static_metadata_t` C API surfaces. Other side-data
+         * kinds (display matrix, stereo3d) propagate via the
+         * existing av_packet_rescale_ts / packet copy paths and
+         * are out of scope. */
+        if (vsi0 >= 0) {
+            const AVCodecParameters* src_cp = ifmt0->streams[vsi0]->codecpar;
+            for (int i = 0; i < src_cp->nb_coded_side_data; ++i) {
+                const AVPacketSideData& sd = src_cp->coded_side_data[i];
+                if (sd.type != AV_PKT_DATA_MASTERING_DISPLAY_METADATA &&
+                    sd.type != AV_PKT_DATA_CONTENT_LIGHT_LEVEL) {
+                    continue;
+                }
+                AVPacketSideData* new_sd = av_packet_side_data_new(
+                    &out_s->codecpar->coded_side_data,
+                    &out_s->codecpar->nb_coded_side_data,
+                    sd.type, sd.size, 0);
+                if (!new_sd) return fail(ME_E_OUT_OF_MEMORY,
+                    "av_packet_side_data_new(HDR re-encode)");
+                std::memcpy(new_sd->data, sd.data, sd.size);
+            }
+        }
+
         out_s->avg_frame_rate = v0dec->framerate;
         out_s->r_frame_rate   = v0dec->framerate;
         out_shared.venc      = venc.get();

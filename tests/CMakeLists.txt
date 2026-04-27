@@ -83,6 +83,7 @@ set(_test_suites
   test_encode_hevc_main10
   test_tonemap_kernel
   test_inverse_tonemap_stub
+  test_hdr_metadata_propagate
   test_subtitle_renderer
   test_skia_backend
   test_text_renderer
@@ -348,6 +349,13 @@ target_compile_definitions(test_determinism PRIVATE
 # pattern as the SDR fixture deps above.
 add_dependencies(test_probe hdr_fixture)
 target_compile_definitions(test_probe PRIVATE
+  ME_TEST_FIXTURE_MP4_HDR="${_fixture_mp4_hdr}")
+
+# test_hdr_metadata_propagate exercises the full HDR re-encode
+# round-trip (probe HDR → render with video_codec="hevc" → re-probe).
+# Same fixture + skip pattern as test_probe's HDR positive case.
+add_dependencies(test_hdr_metadata_propagate hdr_fixture)
+target_compile_definitions(test_hdr_metadata_propagate PRIVATE
   ME_TEST_FIXTURE_MP4_HDR="${_fixture_mp4_hdr}")
 
 # test_probe reuses the determinism fixture — same build-time MP4 gives
