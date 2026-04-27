@@ -102,6 +102,26 @@ if(ME_BUILD_TESTS)
     RUN_SERIAL TRUE)
 endif()
 
+# bench_tonemap_kernel — full-frame 4K HDR→SDR tonemap throughput.
+# M10 added the apply_tonemap_inplace kernel (cycle 9); the
+# bullet `bench-perf-budget-coverage-expand` flagged that no
+# bench tracks its per-frame cost. Synthesises a 3840×2160
+# RGBA8 gradient + iterates the kernel + asserts avg < 80 ms.
+# No fixture — pure CPU byte math, self-contained. Reaches into
+# src/ for the kernel header (compose/tonemap_kernel.hpp) and
+# the typed params (timeline/timeline_ir_params.hpp).
+add_executable(bench_tonemap_kernel bench_tonemap_kernel.cpp)
+target_link_libraries(bench_tonemap_kernel PRIVATE
+  media_engine::media_engine)
+target_include_directories(bench_tonemap_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+if(ME_BUILD_TESTS)
+  add_test(NAME bench_tonemap_kernel COMMAND bench_tonemap_kernel)
+  set_tests_properties(bench_tonemap_kernel PROPERTIES
+    TIMEOUT 30
+    RUN_SERIAL TRUE)
+endif()
+
 # bench_hdr_roundtrip — M10 exit criterion 7 perf+correctness
 # harness for HDR pipelines. Mode A: HDR fixture → passthrough
 # render → re-probe → assert HDR side data round-trips. Mode B:
