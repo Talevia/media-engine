@@ -88,6 +88,7 @@ set(_test_suites
   test_decode_kernels
   test_io_decode_audio
   test_audio_resample_kernel
+  test_audio_mix_kernel
   test_scheduler_cache
   test_player
 )
@@ -620,6 +621,12 @@ target_compile_definitions(test_io_decode_audio PRIVATE
 target_include_directories(test_audio_resample_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_audio_resample_kernel PRIVATE
   FFMPEG::avutil FFMPEG::avcodec FFMPEG::swresample)
+
+# test_audio_mix_kernel constructs synthetic FLTP AVFrames to drive
+# the AudioMix kernel.
+target_include_directories(test_audio_mix_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_audio_mix_kernel PRIVATE
+  FFMPEG::avutil FFMPEG::avcodec)
 
 # test_scheduler_cache exercises sched::OutputCache (peek-before-dispatch +
 # bounded LRU). Uses mock kernels registered into the bootstrap test slots

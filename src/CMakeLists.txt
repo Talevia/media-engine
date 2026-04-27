@@ -287,6 +287,7 @@ add_library(media_engine STATIC
   audio/mixer_builder.cpp
   audio/resample.cpp
   audio/resample_kernel.cpp
+  audio/mix_kernel.cpp
   audio/track_feed.cpp
   compose/active_clips.cpp
   compose/affine_blit.cpp
