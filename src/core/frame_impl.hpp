@@ -1,10 +1,11 @@
 /* Internal — me_frame body (opaque via public header).
  *
- * Populated by `me::orchestrator::Previewer::frame_at`; consumed
- * by `me_frame_*` C API accessors in src/api/render.cpp.
- * RGBA8 row-major, stride == width × 4 always (simpler consumer
- * contract than a variable pitch — Previewer's sws_scale path
- * produces tightly-packed RGBA anyway). */
+ * Populated by `me_render_frame` (src/api/render.cpp), which wraps
+ * the RgbaFrameData produced by `me::orchestrator::compose_frame_at`
+ * (src/orchestrator/compose_frame.cpp). Consumed by `me_frame_*` C
+ * API accessors in the same file. RGBA8 row-major, stride == width
+ * × 4 always (simpler consumer contract than a variable pitch —
+ * the per-frame sws_scale path produces tightly-packed RGBA anyway). */
 #pragma once
 
 #include <cstdint>

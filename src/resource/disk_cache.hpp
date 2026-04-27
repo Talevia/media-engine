@@ -4,7 +4,7 @@
  *
  * M6 exit criterion "disk cache (cache_dir 配置生效)" foundation.
  * Engine-owned instance; consumer is the frame server
- * (Previewer::frame_at + future scrubbing cache layer).
+ * (me_render_frame + future scrubbing cache layer).
  *
  * Design:
  *   - One file per cached frame. Name = `<hex_hash>.bin` where

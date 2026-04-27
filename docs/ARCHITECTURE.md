@@ -24,8 +24,9 @@ src/                            Internal C++20 implementation (private)
   task/                         Kernel registry + TaskContext + TaskKindId + param schema
   scheduler/                    Task runtime — EvalInstance + Scheduler + heterogeneous pools
   resource/                     FramePool / CodecPool (bootstrap) + AssetHashCache + content_hash
-  orchestrator/                 Previewer (M6 stub) / Exporter (passthrough+h264 re-encode) /
-                                CompositionThumbnailer (M6 stub; C API asset thumbnail lives in api/)
+  orchestrator/                 Player (playback session) / Exporter (passthrough+h264 re-encode) /
+                                compose_frame.{hpp,cpp} (per-frame free functions for me_render_frame
+                                + composition PNG thumbnail; C API asset thumbnail lives in api/)
 
 docs/                           Design docs — VISION, this file, API.md, TIMELINE_SCHEMA.md,
                                 ARCHITECTURE_GRAPH.md, PAIN_POINTS.md
@@ -114,12 +115,12 @@ explicit `STUB:` marker in source (see `tools/check_stubs.sh`).
 | `src/core/` | **Shipped** | `struct me_engine` (FramePool / CodecPool / AssetHashCache / Scheduler owners), `me_version`, `me_status_str`, thread-local last-error plumbing. |
 | `src/api/` | **Shipped** | extern "C" adapters for every public header; exception / STL boundary discipline enforced. |
 | `src/timeline/` | **Shipped (phase-1 scope)** | JSON loader accepts single-track with N contiguous clips; non-zero sourceRange allowed; `contentHash` propagated. Segmentation scaffolding in place for future multi-segment graph compilation. |
-| `src/io/` | **Shipped** | `io::demux` kernel + `io::decode_video` kernel + `io::DemuxContext` RAII wrapper. Exporter consumes demux directly; Previewer consumes the demux + decode chain through the scheduler. |
+| `src/io/` | **Shipped** | `io::demux` kernel + `io::decode_video` kernel + `io::DemuxContext` RAII wrapper. Exporter consumes demux directly; the per-frame path (`compose_frame_at` / Player) consumes the demux + decode chain through the scheduler. |
 | `src/graph/` | **Shipped** | `Node` / `Graph` / `Graph::Builder` — immutable pure-data model with recursive `content_hash`. Each `Node` carries the `time_invariant` and `cacheable` flags mirrored from its `KindInfo`. |
 | `src/task/` | **Shipped** | `TaskKindId` registry, `TaskContext` (resource injection at dispatch), `KindInfo` with typed input/output/param schema + `cacheable` flag. Three production kernels registered: `IoDemux`, `IoDecodeVideo`, `RenderConvertRgba8`. |
 | `src/scheduler/` | **Shipped** | Taskflow-backed CPU scheduler, `evaluate_port<T>` entry, `EvalInstance`, heterogeneous pool routing by `Affinity`. `OutputCache` peek-before-dispatch on `(content_hash, time, port_idx)` per ARCHITECTURE_GRAPH §缓存集成; gated by `KindInfo::cacheable` so stateful-handle outputs (e.g. `IoDemux`'s AVFormatContext) bypass the cache. |
 | `src/resource/` | **Shipped (bootstrap)** | `FramePool` memory budget, `CodecPool` (stub body; actual codec caching lands with M4), `AssetHashCache` (URI → sha256 via libavutil), `content_hash` helper. |
-| `src/orchestrator/` | **Shipped (phase-1 scope)** | `Exporter` with passthrough concat (multi-clip) + h264/AAC re-encode (single-clip). `Previewer::frame_at` is the framework's first per-frame client — runs an `IoDemux + IoDecodeVideo + RenderConvertRgba8` graph through `scheduler.evaluate_port`; multi-track compose is a follow-up bullet (`previewer-multi-track-compose-graph`). `CompositionThumbnailer::png_at` reuses Previewer + scales/encodes PNG; the asset-level `me_thumbnail_png` in `src/api/` is fully implemented and bypasses both by design. |
+| `src/orchestrator/` | **Shipped (phase-1 scope)** | `Exporter` with passthrough concat (multi-clip) + h264/AAC re-encode (single-clip). `compose_frame.{hpp,cpp}` is the framework's first per-frame client — `compile_frame_graph` builds the `IoDemux + IoDecodeVideo + RenderConvertRgba8` graph that `me_render_frame` / `Player::producer_loop` / `compose_png_at` evaluate via the scheduler. Multi-track compose is the follow-up bullet (`per-frame-multi-track-compose-graph`). `compose_png_at` reuses `compose_frame_at` + scales + encodes PNG; the asset-level `me_thumbnail_png` in `src/api/` is fully implemented and bypasses by design. |
 
 ### Feature paths (cross-cutting)
 
@@ -130,7 +131,7 @@ explicit `STUB:` marker in source (see `tools/check_stubs.sh`).
 | `me_thumbnail_png` (asset-level) | **Shipped** | seek → decode → sws_scale RGB24 → libavcodec PNG. |
 | `me_render_start` passthrough | **Shipped** | Multi-clip single-track concat with DTS-continuity stitching; graph-driven demux per clip. |
 | `me_render_start` re-encode | **Shipped (single-clip, Mac)** | video=h264 via `h264_videotoolbox`, audio=aac (libavcodec built-in). Multi-clip path is a tracked backlog item (`reencode-multi-clip`). |
-| `me_render_frame` (frame server) | **Shipped (single-track)** | `Previewer::frame_at` runs a per-frame `IoDemux + IoDecodeVideo + RenderConvertRgba8` graph through the scheduler; cross-process repeats hit the `DiskCache` layer, in-process repeats hit the scheduler's `OutputCache`. Multi-track compose follow-up is `previewer-multi-track-compose-graph`. |
+| `me_render_frame` (frame server) | **Shipped (single-track)** | `src/api/render.cpp` calls `resolve_active_clip_at` + DiskCache peek + `compose_frame_at`, which runs the per-frame `IoDemux + IoDecodeVideo + RenderConvertRgba8` graph through the scheduler. Cross-process repeats hit the `DiskCache` layer, in-process repeats hit the scheduler's `OutputCache`. Multi-track compose follow-up is `per-frame-multi-track-compose-graph`. |
 | `me_cache_stats` / `me_cache_clear` / `me_cache_invalidate_asset` | Stubs → `cache-stats-impl` / `cache-clear-impl` / `cache-invalidate-impl` | Stats stub returns a valid zeroed struct; invalidation is a no-op. Real cache + observability land with M6 frame server. |
 | Determinism regression (passthrough) | **Shipped** | `test_determinism` renders the same timeline twice and byte-compares. |
 

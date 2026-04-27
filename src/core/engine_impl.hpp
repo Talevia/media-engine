@@ -30,8 +30,8 @@ struct me_engine {
     std::unique_ptr<me::resource::AssetHashCache>  asset_hashes;
     /* DiskCache populated iff me_engine_config_t.cache_dir is non-
      * null + non-empty. Disabled instance when absent (put/get
-     * silently no-op). Consumer is Previewer::frame_at's future
-     * cache-aware path (scrub-cache-reuse bullet). */
+     * silently no-op). Consumer is `me_render_frame`'s scrubbing
+     * cache-aware path (asset_hash:source_t key, src/api/render.cpp). */
     std::unique_ptr<me::resource::DiskCache>       disk_cache;
     std::unique_ptr<me::sched::Scheduler>          scheduler;
 };

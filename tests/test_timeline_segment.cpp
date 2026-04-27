@@ -1,9 +1,10 @@
 /*
  * test_timeline_segment — doctest coverage for me::timeline::segment().
  *
- * `timeline::segment()` is the IR-to-orchestrator boundary: every
- * orchestrator (Previewer / Exporter / CompositionThumbnailer) walks
- * the segment list to decide which per-segment Graph to compile. The
+ * `timeline::segment()` is the IR-to-orchestrator boundary: the
+ * Exporter (and a future multi-track variant of `compile_frame_graph`)
+ * walks the segment list to decide which per-segment Graph to
+ * compile. The
  * `03_timeline_segments` example covers the same scenarios with its own
  * hand-rolled CHECK macro + stdout output, but there was no CI tripwire
  * until this suite — a refactor of the event-time dedup or the "clip

@@ -1,13 +1,16 @@
 /*
- * test_composition_thumbnailer — composition-level PNG thumbnail.
+ * test_compose_png — composition-level PNG thumbnail (free-function path).
  *
- * Pins the composition-thumbnail-impl landing: CompositionThumbnailer::
- * png_at produces a valid PNG (PNG magic + IHDR present) from a
- * timeline that wraps the determinism fixture. Exercised via the
- * internal class directly (no C API exposure yet — see header).
+ * Pins `me::orchestrator::compose_png_at` (src/orchestrator/compose_frame.{hpp,cpp}):
+ * given a Timeline + a time, produce a valid PNG (PNG magic + IHDR
+ * dimensions match the request, with scale-to-bound preserving aspect).
+ * Replaces the earlier test_composition_thumbnailer that exercised
+ * the now-deleted `CompositionThumbnailer` C++ class — the path
+ * itself is unchanged, only the entry point flattened to a free
+ * function. Exercised internally; no public C API exposure yet.
  *
  * Asserts:
- *   - png_at returns ME_OK + non-NULL buffer + positive size.
+ *   - compose_png_at returns ME_OK + non-NULL buffer + positive size.
  *   - Output starts with the 8-byte PNG signature.
  *   - IHDR at offset 8..24 carries sane width/height bytes matching
  *     the request (native dims with max=0,0; scale-to-bound otherwise).
@@ -17,7 +20,7 @@
 
 #include <media_engine.h>
 
-#include "orchestrator/composition_thumbnailer.hpp"
+#include "orchestrator/compose_frame.hpp"
 #include "timeline/timeline_impl.hpp"
 
 #include <cstdint>
@@ -41,11 +44,6 @@ struct EngineHandle {
     ~EngineHandle() { if (p) me_engine_destroy(p); }
 };
 
-/* Build a trivial single-track timeline over the fixture URI. The
- * composition-thumbnailer is fed a shared_ptr<const Timeline>, so
- * we peek at the engine-internal Timeline through
- * `reinterpret_cast` — test lives inside src/ tree and already
- * includes timeline_impl.hpp. */
 std::string one_clip_timeline_json(const std::string& fixture_uri) {
     return std::string(R"({
       "schemaVersion": 1,
@@ -64,17 +62,9 @@ std::string one_clip_timeline_json(const std::string& fixture_uri) {
     })";
 }
 
-/* me_timeline's struct body is defined in src/timeline/timeline_impl.hpp
- * (included above). Build a shared_ptr<const Timeline> that aliases
- * the caller-owned handle — same no-op-deleter trick
- * src/api/render.cpp uses for its internal `borrow_timeline`. */
-std::shared_ptr<const me::Timeline> borrow_timeline(const me_timeline_t* h) {
-    return std::shared_ptr<const me::Timeline>(&h->tl, [](const me::Timeline*) {});
-}
-
 }  // namespace
 
-TEST_CASE("CompositionThumbnailer: NULL out params rejected") {
+TEST_CASE("compose_png_at: NULL out params rejected") {
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -84,16 +74,19 @@ TEST_CASE("CompositionThumbnailer: NULL out params rejected") {
     me_timeline_t* tl = nullptr;
     REQUIRE(me_timeline_load_json(eng.p, json.data(), json.size(), &tl) == ME_OK);
 
-    me::orchestrator::CompositionThumbnailer ct(eng.p, borrow_timeline(tl));
+    uint8_t*    buf = nullptr;
+    size_t      sz  = 0;
+    std::string err;
 
-    uint8_t* buf = nullptr;
-    size_t   sz  = 0;
-    CHECK(ct.png_at(me_rational_t{0, 1}, 0, 0, nullptr, &sz) == ME_E_INVALID_ARG);
-    CHECK(ct.png_at(me_rational_t{0, 1}, 0, 0, &buf, nullptr) == ME_E_INVALID_ARG);
-    /* Sanity: both non-NULL should succeed if the frame server
-     * can seek and decode. Skip on I/O failure — fixture may be
+    CHECK(me::orchestrator::compose_png_at(eng.p, tl->tl, me_rational_t{0, 1},
+                                            0, 0, nullptr, &sz, &err) == ME_E_INVALID_ARG);
+    CHECK(me::orchestrator::compose_png_at(eng.p, tl->tl, me_rational_t{0, 1},
+                                            0, 0, &buf, nullptr, &err) == ME_E_INVALID_ARG);
+    /* Sanity: both non-NULL should succeed if the frame server can
+     * seek and decode. Skip on I/O failure — fixture may be
      * incompatible (container mismatch, codec missing). */
-    const me_status_t s = ct.png_at(me_rational_t{0, 1}, 0, 0, &buf, &sz);
+    const me_status_t s = me::orchestrator::compose_png_at(
+        eng.p, tl->tl, me_rational_t{0, 1}, 0, 0, &buf, &sz, &err);
     if (s == ME_OK) {
         REQUIRE(buf != nullptr);
         CHECK(sz > 8);
@@ -104,13 +97,14 @@ TEST_CASE("CompositionThumbnailer: NULL out params rejected") {
         CHECK(buf[3] == 0x47);
         me_buffer_free(buf);
     } else {
-        MESSAGE("png_at native-dims status=" << static_cast<int>(s));
+        MESSAGE("compose_png_at native-dims status=" << static_cast<int>(s)
+                << " err=" << err);
     }
 
     me_timeline_destroy(tl);
 }
 
-TEST_CASE("CompositionThumbnailer: scale-to-bound preserves aspect") {
+TEST_CASE("compose_png_at: scale-to-bound preserves aspect") {
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
 
@@ -120,18 +114,17 @@ TEST_CASE("CompositionThumbnailer: scale-to-bound preserves aspect") {
     me_timeline_t* tl = nullptr;
     REQUIRE(me_timeline_load_json(eng.p, json.data(), json.size(), &tl) == ME_OK);
 
-    me::orchestrator::CompositionThumbnailer ct(eng.p, borrow_timeline(tl));
-
-    uint8_t* buf = nullptr;
-    size_t   sz  = 0;
+    uint8_t*    buf = nullptr;
+    size_t      sz  = 0;
+    std::string err;
     /* 160×120 bound — smaller than the 640×480 fixture. The output
      * should be a valid PNG; IHDR carries the actual dims in a
      * 4-byte big-endian chunk at offsets 16 (width) and 20 (height). */
-    const me_status_t s = ct.png_at(me_rational_t{1, 2}, 160, 120, &buf, &sz);
+    const me_status_t s = me::orchestrator::compose_png_at(
+        eng.p, tl->tl, me_rational_t{1, 2}, 160, 120, &buf, &sz, &err);
     if (s == ME_OK) {
         REQUIRE(buf != nullptr);
-        REQUIRE(sz >= 24);  /* magic + IHDR length + type + 4+4 WxH */
-        /* IHDR width: big-endian u32 at offset 16. */
+        REQUIRE(sz >= 24);
         const uint32_t w = (uint32_t(buf[16]) << 24) | (uint32_t(buf[17]) << 16)
                          | (uint32_t(buf[18]) <<  8) | (uint32_t(buf[19]));
         const uint32_t h = (uint32_t(buf[20]) << 24) | (uint32_t(buf[21]) << 16)
@@ -140,14 +133,13 @@ TEST_CASE("CompositionThumbnailer: scale-to-bound preserves aspect") {
         CHECK(w <= 160);
         CHECK(h > 0);
         CHECK(h <= 120);
-        /* Aspect preservation: 640×480 source → 4:3. Output should
-         * also be ~4:3 (within rounding). */
         const double a_src = 640.0 / 480.0;
         const double a_out = static_cast<double>(w) / static_cast<double>(h);
         CHECK(a_out == doctest::Approx(a_src).epsilon(0.02));
         me_buffer_free(buf);
     } else {
-        MESSAGE("png_at 160×120 status=" << static_cast<int>(s));
+        MESSAGE("compose_png_at 160×120 status=" << static_cast<int>(s)
+                << " err=" << err);
     }
 
     me_timeline_destroy(tl);

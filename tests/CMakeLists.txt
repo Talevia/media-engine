@@ -37,7 +37,7 @@ set(_test_suites
   test_output_sink
   test_probe
   test_thumbnail
-  test_composition_thumbnailer
+  test_compose_png
   test_frame_pool
   test_asset_reuse
   test_timeline_segment
@@ -282,13 +282,13 @@ target_compile_definitions(test_thumbnail PRIVATE
 # the internal class directly.
 target_include_directories(test_frame_pool PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-# test_composition_thumbnailer exercises CompositionThumbnailer::png_at
+# test_compose_png exercises me::orchestrator::compose_png_at
 # (composition-level thumbnail — distinct from me_thumbnail_png's
 # asset-level path). Reaches into src/ to instantiate the class
 # directly; no C API exposure yet.
-target_include_directories(test_composition_thumbnailer PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_dependencies(test_composition_thumbnailer determinism_fixture)
-target_compile_definitions(test_composition_thumbnailer PRIVATE
+target_include_directories(test_compose_png PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_dependencies(test_compose_png determinism_fixture)
+target_compile_definitions(test_compose_png PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
 
 # test_render_cancel exercises me_render_start → me_render_cancel →
@@ -538,8 +538,9 @@ if(ME_WITH_SKIA)
 endif()
 
 # test_frame_server uses the deterministic fixture MP4 to verify
-# the M6 frame-server path (me_render_frame → Previewer::frame_at
-# → RGBA8 me_frame). Pure C API consumption — no src/ include.
+# the M6 frame-server path (me_render_frame → resolve_active_clip_at
+# + DiskCache + compose_frame_at → RGBA8 me_frame). Pure C API
+# consumption — no src/ include.
 add_dependencies(test_frame_server determinism_fixture)
 target_compile_definitions(test_frame_server PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}")

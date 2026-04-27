@@ -88,7 +88,7 @@ extern "C" me_status_t me_cache_invalidate_asset(me_engine_t* engine, const char
     if (engine->asset_hashes) {
         engine->asset_hashes->invalidate_by_hash(h);
     }
-    /* Cascade to DiskCache — Previewer keys frame entries as
+    /* Cascade to DiskCache — me_render_frame keys frame entries as
      * `<asset_hash>:<source_time>`, so invalidating by asset_hash
      * prefix removes all cached frames derived from this asset. */
     if (engine->disk_cache) {

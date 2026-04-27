@@ -1,7 +1,7 @@
 /*
  * test_frame_server — pixel-proof tests for the M6 frame-server
- * core path (me_render_frame → Previewer::frame_at → RGBA8
- * me_frame).
+ * core path (me_render_frame → resolve_active_clip_at + DiskCache
+ * peek + compose_frame_at → RGBA8 me_frame).
  *
  * Uses the determinism_fixture MP4 (2s / 30fps deterministic
  * video) wrapped in a single-clip timeline. Asserts dimensions
@@ -162,7 +162,7 @@ TEST_CASE("me_render_frame: dimensions match fixture W×H") {
 /* ------------------------------------------------------------------
  * Cache stats + scrubbing reuse — the coupled M6 criteria.
  * These tests enable cache_dir on the engine so DiskCache is
- * populated by Previewer::frame_at.
+ * populated by me_render_frame's DiskCache write-through.
  * ------------------------------------------------------------------ */
 
 TEST_CASE("me_cache_stats: hit/miss counters advance on scrub-back") {

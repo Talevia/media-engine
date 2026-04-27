@@ -17,7 +17,7 @@ See `docs/ARCHITECTURE_GRAPH.md` §Task 运行时与 Kernel 注册 for the contr
 
 ## 计划中的 kinds（由各自 backlog 实装）
 
-随各自 feature 增长；orchestrator 走的主路径（passthrough / reencode / compose）目前不依赖 kernel 注册外的额外 kinds——Previewer / Exporter / ComposeSink 直接调 io / compose / reencode 函数。Graph eval 只深用 `IoDemux` 一个 kernel。
+随各自 feature 增长；orchestrator 走的主路径（passthrough / reencode / compose）目前不依赖 kernel 注册外的额外 kinds——Exporter / ComposeSink 直接调 io / compose / reencode 函数。Graph eval 只深用 `IoDemux` 一个 kernel。Path (a) per-frame（`compose_frame_at` / Player）也只走 `IoDemux + IoDecodeVideo + RenderConvertRgba8`。
 
 ## 边界
 

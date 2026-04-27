@@ -1,9 +1,10 @@
 /*
  * SegmentCache — maps timeline::Segment.boundary_hash → compiled Graph.
  *
- * Bootstrap scope: just the type + a thread-safe map. Used by Previewer
- * and Exporter to avoid recompiling the same graph structure for every
- * frame within a segment, and across segments whose active sets match.
+ * Bootstrap scope: just the type + a thread-safe map. Used by Exporter
+ * (and a future multi-track variant of `compile_frame_graph`) to avoid
+ * recompiling the same graph structure for every frame within a
+ * segment, and across segments whose active sets match.
  *
  * Currently per-orchestrator (no cross-orchestrator sharing, per plan
  * decision 2026-04-22-architecture-graph.md).

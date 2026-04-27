@@ -1,36 +1,28 @@
 # src/orchestrator/
 
-**职责**：接 Timeline，按段切分 + 缓存 per-segment Graph，在 Graph 之上组织多帧处理。各自带状态（encoder / muxer / throttle 策略），不污染 Graph。
+**职责**：接 Timeline，按段切分 + 缓存 per-segment Graph，在 Graph 之上组织多帧处理。各自带状态（encoder / muxer / 时钟），不污染 Graph。
 
-See `docs/ARCHITECTURE_GRAPH.md` §用户面 API + §批编码 for the contract.
+See `docs/ARCHITECTURE_GRAPH.md` §三种执行模型 + §用户面 API for the contract.
 
-## 当前状态
+## 当前形状（按执行模型）
 
-**Scaffolded, impl incoming**——本目录只有这个 README。具体文件由 backlog `orchestrator-bootstrap` 实装。
+| 路径 | 文件 | 用途 |
+|---|---|---|
+| (a) per-frame | `compose_frame.{hpp,cpp}` | 自由函数 `resolve_active_clip_at` / `compile_frame_graph` / `compose_frame_at` / `compose_png_at`。无类、无状态。 |
+| (b) streaming | `exporter.{hpp,cpp}` + `output_sink.*` + `compose_sink.*` + `audio_only_sink.*` + `muxer_state.*` + `reencode_*` | 批编码 / passthrough / re-encode；持 EncoderState + MuxerState 跨帧。 |
+| (c) playback session | `player.{hpp,cpp}` + `playback_clock.{hpp,cpp}` + `video_frame_ring.{hpp,cpp}` | 组合 (a)+(b)+ 内部时钟；有 producer / pacer / audio_producer 三线程。 |
+| 共享 | `segment_cache.{hpp,cpp}` | `SegmentKey → shared_ptr<Graph>` 缓存。 |
 
-## 计划的文件
+## 路径 (a) 是自由函数，不是类
 
-- `previewer.hpp` / `previewer.cpp` — 单帧 / latency-first；未来加 skip-on-miss
-- `exporter.hpp` / `exporter.cpp` — 批编码 / throughput-first；持 `EncoderState / MuxerState`；lookahead pipeline
-- `composition_thumbnailer.hpp` / `composition_thumbnailer.cpp` — **composition-level** 单帧 → PNG（timeline + 时间 → 渲染后一帧）；按 `max_w / max_h` 保比缩放。**不是 asset-level thumbnail**——后者是 `src/api/thumbnail.cpp` 里的 C API 直连 demux+decode+encode 管线，不走 orchestrator
-- `segment_cache.hpp` / `segment_cache.cpp` — 轻量 `SegmentKey → shared_ptr<Graph>` 缓存；当前 per-orchestrator 持有
+历史上有过 `Previewer` 与 `CompositionThumbnailer` 两个类承载这条路径。它们都只有一个方法、零跨调用状态——本质是带 `(engine*, tl)` 两个成员的函数。删掉后剩下的 `compose_frame.{hpp,cpp}` 就是这条路径的全部。
 
-## 三者的共同形态
+调用者：
+- `me_render_frame` (`src/api/render.cpp`) — 单帧 RGBA + DiskCache
+- `Player::producer_loop` — 实时播放，inline 调 `resolve_active_clip_at` + `compile_frame_graph`，不走 `compose_frame_at` 因为需要保留 in-flight Future 给 seek 取消
+- `compose_png_at` 自己 — 内部调 `compose_frame_at` + libsws scale + libavcodec PNG encode
 
-```cpp
-class <Orchestrator> {
-public:
-    <Orchestrator>(me_engine_t*, std::shared_ptr<const timeline::Timeline>);
-    Future<T> <action>(…);
-
-private:
-    me_engine_t*                              engine_;
-    std::shared_ptr<const timeline::Timeline> tl_;
-    SegmentCache                              graph_cache_;
-};
-```
-
-统一模式：`find_segment(t)` → `graph_cache_.get_or_compile(seg)` → `scheduler.evaluate_port(g, terminal, ctx{t})`。
+未来要做多轨 compose（backlog `previewer-multi-track-compose-graph`），改 `compile_frame_graph` 一处，三家都受益。
 
 ## 边界
 
@@ -39,3 +31,4 @@ private:
 - ❌ 不解析 Timeline JSON（timeline module 的事）
 - ❌ 不管 GPU / 线程池（scheduler / resource 的事）
 - ❌ **不是 editor**——交互编辑是 talevia 宿主的责任，orchestrator 不维护 mutable 状态，也不响应 user events
+- ❌ Player **不画 surface**——窗口 / widget / 绘制目标在宿主；引擎只承担"此刻该是哪一帧 / 哪段音频"

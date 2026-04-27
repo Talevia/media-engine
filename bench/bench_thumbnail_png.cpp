@@ -3,7 +3,8 @@
  *
  * me_thumbnail_png is one of M1's earliest C APIs (asset-level
  * thumbnail path in src/api/thumbnail.cpp, distinct from the
- * composition-level CompositionThumbnailer). Host scrub-row UIs
+ * composition-level path that lives in
+ * src/orchestrator/compose_frame.cpp::compose_png_at). Host scrub-row UIs
  * hit it at list-display cadence; a perf regression would surface
  * as janky scrubbing lists days / weeks after shipping.
  *

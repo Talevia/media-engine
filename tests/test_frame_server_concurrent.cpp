@@ -3,8 +3,9 @@
  * safety when multiple UI-scrub threads hit a shared engine +
  * timeline at once.
  *
- * `src/api/render.cpp:95` instantiates a fresh Previewer per
- * me_render_frame call, and the engine's shared services
+ * `src/api/render.cpp::me_render_frame` is stateless — each
+ * call walks resolve + DiskCache + compose_frame_at independently —
+ * and the engine's shared services
  * (AssetHashCache, DiskCache, CodecPool) all carry their own
  * mutexes. That makes concurrent scrubbing safe *in theory*;
  * this suite pins the claim empirically.

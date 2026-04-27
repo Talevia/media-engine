@@ -11,12 +11,12 @@
  * wrap path hosts would use for lower-third captions / overlay
  * text. All M5 features exercised via only the public C API.
  *
- * Why not me_render_frame? — Previewer's phase-1 frame server
- * walks the bottom track's active clip only (see
- * src/orchestrator/previewer.cpp's clip lookup). Multi-track
- * composite-through-preview is a deferred feature. So text-clip
- * rendering today goes through the compose sink, which runs via
- * me_render_start with video_codec=h264, audio_codec=aac.
+ * Why not me_render_frame? — the per-frame path's phase-1 active-
+ * clip lookup walks the bottom track only (see
+ * src/orchestrator/compose_frame.cpp::resolve_active_clip_at).
+ * Multi-track composite-through-preview is a deferred feature. So
+ * text-clip rendering today goes through the compose sink, which
+ * runs via me_render_start with video_codec=h264, audio_codec=aac.
  *
  * Usage:
  *   09_text_clip <source.mp4> <output.mp4>

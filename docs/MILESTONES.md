@@ -82,7 +82,7 @@
 
 ## M8 — Playback session（preview player + A/V sync）
 
-**目标**：Previewer 从单帧 frame-server 升级为 timeline 预览播放——引擎内部持有时钟、A/V sync、play/pause/seek 状态机，宿主只负责把帧 / 音频 chunk 上屏 / 喂音频设备。`me_render_frame` 单帧路径保持兼容。
+**目标**：在已有的单帧 frame-server (`me_render_frame`) 之上新增 timeline 预览播放——引擎内部持有时钟、A/V sync、play/pause/seek 状态机，宿主只负责把帧 / 音频 chunk 上屏 / 喂音频设备。`me_render_frame` 单帧路径保持兼容。
 
 ### Exit criteria
 

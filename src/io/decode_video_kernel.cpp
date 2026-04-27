@@ -27,7 +27,8 @@ namespace {
 /* Decode forward from the seek position until we hit a frame with
  * pts >= target_pts_stb (in the video stream's time_base). On EOF
  * without reaching target, returns the latest frame we got (target
- * is past stream end, mirroring previewer.cpp's behavior). */
+ * is past stream end). Same hit-or-keep policy that the legacy
+ * Previewer used pre-graph-migration. */
 me_status_t decode_frame_at(AVFormatContext* fmt,
                             int              video_stream_idx,
                             AVCodecContext*  dec,
@@ -71,10 +72,9 @@ me_status_t decode_frame_at(AVFormatContext* fmt,
             if (rc < 0) return ME_E_DECODE;
 
             /* Hit-or-keep policy: keep latest frame seen and stop once
-             * we cross target_pts_stb. This mirrors previewer.cpp's
-             * behavior — if seek lands behind a key frame and we
-             * decode a few B/P frames before reaching target, we
-             * still return the right one. */
+             * we cross target_pts_stb. If seek lands behind a key
+             * frame and we decode a few B/P frames before reaching
+             * target, we still return the right one. */
             out_frame.reset(av_frame_clone(fr.get()));
             av_frame_unref(fr.get());
             if (out_frame->pts != AV_NOPTS_VALUE &&

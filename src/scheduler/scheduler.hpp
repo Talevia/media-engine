@@ -34,7 +34,7 @@ namespace me::sched {
 struct Config {
     int  cpu_threads     = 0;      /* 0 = hardware_concurrency */
     /* OutputCache capacity (entries). 0 disables caching; default sized
-     * for typical Previewer scrubbing workloads. Per-frame RGBA at 4K
+     * for typical scrubbing workloads. Per-frame RGBA at 4K
      * (~33 MB) × 256 ≈ 8 GB worst case; common 720p (~3.7 MB) × 256
      * ≈ 950 MB. Tune down via Engine config when memory is tight. */
     std::size_t output_cache_capacity = 256;

@@ -326,9 +326,7 @@ add_library(media_engine STATIC
   orchestrator/encoder_mux_setup.cpp
   orchestrator/frame_puller.cpp
   orchestrator/exporter.cpp
-  orchestrator/previewer.cpp
-  orchestrator/previewer_graph.cpp
-  orchestrator/composition_thumbnailer.cpp
+  orchestrator/compose_frame.cpp
   orchestrator/playback_clock.cpp
   orchestrator/video_frame_ring.cpp
   orchestrator/player.cpp

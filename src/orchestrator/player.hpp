@@ -80,16 +80,6 @@ private:
      * seek / shutdown). */
     void notify_state_changed_locked();
 
-    /* Resolve the active video clip + asset URI + clip-local source
-     * time at timeline-coordinate `t`. Mirrors Previewer::frame_at's
-     * single-bottom-track lookup; multi-track compose is the same
-     * follow-up that lifts Previewer (see BACKLOG
-     * `previewer-multi-track-compose-graph`). Returns ME_OK with
-     * outputs populated, ME_E_NOT_FOUND if no clip covers `t`. */
-    me_status_t resolve_active_clip(me_rational_t       t,
-                                     std::string*       out_uri,
-                                     me_rational_t*     out_source_t) const;
-
     /* Open one DemuxContext per audio clip via the IoDemux kernel
      * (mirrors Exporter's per-clip demux fan-out at exporter.cpp:215).
      * Slot is null for non-audio clips. Lifetime spans the player —

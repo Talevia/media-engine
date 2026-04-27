@@ -8,7 +8,7 @@
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
 #include "io/ffmpeg_raii.hpp"
-#include "orchestrator/previewer_graph.hpp"
+#include "orchestrator/compose_frame.hpp"
 #include "scheduler/scheduler.hpp"
 #include "task/task_kind.hpp"
 #include "timeline/timeline_impl.hpp"
@@ -33,11 +33,11 @@ namespace me::orchestrator {
 namespace {
 
 /* ---- Rational helpers ---------------------------------------------------
- * The arithmetic in this file uses the same cross-multiply pattern as
- * Previewer::frame_at to stay int64 throughout — the surrounding
- * timeline values are already int64 numerators / denominators, and
- * promoting to double here would smuggle in float imprecision against
- * which docs/VISION.md §3.1 explicitly cautions. */
+ * The arithmetic uses cross-multiply on the int64 num / den fields to
+ * stay rational throughout — promoting to double here would smuggle in
+ * float imprecision against which docs/VISION.md §3.1 explicitly
+ * cautions. (The active-clip lookup in compose_frame.cpp uses the
+ * same pattern.) */
 
 me_rational_t r_add(me_rational_t a, me_rational_t b) {
     if (a.den <= 0) a.den = 1;
@@ -267,56 +267,6 @@ void Player::notify_state_changed_locked() {
     state_cv_.notify_all();
 }
 
-/* ---------------------------------------------------- timeline lookup */
-
-me_status_t Player::resolve_active_clip(me_rational_t       t,
-                                         std::string*       out_uri,
-                                         me_rational_t*     out_source_t) const {
-    if (!tl_ || tl_->tracks.empty() || tl_->clips.empty()) {
-        return ME_E_NOT_FOUND;
-    }
-    if (t.den <= 0) t.den = 1;
-    if (t.num <  0) t.num = 0;
-
-    /* Phase-1 single-bottom-track lookup (mirrors Previewer:32-65). */
-    const std::string& bottom_id = tl_->tracks[0].id;
-    const me::Clip*    active    = nullptr;
-    me_rational_t      clip_local{0, 1};
-
-    for (const auto& c : tl_->clips) {
-        if (c.track_id != bottom_id) continue;
-
-        const int64_t e_num = c.time_start.num * c.time_duration.den +
-                              c.time_duration.num * c.time_start.den;
-        const int64_t e_den = c.time_start.den * c.time_duration.den;
-
-        const bool ge_start =
-            t.num * c.time_start.den >= c.time_start.num * t.den;
-        const bool lt_end =
-            t.num * e_den < e_num * t.den;
-        if (!ge_start || !lt_end) continue;
-
-        active = &c;
-        clip_local = me_rational_t{
-            t.num * c.time_start.den - c.time_start.num * t.den,
-            t.den * c.time_start.den,
-        };
-        break;
-    }
-    if (!active) return ME_E_NOT_FOUND;
-
-    auto a_it = tl_->assets.find(active->asset_id);
-    if (a_it == tl_->assets.end()) return ME_E_NOT_FOUND;
-
-    *out_uri = a_it->second.uri;
-    *out_source_t = me_rational_t{
-        active->source_start.num * clip_local.den +
-            clip_local.num * active->source_start.den,
-        active->source_start.den * clip_local.den,
-    };
-    return ME_OK;
-}
-
 /* ---------------------------------------------------- audio setup */
 
 me_status_t Player::open_audio_demuxes(std::string* err) {
@@ -532,13 +482,25 @@ void Player::producer_loop() {
             epoch_start = seek_epoch_;
         }
 
-        /* Compile + evaluate. resolve_active_clip + the inline
+        /* Compile + evaluate. resolve_active_clip_at + the inline
          * scheduler submission below are both blocking; the slow
          * piece is the await on the decode + sws_scale graph. The
-         * scheduler's OutputCache absorbs repeats. */
-        std::string  uri;
-        me_rational_t source_t{0, 1};
-        const me_status_t lookup = resolve_active_clip(cursor, &uri, &source_t);
+         * scheduler's OutputCache absorbs repeats.
+         *
+         * Player can't use the convenience compose_frame_at()
+         * because that does submit+await as one shot — Player needs
+         * to publish the in-flight Future for cooperative cancel on
+         * seek. So it uses the lower-level primitives directly. */
+        if (!tl_) {
+            std::unique_lock<std::mutex> lk(mu_);
+            if (shutdown_) return;
+            state_cv_.wait_for(lk, std::chrono::milliseconds(50));
+            continue;
+        }
+        ResolvedClip resolved;
+        const me_status_t lookup = resolve_active_clip_at(*tl_, cursor, &resolved);
+        const std::string&  uri      = resolved.uri;
+        const me_rational_t source_t = resolved.source_t;
 
         if (lookup == ME_E_NOT_FOUND) {
             /* Gap inside the timeline. Advance one frame and try
