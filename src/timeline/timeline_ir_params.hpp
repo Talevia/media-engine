@@ -348,11 +348,43 @@ struct FaceStickerEffectParams {
     double      offset_y = 0.0;
 };
 
+/* M11 face-mosaic effect — deferred impl. Privacy-focused
+ * counterpart to face_sticker: applies a per-block mosaic
+ * (pixelation or blur) to the landmark's bounding-box region.
+ * Common use: anonymise faces in user-uploaded video.
+ *
+ * Same registered-but-deferred shape as face_sticker (cycle 30).
+ * Tracked under `face-mosaic-impl` in the BACKLOG. The compose
+ * impl will resolve the landmark stream → bbox per frame →
+ * apply pixelate/blur within the bbox; the algorithms themselves
+ * are deterministic byte-math (mean over block × replicate, or
+ * box-filter blur) so VISION §3.1 byte-identity holds. */
+struct FaceMosaicEffectParams {
+    enum class Kind : uint8_t {
+        Pixelate = 0,   /* mean over `block_size_px²` × replicate (mosaic look). */
+        Blur     = 1,   /* box filter at radius `block_size_px / 2`. */
+    };
+
+    /* References an Asset.id with kind == AssetKind::Landmark.
+     * Compose-time consumer resolves + rejects on miss. */
+    std::string landmark_asset_id;
+
+    /* Block size in pixels. Both algorithms use this as the unit
+     * size — Pixelate = mean of `block_size_px × block_size_px`
+     * tile replicated within the tile; Blur = effective radius
+     * `block_size_px / 2`. Default 16 = noticeable mosaic at
+     * face-sized bboxes (~200 px wide → 12 blocks across the
+     * face) without over-blurring at small bboxes. */
+    int  block_size_px = 16;
+
+    Kind kind          = Kind::Pixelate;
+};
+
 /* EffectKind enum. Stable once shipped — appending new kinds is ABI-
  * safe (new enum value + new variant alternative); reordering /
  * removing kinds is not. JSON tags ("color", "blur", "lut",
- * "tonemap", "inverse_tonemap", "face_sticker") live in
- * loader_helpers.cpp's dispatch; add entries in lock-step. */
+ * "tonemap", "inverse_tonemap", "face_sticker", "face_mosaic") live
+ * in loader_helpers.cpp's dispatch; add entries in lock-step. */
 enum class EffectKind : uint8_t {
     Color           = 0,
     Blur            = 1,
@@ -360,6 +392,7 @@ enum class EffectKind : uint8_t {
     Tonemap         = 3,
     InverseTonemap  = 4,
     FaceSticker     = 5,
+    FaceMosaic      = 6,
 };
 
 struct EffectSpec {
@@ -381,12 +414,12 @@ struct EffectSpec {
 
     /* Typed params by EffectKind. The variant's index must match the
      * kind enum's underlying value (Color → 0, Blur → 1, Lut → 2,
-     * Tonemap → 3, InverseTonemap → 4, FaceSticker → 5) so consumers
-     * can `std::get_if<ColorEffectParams>(&spec.params)` without
-     * re-checking kind. Loader enforces the invariant. */
+     * Tonemap → 3, InverseTonemap → 4, FaceSticker → 5, FaceMosaic →
+     * 6) so consumers can `std::get_if<ColorEffectParams>(&spec.params)`
+     * without re-checking kind. Loader enforces the invariant. */
     std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams,
                  TonemapEffectParams, InverseTonemapEffectParams,
-                 FaceStickerEffectParams>
+                 FaceStickerEffectParams, FaceMosaicEffectParams>
         params{ColorEffectParams{}};
 };
 

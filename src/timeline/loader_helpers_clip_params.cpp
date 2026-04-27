@@ -174,11 +174,45 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
             fp.offset_y = p.at("offsetY").get<double>();
         }
         spec.params = fp;
+    } else if (kind_str == "face_mosaic") {
+        /* M11 ml-effect-face-mosaic-stub. Reserves the API surface
+         * for the privacy-focused per-block mosaic / blur within
+         * landmark bboxes. Loader stores the typed params; the
+         * kernel (compose/face_mosaic_kernel.cpp) returns
+         * ME_E_UNSUPPORTED today — see `face-mosaic-impl` for the
+         * deferred impl. Same registered-but-deferred pattern as
+         * face_sticker (cycle 30). */
+        spec.kind = me::EffectKind::FaceMosaic;
+        me::FaceMosaicEffectParams fmp;
+        require(p.contains("landmarkAssetId") && p["landmarkAssetId"].is_string(),
+                ME_E_PARSE,
+                where + ".params.landmarkAssetId: required string field "
+                "(references an Asset.id with kind=landmark)");
+        fmp.landmark_asset_id = p.at("landmarkAssetId").get<std::string>();
+        if (p.contains("blockSizePx")) {
+            require(p["blockSizePx"].is_number_integer(), ME_E_PARSE,
+                    where + ".params.blockSizePx: expected integer");
+            const int64_t b = p.at("blockSizePx").get<int64_t>();
+            require(b > 0 && b <= 1024, ME_E_PARSE,
+                    where + ".params.blockSizePx: out of range (1..1024)");
+            fmp.block_size_px = static_cast<int>(b);
+        }
+        if (p.contains("kind")) {
+            require(p["kind"].is_string(), ME_E_PARSE,
+                    where + ".params.kind: expected string");
+            const auto kk = p.at("kind").get<std::string>();
+            if      (kk == "pixelate") fmp.kind = me::FaceMosaicEffectParams::Kind::Pixelate;
+            else if (kk == "blur")     fmp.kind = me::FaceMosaicEffectParams::Kind::Blur;
+            else throw LoadError{ME_E_PARSE,
+                where + ".params.kind: unknown '" + kk +
+                "' (supported: pixelate, blur)"};
+        }
+        spec.params = fmp;
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
                         "' (supported: color, blur, lut, tonemap, inverse_tonemap, "
-                        "face_sticker)"};
+                        "face_sticker, face_mosaic)"};
     }
     return spec;
 }
