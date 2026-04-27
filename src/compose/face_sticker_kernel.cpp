@@ -28,13 +28,9 @@ me_status_t apply_face_sticker_inplace(
     if (params.landmark_asset_id.empty()) return ME_E_INVALID_ARG;
     if (params.sticker_uri.empty())       return ME_E_INVALID_ARG;
 
-    // STUB: face-sticker-impl — backlog P2 bullet defines the
-    // deferred landmark-driven sticker overlay (needs M11 inference
-    // runtime + sticker decoder + affine compose stage). Today the
-    // kind is registered + parsed but the kernel intentionally
-    // returns UNSUPPORTED so hosts can compile JSON against the
-    // schema without accidentally shipping a no-op into the default
-    // chain.
+    /* STUB: face-sticker-impl — deferred until M11 inference runtime
+     * + sticker decoder + affine compose stage land. Registered now
+     * so JSON authoring tools can target the kind ahead of the impl. */
     return ME_E_UNSUPPORTED;
 }
 
