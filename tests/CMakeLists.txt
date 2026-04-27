@@ -59,6 +59,7 @@ set(_test_suites
   test_compose_sink_e2e_subtitle
   test_frame_server_concurrent
   test_compose_affine_blit
+  test_render_affine_blit
   test_audio_track_feed
   test_audio_mixer
   test_effect_chain
@@ -152,6 +153,12 @@ target_include_directories(test_compose_cross_dissolve PRIVATE ${CMAKE_SOURCE_DI
 
 # test_compose_affine_blit pins the affine matrix + blit kernel math.
 target_include_directories(test_compose_affine_blit PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_render_affine_blit exercises the RenderAffineBlit kernel ABI
+# (graph::Properties → InputValue → OutputSlot). Reaches into src/
+# for task/registry + graph/types — the C API doesn't expose graph
+# evaluation, by design.
+target_include_directories(test_render_affine_blit PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_audio_resample constructs synthetic AVFrames to drive
 # me::audio::resample_to — needs libav headers + src/ include.

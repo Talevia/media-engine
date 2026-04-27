@@ -1,4 +1,5 @@
 #include "media_engine/engine.h"
+#include "compose/affine_blit_kernel.hpp"
 #include "compose/convert_rgba8_kernel.hpp"
 #include "core/engine_impl.hpp"
 #include "io/decode_video_kernel.hpp"
@@ -23,6 +24,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::io::register_demux_kind();
         me::io::register_decode_video_kind();
         me::compose::register_convert_rgba8_kind();
+        me::compose::register_affine_blit_kind();
     });
 
     auto* e = new (std::nothrow) me_engine{};
