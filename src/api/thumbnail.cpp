@@ -128,6 +128,9 @@ extern "C" me_status_t me_thumbnail_png(
         if (out_w != native_w || out_h != native_h) {
             auto blit_fn = me::task::best_kernel_for(
                 me::task::TaskKindId::RenderAffineBlit, me::task::Affinity::Cpu);
+            /* LEGIT: defensive — engines without the standard CPU
+             * AffineBlit registration (custom embed) hit this
+             * path. UNSUPPORTED is the right shape. */
             if (!blit_fn) return ME_E_UNSUPPORTED;
 
             me::graph::Properties bp;
@@ -153,6 +156,8 @@ extern "C" me_status_t me_thumbnail_png(
         /* Stage 3: PNG encode via RenderEncodePng kernel. */
         auto enc_fn = me::task::best_kernel_for(
             me::task::TaskKindId::RenderEncodePng, me::task::Affinity::Cpu);
+        /* LEGIT: kernel registry has no CPU EncodePng binding —
+         * same defensive guard as the AffineBlit lookup above. */
         if (!enc_fn) return ME_E_UNSUPPORTED;
 
         me::graph::InputValue enc_in;

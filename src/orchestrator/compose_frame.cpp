@@ -363,6 +363,10 @@ me_status_t compose_png_at(me_engine*           engine,
     if (out_w != src_w || out_h != src_h) {
         auto blit_fn = task::best_kernel_for(
             task::TaskKindId::RenderAffineBlit, task::Affinity::Cpu);
+        /* LEGIT: kernel registry has no CPU AffineBlit binding.
+         * Defensive — same shape as src/api/thumbnail.cpp:131's
+         * lookup. Engines built without the standard compose kind
+         * registration would hit this path. */
         if (!blit_fn) return ME_E_UNSUPPORTED;
 
         graph::Properties bp;
@@ -388,6 +392,8 @@ me_status_t compose_png_at(me_engine*           engine,
     /* Stage 3: PNG encode via RenderEncodePng kernel. */
     auto enc_fn = task::best_kernel_for(
         task::TaskKindId::RenderEncodePng, task::Affinity::Cpu);
+    /* LEGIT: kernel registry has no CPU EncodePng binding — same
+     * defensive guard as src/api/thumbnail.cpp:156's lookup. */
     if (!enc_fn) return ME_E_UNSUPPORTED;
 
     graph::InputValue enc_in;

@@ -109,6 +109,9 @@ me_status_t Player::play(float rate) {
     /* Rate ≠ 1.0 needs SoundTouch tempo + frame skip/repeat — separate
      * milestone. Reject up front so a host doesn't silently end up at
      * 1× when asking for 2×. */
+    // STUB: player-rate-not-one — backlog P2 bullet defines the
+    // 0.5..2.0 forward variable-rate impl (skip/repeat + audio
+    // tempo); negative rate is its own follow-up.
     if (rate != 1.0f) return ME_E_UNSUPPORTED;
     clock_.play(rate);
     {

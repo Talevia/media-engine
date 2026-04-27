@@ -67,6 +67,9 @@ me_status_t encode_png_kernel(task::TaskContext&,
     /* Step 2: libavcodec PNG encode. One-shot context; PNG encoder
      * emits a single packet per frame. */
     const AVCodec* png_enc = avcodec_find_encoder(AV_CODEC_ID_PNG);
+    /* LEGIT: FFmpeg build without a PNG encoder. Stock libavcodec
+     * ships one in every default build; the rejection is a defensive
+     * guard for stripped-down ship bundles. */
     if (!png_enc) return ME_E_UNSUPPORTED;
     EncPtr enc(avcodec_alloc_context3(png_enc));
     if (!enc) return ME_E_OUT_OF_MEMORY;

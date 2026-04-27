@@ -42,6 +42,9 @@ extern "C" me_status_t me_player_create(
     if (cfg.master_clock == ME_CLOCK_EXTERNAL) {
         me::detail::set_error(engine,
             "me_player_create: ME_CLOCK_EXTERNAL not implemented this milestone");
+        // STUB: player-clock-external — backlog P2 bullet defines
+        // the me_player_set_external_clock_callback impl that
+        // unblocks this branch.
         return ME_E_UNSUPPORTED;
     }
 

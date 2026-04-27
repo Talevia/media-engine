@@ -108,9 +108,16 @@ me_status_t decode_video_kernel(task::TaskContext&                 ctx,
 
     AVFormatContext* fmt = demux.fmt;
     const int vs = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    /* LEGIT: source has no video stream. Caller passed an audio-only
+     * asset (or a wrong-asset routing bug at the orchestrator
+     * level); UNSUPPORTED surfaces the mismatch as classifier
+     * input rather than decode failure. */
     if (vs < 0) return ME_E_UNSUPPORTED;
     AVStream* vstream = fmt->streams[vs];
     const AVCodec* dec_codec = avcodec_find_decoder(vstream->codecpar->codec_id);
+    /* LEGIT: FFmpeg build lacks a decoder for the source's codec_id.
+     * Stripped-down LGPL bundles can omit niche codecs (e.g. wmv3,
+     * theora). Mirrors track_feed.cpp's audio-side LEGIT comment. */
     if (!dec_codec) return ME_E_UNSUPPORTED;
 
     /* CodecPool may be null in unit-test contexts that build a Scheduler

@@ -101,9 +101,14 @@ me_status_t decode_audio_kernel(task::TaskContext&                 ctx,
 
     AVFormatContext* fmt = demux.fmt;
     const int as = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    /* LEGIT: source has no audio stream. Mirrors the video-side
+     * LEGIT in decode_video_kernel.cpp. */
     if (as < 0) return ME_E_UNSUPPORTED;
     AVStream* astream = fmt->streams[as];
     const AVCodec* dec_codec = avcodec_find_decoder(astream->codecpar->codec_id);
+    /* LEGIT: FFmpeg build lacks a decoder for the source's audio
+     * codec_id. Same shape as track_feed.cpp:90's pre-existing
+     * LEGIT and the new video-side LEGIT above. */
     if (!dec_codec) return ME_E_UNSUPPORTED;
 
     /* CodecPool reuse pattern matches IoDecodeVideo — null pool is
