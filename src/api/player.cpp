@@ -39,15 +39,12 @@ extern "C" me_status_t me_player_create(
     me_player_config_t cfg{};
     if (config) cfg = *config;
 
-    if (cfg.master_clock == ME_CLOCK_EXTERNAL) {
-        me::detail::set_error(engine,
-            "me_player_create: ME_CLOCK_EXTERNAL not implemented this milestone");
-        // STUB: player-clock-external — backlog P2 bullet defines
-        // the me_player_set_external_clock_callback impl that
-        // unblocks this branch.
-        return ME_E_UNSUPPORTED;
-    }
-
+    /* ME_CLOCK_EXTERNAL is wired via me_player_set_external_clock_callback
+     * (queryable by the pacer through PlaybackClock::current). Until the
+     * host registers a callback the player falls back to WALL projection
+     * — this matches the AUDIO master "cold-start fallback" shape so a
+     * mis-configured host gets a degraded-but-running player rather than
+     * a dead-clock stall. */
     auto wrapper = std::make_unique<me_player>();
     wrapper->impl = std::make_unique<me::orchestrator::Player>(
                         engine, borrow_timeline(timeline), cfg);
@@ -73,6 +70,14 @@ extern "C" me_status_t me_player_set_audio_callback(
     void*               user) {
     if (!p || !p->impl) return ME_E_INVALID_ARG;
     return p->impl->set_audio_callback(cb, user);
+}
+
+extern "C" me_status_t me_player_set_external_clock_callback(
+    me_player_t*                  p,
+    me_player_external_clock_cb   cb,
+    void*                         user) {
+    if (!p || !p->impl) return ME_E_INVALID_ARG;
+    return p->impl->set_external_clock_callback(cb, user);
 }
 
 extern "C" me_status_t me_player_play(me_player_t* p, float rate) {

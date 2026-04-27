@@ -61,6 +61,8 @@ public:
     /* C API surface — implementations match me_player_*. */
     me_status_t   set_video_callback(me_player_video_cb cb, void* user);
     me_status_t   set_audio_callback(me_player_audio_cb cb, void* user);
+    me_status_t   set_external_clock_callback(me_player_external_clock_cb cb,
+                                                void* user);
     me_status_t   play(float rate);
     me_status_t   pause();
     me_status_t   seek(me_rational_t time);

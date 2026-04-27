@@ -40,6 +40,16 @@ public:
      * call when master == AUDIO; ignored otherwise (no-op). */
     void report_audio_playhead(me_rational_t t);
 
+    /* Host-supplied external clock callback. Stored under mu_ but
+     * INVOKED without the lock to keep host code off our critical
+     * path (pacer calls current() at ~100 Hz, so a slow host
+     * callback under-lock would serialise everything). cb=NULL
+     * clears. Used only when kind_ == ME_CLOCK_EXTERNAL; for other
+     * kinds the call is accepted but the stored callback is never
+     * queried (matches report_audio_playhead's no-op-on-wrong-kind
+     * shape). */
+    void set_external_clock(me_player_external_clock_cb cb, void* user);
+
     /* Where is the playhead right now (timeline coordinates)?
      * - AUDIO: latest audio playhead if any has been reported, else
      *   WALL projection (cold-start fallback).
@@ -66,6 +76,13 @@ private:
      * WALL projection. */
     bool                        has_audio_ph_ = false;
     me_rational_t               audio_ph_{0, 1};
+
+    /* EXTERNAL master: host callback. Both pointers default null —
+     * before set_external_clock is called, kind_ == ME_CLOCK_EXTERNAL
+     * falls back to WALL projection so a misconfigured host doesn't
+     * deadlock the pacer. */
+    me_player_external_clock_cb ext_cb_   = nullptr;
+    void*                       ext_user_ = nullptr;
 };
 
 }  // namespace me::orchestrator

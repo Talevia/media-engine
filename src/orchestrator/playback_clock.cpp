@@ -66,7 +66,35 @@ void PlaybackClock::report_audio_playhead(me_rational_t t) {
     has_audio_ph_ = true;
 }
 
+void PlaybackClock::set_external_clock(me_player_external_clock_cb cb, void* user) {
+    std::lock_guard<std::mutex> lk(mu_);
+    ext_cb_   = cb;
+    ext_user_ = user;
+}
+
 me_rational_t PlaybackClock::current() const {
+    /* EXTERNAL master: snapshot the callback pair under lock, then
+     * release before invoking — host code runs without our mutex
+     * held so a slow callback can't serialise other clock methods.
+     * Cold-start (no callback yet) falls through to WALL so the
+     * pacer doesn't sit on a dead clock. */
+    if (kind_ == ME_CLOCK_EXTERNAL) {
+        me_player_external_clock_cb cb;
+        void*                       user;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            cb   = ext_cb_;
+            user = ext_user_;
+        }
+        if (cb) {
+            me_rational_t t = cb(user);
+            if (t.den <= 0) t.den = 1;
+            if (t.num <  0) t.num = 0;
+            return t;
+        }
+        /* fall through to WALL */
+    }
+
     std::lock_guard<std::mutex> lk(mu_);
     if (kind_ == ME_CLOCK_AUDIO && has_audio_ph_) return audio_ph_;
     return wall_project_locked(SteadyClock::now());

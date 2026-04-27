@@ -227,6 +227,20 @@ me_status_t Player::set_audio_callback(me_player_audio_cb cb, void* user) {
     return ME_OK;
 }
 
+me_status_t Player::set_external_clock_callback(me_player_external_clock_cb cb,
+                                                  void* user) {
+    /* Storage lives on PlaybackClock — `current()` reads the pair
+     * under its own mutex on every pacer tick, so we don't snapshot
+     * here. cb=NULL clears (resets to WALL fallback). */
+    clock_.set_external_clock(cb, user);
+    /* Wake any waiting threads in case the registration toggles
+     * EXTERNAL's "no callback yet" → "callback now". The pacer's
+     * wait_for window is short enough that this is belt-and-suspenders,
+     * but cheap. */
+    state_cv_.notify_all();
+    return ME_OK;
+}
+
 void Player::notify_state_changed_locked() {
     state_cv_.notify_all();
 }

@@ -58,8 +58,13 @@ typedef enum me_master_clock_kind {
      * no audio device or only video matters. */
     ME_CLOCK_WALL     = 2,
 
-    /* Reserved — host-driven external clock. Not implemented this
-     * milestone; create() returns ME_E_UNSUPPORTED. */
+    /* Host-driven external clock (e.g. SMPTE LTC, MIDI clock,
+     * cross-process IPC). The host calls
+     * me_player_set_external_clock_callback before me_player_play;
+     * the engine calls that callback whenever the pacer needs the
+     * current time. Until a callback is set, current() falls back
+     * to WALL projection, so an unwired ME_CLOCK_EXTERNAL behaves
+     * like ME_CLOCK_WALL with a freshly-seeded anchor. */
     ME_CLOCK_EXTERNAL = 3
 } me_master_clock_kind_t;
 
@@ -137,6 +142,24 @@ me_status_t me_player_set_audio_callback(
     me_player_t*        p,
     me_player_audio_cb  cb,
     void*               user);
+
+/* Required by ME_CLOCK_EXTERNAL. The pacer thread calls `cb(user)`
+ * whenever it needs the current playhead in timeline coordinates
+ * (typically every ~10 ms while playing). The callback MUST be
+ * lock-free + fast — blocking it stalls video pacing. Return
+ * monotonic non-decreasing values across calls; a regression looks
+ * like a backward seek to the engine and trips the pacer's
+ * "drop-stale" branch. Setting cb=NULL clears the callback;
+ * subsequent queries fall back to WALL projection until a fresh
+ * callback is registered. May be called any time; the change is
+ * picked up on the next pacer tick. No-op for non-EXTERNAL master
+ * clocks (registered but never queried). */
+typedef me_rational_t (*me_player_external_clock_cb)(void* user);
+
+me_status_t me_player_set_external_clock_callback(
+    me_player_t*                  p,
+    me_player_external_clock_cb   cb,
+    void*                         user);
 
 /* --- Transport ----------------------------------------------------------- */
 

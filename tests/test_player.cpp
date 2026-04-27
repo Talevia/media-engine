@@ -217,6 +217,96 @@ TEST_CASE("me_player: play(2.0) advances the master clock at 2× wall rate") {
     CHECK(dt <= 0.25);
 }
 
+/* ----------------------------------------------------- external clock */
+
+namespace {
+struct ExternalClockState {
+    std::atomic<int64_t> num{0};
+    int64_t den = 1000;   /* ms-resolution */
+
+    static me_rational_t cb(void* user) {
+        auto* s = static_cast<ExternalClockState*>(user);
+        return me_rational_t{s->num.load(), s->den};
+    }
+};
+}  // namespace
+
+TEST_CASE("me_player: ME_CLOCK_EXTERNAL create succeeds (no longer ME_E_UNSUPPORTED)") {
+    PlayerFixture f;
+    me_player_config_t pc{};
+    pc.audio_out.sample_rate = 0;
+    pc.master_clock          = ME_CLOCK_EXTERNAL;
+    /* Pre-cycle 21 this branch returned ME_E_UNSUPPORTED; cycle 21
+     * wired the host callback path so creation succeeds and current()
+     * falls back to WALL projection until set_external_clock_callback
+     * is called. */
+    REQUIRE(f.make_player(&pc) == ME_OK);
+}
+
+TEST_CASE("me_player: external clock — current_time tracks host callback") {
+    PlayerFixture f;
+    me_player_config_t pc{};
+    pc.audio_out.sample_rate = 0;
+    pc.master_clock          = ME_CLOCK_EXTERNAL;
+    REQUIRE(f.make_player(&pc) == ME_OK);
+
+    /* Cold start: no callback set yet. current() falls back to WALL
+     * projection — paused at 0 since play() hasn't fired. */
+    CHECK(rat_to_sec(me_player_current_time(f.player)) == 0.0);
+
+    ExternalClockState s;
+    REQUIRE(me_player_set_external_clock_callback(
+                f.player, &ExternalClockState::cb, &s) == ME_OK);
+
+    /* After registration: current() invokes the callback verbatim. */
+    s.num.store(1500);   /* 1.5 s */
+    CHECK(rat_to_sec(me_player_current_time(f.player)) == 1.5);
+
+    s.num.store(3250);   /* 3.25 s */
+    CHECK(rat_to_sec(me_player_current_time(f.player)) == 3.25);
+
+    /* Clearing the callback (cb=NULL) reverts to WALL fallback. */
+    REQUIRE(me_player_set_external_clock_callback(f.player, nullptr, nullptr)
+                == ME_OK);
+    /* WALL is paused (no play called) → 0. */
+    CHECK(rat_to_sec(me_player_current_time(f.player)) == 0.0);
+}
+
+TEST_CASE("me_player: external clock drives video pacer") {
+    /* Same shape as the report_audio_playhead pacer test: the pacer
+     * must consult current() (= the external callback) when deciding
+     * whether to present a queued slot. With a callback that ramps
+     * past the timeline duration, frames flow through and land in
+     * the host video_cb. */
+    FrameCapture  cap;
+    PlayerFixture f;
+    me_player_config_t pc{};
+    pc.audio_out.sample_rate = 0;
+    pc.master_clock          = ME_CLOCK_EXTERNAL;
+    pc.video_ring_capacity   = 3;
+    REQUIRE(f.make_player(&pc) == ME_OK);
+
+    REQUIRE(me_player_set_video_callback(f.player, &FrameCapture::cb, &cap)
+                == ME_OK);
+    ExternalClockState s;
+    REQUIRE(me_player_set_external_clock_callback(
+                f.player, &ExternalClockState::cb, &s) == ME_OK);
+
+    /* play() admits rate=1.0; the pacer consults the external
+     * callback for "now" — by ramping s.num steadily we simulate a
+     * host clock advancing in real time. */
+    REQUIRE(me_player_play(f.player, 1.0f) == ME_OK);
+
+    /* Drive the external clock forward over ~250 ms wall, asserting
+     * that frames flow through. The clock advances 250 ms → ~7-8
+     * frames at 30 fps, but accept any positive count. */
+    for (int i = 0; i < 25; ++i) {
+        s.num.fetch_add(10);   /* +10 ms per tick */
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(cap.count.load() > 0);
+}
+
 TEST_CASE("me_player: destroy mid-playback joins cleanly") {
     FrameCapture  cap;
     PlayerFixture f;
