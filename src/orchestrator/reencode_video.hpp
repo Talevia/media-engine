@@ -23,16 +23,34 @@ extern "C" {
 
 namespace me::orchestrator::detail {
 
-/* Open `h264_videotoolbox` sized / framed to match the decoded stream.
- * NV12 is the native VideoToolbox surface format; callers stage an
- * sws_scale into NV12 when the decoded pix_fmt differs. `global_header`
- * must be true when the output container has AVFMT_GLOBALHEADER (MP4/MOV)
- * — must be set before avcodec_open2. */
+/* Open a VideoToolbox video encoder sized / framed to match the
+ * decoded stream. Dispatches on `video_codec`:
+ *
+ *   - `""` or `"h264"` → `h264_videotoolbox` + NV12 (8-bit Rec.709 SDR
+ *     ship path; predates the M10 HEVC work).
+ *   - `"hevc"`        → `hevc_videotoolbox` + P010 (10-bit, M10 HDR ship
+ *     path per `encode-hevc-main10-hw`). Accepts SDR sources too —
+ *     libswscale upsamples 8→10 in the existing convert path.
+ *
+ * Color tags (range / primaries / TRC / matrix) propagate from the
+ * decoder so HDR sources tagged BT.2020 + PQ surface as HDR10
+ * end-to-end. VideoToolbox emits the matching ST 2086 / CTA-861.3
+ * SEI from those tags automatically; explicit MasteringDisplay /
+ * ContentLight side-data attachment for custom values lands with a
+ * future cycle.
+ *
+ * Callers stage an sws_scale into the encoder's pix_fmt when the
+ * decoded pix_fmt differs (the existing `shared.venc_pix` plumb).
+ * `global_header` must be true when the output container has
+ * AVFMT_GLOBALHEADER (MP4/MOV) — must be set before avcodec_open2.
+ *
+ * Unknown / unsupported `video_codec` → ME_E_UNSUPPORTED with diag. */
 me_status_t open_video_encoder(me::resource::CodecPool&     pool,
                                const AVCodecContext*        dec,
                                AVRational                   stream_time_base,
                                int64_t                      bitrate_bps,
                                bool                         global_header,
+                               const std::string&           video_codec,
                                me::resource::CodecPool::Ptr& out_enc,
                                AVPixelFormat&               out_target_pix,
                                std::string*                 err);

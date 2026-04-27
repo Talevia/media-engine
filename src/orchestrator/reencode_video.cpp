@@ -22,12 +22,37 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
                                AVRational                    stream_time_base,
                                int64_t                       bitrate_bps,
                                bool                          global_header,
+                               const std::string&            video_codec,
                                me::resource::CodecPool::Ptr& out_enc,
                                AVPixelFormat&                out_target_pix,
                                std::string*                  err) {
-    const AVCodec* enc = avcodec_find_encoder_by_name("h264_videotoolbox");
+    /* Dispatch table — kept tight so the hot path stays branch-free
+     * after first-call dispatch. The two tuples below are ABI-locked:
+     * adding a new HW path means a new tuple, never editing the
+     * existing ones (callers depend on the documented pix_fmt
+     * contract). */
+    const bool is_hevc = (video_codec == "hevc");
+    const char* const  enc_name = is_hevc ? "hevc_videotoolbox"
+                                          : "h264_videotoolbox";
+    const AVPixelFormat enc_pix  = is_hevc ? AV_PIX_FMT_P010LE
+                                           : AV_PIX_FMT_NV12;
+    /* HEVC default bitrate is higher than h264 because Main10 sources
+     * carry more bits per pixel (10 vs 8) and HDR10 content needs
+     * higher fidelity to avoid banding on bright gradients. 12 Mbps
+     * matches the recommended floor for 1080p30 HDR10 in the
+     * Apple ProRes / VideoToolbox bitrate tables. */
+    const int64_t default_bitrate = is_hevc ? 12'000'000 : 6'000'000;
+
+    if (!video_codec.empty() && video_codec != "h264" && !is_hevc) {
+        if (err) *err = "open_video_encoder: unsupported video_codec '" +
+                        video_codec + "' (expected '' / 'h264' / 'hevc')";
+        return ME_E_UNSUPPORTED;
+    }
+
+    const AVCodec* enc = avcodec_find_encoder_by_name(enc_name);
     if (!enc) {
-        if (err) *err = "encoder h264_videotoolbox not available in this FFmpeg build";
+        if (err) *err = std::string{"encoder "} + enc_name +
+                        " not available in this FFmpeg build";
         /* LEGIT: Linux / Windows hosts lack videotoolbox; reject with
          * a clear diagnostic so callers know the platform gate. */
         return ME_E_UNSUPPORTED;
@@ -37,34 +62,42 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
 
     ctx->width               = dec->width;
     ctx->height              = dec->height;
-    ctx->pix_fmt             = AV_PIX_FMT_NV12;
+    ctx->pix_fmt             = enc_pix;
     ctx->time_base           = stream_time_base;
     ctx->framerate           = dec->framerate;
     ctx->sample_aspect_ratio = dec->sample_aspect_ratio;
+    /* Color tags propagate verbatim from the decoder. For HDR sources
+     * tagged BT.2020 + PQ the resulting `color_primaries` /
+     * `color_trc` / `colorspace` cause `hevc_videotoolbox` to emit ST
+     * 2086 mastering-display + CTA-861.3 content-light SEI from the
+     * codec's defaults. Custom mastering-display values (host-supplied
+     * MaxCLL / MaxFALL / chromaticities) flow via packet side-data in
+     * a future cycle (`test-hdr-metadata-propagate`). */
     ctx->color_range         = dec->color_range;
     ctx->color_primaries     = dec->color_primaries;
     ctx->color_trc           = dec->color_trc;
     ctx->colorspace          = dec->colorspace;
-    ctx->bit_rate            = (bitrate_bps > 0) ? bitrate_bps : 6'000'000;
-    /* MP4 / MOV need extradata carried in the container's 'avcC' box, not
-     * prefixed to keyframes — MUST be set before avcodec_open2. */
+    ctx->bit_rate            = (bitrate_bps > 0) ? bitrate_bps
+                                                  : default_bitrate;
+    /* MP4 / MOV need extradata carried in the container's 'avcC' / 'hvcC'
+     * box, not prefixed to keyframes — MUST be set before avcodec_open2. */
     if (global_header) ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     /* Hint to the encoder / its helpers to avoid baking libav version
      * strings into extradata or packets. Paired with AVFMT_FLAG_BITEXACT
      * on the muxer — see test_determinism / decision
-     * 2026-04-23-debt-render-bitexact-flags. h264_videotoolbox is a HW
-     * encoder so this flag is advisory; it's still worth passing for the
-     * software-path intent and for other encoders future re-encode paths
-     * may pick up. */
+     * 2026-04-23-debt-render-bitexact-flags. videotoolbox is HW so
+     * this flag is advisory; it's still worth passing for the software-
+     * path intent and for other encoders future re-encode paths may
+     * pick up. */
     ctx->flags |= AV_CODEC_FLAG_BITEXACT;
 
     int rc = avcodec_open2(ctx.get(), enc, nullptr);
     if (rc < 0) {
-        if (err) *err = "open h264_videotoolbox: " + av_err_str(rc);
+        if (err) *err = std::string{"open "} + enc_name + ": " + av_err_str(rc);
         return ME_E_ENCODE;
     }
     out_enc = std::move(ctx);
-    out_target_pix = AV_PIX_FMT_NV12;
+    out_target_pix = enc_pix;
     return ME_OK;
 }
 

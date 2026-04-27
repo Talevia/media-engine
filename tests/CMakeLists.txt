@@ -80,6 +80,7 @@ set(_test_suites
   test_tempo
   test_audio_effect_chain
   test_reencode_pts_remap
+  test_encode_hevc_main10
   test_subtitle_renderer
   test_skia_backend
   test_text_renderer
@@ -560,6 +561,13 @@ target_include_directories(test_audio_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/s
 # codec contexts.
 target_include_directories(test_reencode_pts_remap PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_reencode_pts_remap PRIVATE
+  FFMPEG::avutil FFMPEG::avcodec)
+
+# test_encode_hevc_main10 calls open_video_encoder directly via the
+# detail:: namespace + needs libavcodec to allocate AVCodecContexts.
+# Same shape as test_reencode_pts_remap above.
+target_include_directories(test_encode_hevc_main10 PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_encode_hevc_main10 PRIVATE
   FFMPEG::avutil FFMPEG::avcodec)
 
 # test_subtitle_renderer exercises me::text::SubtitleRenderer
