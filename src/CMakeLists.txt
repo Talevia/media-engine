@@ -343,6 +343,7 @@ add_library(media_engine STATIC
   orchestrator/video_frame_ring.cpp
   orchestrator/player.cpp
   orchestrator/player_audio_producer.cpp
+  orchestrator/player_transport.cpp
   api/engine.cpp
   api/timeline.cpp
   api/render.cpp
