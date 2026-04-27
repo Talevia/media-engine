@@ -331,6 +331,7 @@ Loaded effect kinds (as of `timeline-loader-effect-parse`, 2026-04-24) — see `
 - `color` — `brightness: number` (default 0), `contrast: number` (default 1), `saturation: number` (default 1). All optional; omitted fields use identity defaults.
 - `blur` — `radius: number` (required).
 - `lut` — `lutPath: string` (required). Asset-ref resolution is the LUT effect's responsibility; today it's a raw path string.
+- `tonemap` — `algo: string` (default `"hable"`; one of `"hable" | "reinhard" | "aces"`), `targetNits: number` (default 100, must be > 0). Industry-standard HDR→SDR curves applied per-channel to the RGBA8 working buffer; alpha is pass-through. Output is byte-deterministic for a fixed input + algo + targetNits. CPU kernel: `src/compose/tonemap_kernel.cpp`.
 
 The IR carries these in `me::Clip::effects` as a typed `std::variant` by kind. GPU effect consumers land with follow-up `effect-gpu-*` bullets. `cross_dissolve` is a separate section (§Transition) — not a clip effect.
 

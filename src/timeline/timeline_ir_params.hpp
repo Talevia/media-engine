@@ -223,14 +223,58 @@ struct LutEffectParams {
                                 * resolution deferred to LUT effect */
 };
 
+/* HDR → SDR tonemap effect parameters. Three industry-standard
+ * curves; the host picks one + a target white point. M10 exit
+ * criterion 6 (`tonemap-effect-hable`).
+ *
+ * Algorithms (all pure functions of the per-channel sample value;
+ * no spatial neighbourhood read so they're trivially deterministic
+ * and independent of stride/dimensions):
+ *
+ *   Hable    — Hable filmic ("Uncharted 2") curve. Strong
+ *              highlight roll-off + gentle shadow lift; the
+ *              colour-grader-favourite default.
+ *   Reinhard — `x / (1 + x)`. Simplest, very gentle roll-off,
+ *              good when the input is mildly over-bright but
+ *              not aggressively HDR.
+ *   ACES     — ACES filmic approximation (Knarkowicz fit).
+ *              Closer to industry-standard ACES output but
+ *              slightly clippy on saturated reds.
+ *
+ * `target_nits` (≈ 100 cd/m² for SDR Rec.709 displays) sets the
+ * mapping reference: input values are interpreted as linear
+ * luminance in [0, target_nits / 100] before the curve, then
+ * scaled back to RGBA8 [0, 255]. Values > 0 only.
+ *
+ * Engine note. The compose path's working buffer is RGBA8 (per
+ * `me::compose::frame_to_rgba8`), so this effect operates on
+ * already-quantised SDR samples — it's a creative-look operation
+ * within the SDR domain, with `target_nits` controlling how
+ * aggressively highlights roll off. True HDR-precision (linear-
+ * light float / RGBA16) tonemapping waits on the working-buffer
+ * upgrade in M11+. The output is byte-identical for the same
+ * input + algo + target_nits, so the deterministic-software-path
+ * contract (VISION §3.1 / §5.3) holds today. */
+struct TonemapEffectParams {
+    enum class Algo : uint8_t {
+        Hable    = 0,
+        Reinhard = 1,
+        ACES     = 2,
+    };
+    Algo   algo        = Algo::Hable;
+    double target_nits = 100.0;   /* SDR Rec.709 display reference */
+};
+
 /* EffectKind enum. Stable once shipped — appending new kinds is ABI-
  * safe (new enum value + new variant alternative); reordering /
- * removing kinds is not. JSON tags ("color", "blur", "lut") live in
- * loader_helpers.cpp's dispatch; add entries in lock-step. */
+ * removing kinds is not. JSON tags ("color", "blur", "lut",
+ * "tonemap") live in loader_helpers.cpp's dispatch; add entries in
+ * lock-step. */
 enum class EffectKind : uint8_t {
-    Color = 0,
-    Blur  = 1,
-    Lut   = 2,
+    Color   = 0,
+    Blur    = 1,
+    Lut     = 2,
+    Tonemap = 3,
 };
 
 struct EffectSpec {
@@ -251,10 +295,12 @@ struct EffectSpec {
     AnimatedNumber mix = AnimatedNumber::from_static(1.0);
 
     /* Typed params by EffectKind. The variant's index must match the
-     * kind enum's underlying value (Color → 0, Blur → 1, Lut → 2) so
-     * consumers can `std::get_if<ColorEffectParams>(&spec.params)`
-     * without re-checking kind. Loader enforces the invariant. */
-    std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams>
+     * kind enum's underlying value (Color → 0, Blur → 1, Lut → 2,
+     * Tonemap → 3) so consumers can
+     * `std::get_if<ColorEffectParams>(&spec.params)` without
+     * re-checking kind. Loader enforces the invariant. */
+    std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams,
+                 TonemapEffectParams>
         params{ColorEffectParams{}};
 };
 

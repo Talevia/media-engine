@@ -154,3 +154,71 @@ TEST_CASE("effects: missing params object rejected with ME_E_PARSE") {
     CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
     CHECK(tl == nullptr);
 }
+
+/* --- M10 tonemap effect (HDR → SDR) --- */
+TEST_CASE("effects: tonemap with default params (Hable / 100 nits)") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"tonemap","params":{}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    REQUIRE(tl->tl.clips.size() == 1);
+    const auto& effs = tl->tl.clips[0].effects;
+    REQUIRE(effs.size() == 1);
+    CHECK(effs[0].kind == me::EffectKind::Tonemap);
+    const auto* tp = std::get_if<me::TonemapEffectParams>(&effs[0].params);
+    REQUIRE(tp != nullptr);
+    CHECK(tp->algo == me::TonemapEffectParams::Algo::Hable);
+    CHECK(tp->target_nits == doctest::Approx(100.0));
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("effects: tonemap with explicit ACES algo + 400 nits") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"tonemap","params":{"algo":"aces","targetNits":400}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    const auto* tp = std::get_if<me::TonemapEffectParams>(
+        &tl->tl.clips[0].effects[0].params);
+    REQUIRE(tp != nullptr);
+    CHECK(tp->algo == me::TonemapEffectParams::Algo::ACES);
+    CHECK(tp->target_nits == doctest::Approx(400.0));
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("effects: tonemap accepts reinhard algo") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"tonemap","params":{"algo":"reinhard"}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    const auto* tp = std::get_if<me::TonemapEffectParams>(
+        &tl->tl.clips[0].effects[0].params);
+    REQUIRE(tp != nullptr);
+    CHECK(tp->algo == me::TonemapEffectParams::Algo::Reinhard);
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("effects: tonemap unknown algo rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"tonemap","params":{"algo":"hejl"}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+}
+
+TEST_CASE("effects: tonemap targetNits <= 0 rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"tonemap","params":{"targetNits":-50}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+}

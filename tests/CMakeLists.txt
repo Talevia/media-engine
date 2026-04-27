@@ -81,6 +81,7 @@ set(_test_suites
   test_audio_effect_chain
   test_reencode_pts_remap
   test_encode_hevc_main10
+  test_tonemap_kernel
   test_subtitle_renderer
   test_skia_backend
   test_text_renderer
@@ -569,6 +570,11 @@ target_link_libraries(test_reencode_pts_remap PRIVATE
 target_include_directories(test_encode_hevc_main10 PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_encode_hevc_main10 PRIVATE
   FFMPEG::avutil FFMPEG::avcodec)
+
+# test_tonemap_kernel exercises me::compose::apply_tonemap_inplace.
+# Pure RGBA8 byte math — no libav, no fixtures. Needs src/ on
+# include path for compose/tonemap_kernel.hpp.
+target_include_directories(test_tonemap_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_subtitle_renderer exercises me::text::SubtitleRenderer
 # (libass wrapper). ME_HAS_LIBASS compile def gates the real
