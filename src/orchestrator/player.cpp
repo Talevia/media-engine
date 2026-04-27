@@ -1,4 +1,5 @@
 #include "orchestrator/player.hpp"
+#include "orchestrator/player_internal.hpp"
 
 #include "core/engine_impl.hpp"
 #include "core/frame_impl.hpp"
@@ -24,69 +25,20 @@ extern "C" {
 #include <cstdlib>
 #include <exception>
 #include <memory>
-#include <numeric>
 #include <string>
 #include <utility>
 
 namespace me::orchestrator {
 
-namespace {
-
-/* ---- Rational helpers ---------------------------------------------------
- * The arithmetic uses cross-multiply on the int64 num / den fields to
- * stay rational throughout — promoting to double here would smuggle in
- * float imprecision against which docs/VISION.md §3.1 explicitly
- * cautions. (The active-clip lookup in compose_frame.cpp uses the
- * same pattern.) */
-
-me_rational_t r_add(me_rational_t a, me_rational_t b) {
-    if (a.den <= 0) a.den = 1;
-    if (b.den <= 0) b.den = 1;
-    int64_t num = a.num * b.den + b.num * a.den;
-    int64_t den = a.den * b.den;
-    /* Reduce to keep iterated addition (producer cursor advances by
-     * frame_period each frame) from exploding the denominator —
-     * 30 fps × 60 s would otherwise overflow int64 by frame ~12. */
-    if (den != 0) {
-        const int64_t g = std::gcd(num < 0 ? -num : num, den);
-        if (g > 1) { num /= g; den /= g; }
-    }
-    return me_rational_t{ num, den };
-}
-
-/* sign(a - b) */
-int r_cmp(me_rational_t a, me_rational_t b) {
-    if (a.den <= 0) a.den = 1;
-    if (b.den <= 0) b.den = 1;
-    const __int128 lhs = static_cast<__int128>(a.num) * b.den;
-    const __int128 rhs = static_cast<__int128>(b.num) * a.den;
-    if (lhs < rhs) return -1;
-    if (lhs > rhs) return  1;
-    return 0;
-}
-
-/* a - b in microseconds, clamped to int64. */
-int64_t r_micros_diff(me_rational_t a, me_rational_t b) {
-    if (a.den <= 0) a.den = 1;
-    if (b.den <= 0) b.den = 1;
-    /* (a.num*b.den - b.num*a.den) / (a.den*b.den) seconds → micros via *1e6 */
-    const __int128 num = static_cast<__int128>(a.num) * b.den
-                       - static_cast<__int128>(b.num) * a.den;
-    const __int128 den = static_cast<__int128>(a.den) * b.den;
-    if (den == 0) return 0;
-    const __int128 micros = (num * 1'000'000) / den;
-    if (micros >  9'000'000'000LL) return  9'000'000'000LL;
-    if (micros < -9'000'000'000LL) return -9'000'000'000LL;
-    return static_cast<int64_t>(micros);
-}
-
-/* frame_period from frame_rate. {fps_num, fps_den} → {fps_den, fps_num}. */
-me_rational_t frame_period_from_rate(me_rational_t fr) {
-    if (fr.num <= 0 || fr.den <= 0) return me_rational_t{1, 30};
-    return me_rational_t{ fr.den, fr.num };
-}
-
-}  // namespace
+/* Rational helpers (r_add / r_cmp / r_micros_diff /
+ * frame_period_from_rate) live in `player_internal.hpp` since
+ * the `debt-split-player-cpp` cycle so player_audio_producer.cpp
+ * (and any future player_*.cpp split TUs) can share the same
+ * arithmetic without each repeating the bodies. */
+using player_detail::r_add;
+using player_detail::r_cmp;
+using player_detail::r_micros_diff;
+using player_detail::frame_period_from_rate;
 
 /* ----------------------------------------------------------------- ctor */
 
@@ -252,150 +204,11 @@ void Player::notify_state_changed_locked() {
     state_cv_.notify_all();
 }
 
-/* --------------------------------------------------- audio producer */
-
-void Player::audio_producer_loop() {
-    if (!has_audio_track_) return;
-    const int sr       = cfg_.audio_out.sample_rate;
-    const int channels = cfg_.audio_out.num_channels > 0
-                             ? cfg_.audio_out.num_channels : 2;
-    if (sr <= 0) return;
-    if (!engine_ || !engine_->scheduler) return;
-
-    /* Throttle: stay at most `audio_queue_ms` ahead of the master
-     * clock. Default 200 ms when caller passed 0. */
-    const int queue_ms = cfg_.audio_queue_ms > 0 ? cfg_.audio_queue_ms : 200;
-
-    AudioChunkParams params;
-    params.target_rate     = sr;
-    params.target_channels = channels;
-    params.target_fmt      = AV_SAMPLE_FMT_FLTP;
-
-    /* Frame budget per chunk. A typical AAC frame at 48k carries 1024
-     * samples; the kernel pipeline preserves that count through to
-     * the mixer output. We use 1024 here purely for the cursor-
-     * advance fallback when a graph eval returns ME_E_NOT_FOUND
-     * (gap inside the timeline) — the actual chunk size comes from
-     * each evaluated AVFrame's nb_samples. */
-    const int gap_advance_samples = 1024;
-
-    while (true) {
-        /* Wait for: shutdown OR is_playing. While paused we sit here
-         * until play() (or destroy) wakes the state_cv. */
-        {
-            std::unique_lock<std::mutex> lk(mu_);
-            state_cv_.wait(lk, [this] {
-                return shutdown_ || clock_.is_playing();
-            });
-            if (shutdown_) return;
-        }
-
-        /* Past timeline end → park until shutdown. */
-        me_rational_t cursor;
-        me_rational_t duration;
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            cursor   = audio_chunk_cursor_;
-            duration = tl_ ? tl_->duration : me_rational_t{0, 1};
-        }
-        if (r_cmp(cursor, duration) >= 0) {
-            std::unique_lock<std::mutex> lk(mu_);
-            state_cv_.wait(lk, [this] { return shutdown_; });
-            return;
-        }
-
-        /* Throttle ahead of clock. The next chunk we'd dispatch
-         * starts at `audio_dispatched_samples_ / sr`. If that's more
-         * than queue_ms ahead of the current playhead, sleep. */
-        const me_rational_t dispatched_t{
-            audio_dispatched_samples_,
-            static_cast<int64_t>(sr)
-        };
-        const me_rational_t now = clock_.current();
-        const int64_t       ahead_us = r_micros_diff(dispatched_t, now);
-        if (ahead_us > static_cast<int64_t>(queue_ms) * 1000) {
-            std::unique_lock<std::mutex> lk(mu_);
-            if (shutdown_) return;
-            const auto budget = std::chrono::microseconds(
-                std::min<int64_t>(ahead_us - queue_ms * 1000, 5'000));
-            state_cv_.wait_for(lk, budget);
-            if (shutdown_) return;
-            continue;
-        }
-
-        /* Compile + evaluate the per-chunk audio graph. ME_E_NOT_FOUND
-         * means no audio clip covers the cursor — advance one frame's
-         * worth and retry, same shape as the video producer's gap
-         * handling. */
-        graph::Graph   g;
-        graph::PortRef term{};
-        const me_status_t cs = compile_audio_chunk_graph(
-            *tl_, cursor, params, &g, &term);
-        if (cs == ME_E_NOT_FOUND) {
-            std::lock_guard<std::mutex> lk(mu_);
-            audio_chunk_cursor_ = r_add(audio_chunk_cursor_,
-                me_rational_t{gap_advance_samples, static_cast<int64_t>(sr)});
-            continue;
-        }
-        if (cs != ME_OK) {
-            /* Malformed timeline / kernel error — backoff and keep
-             * the loop alive. */
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            continue;
-        }
-
-        graph::EvalContext ctx;
-        ctx.frames = engine_->frames.get();
-        ctx.codecs = engine_->codecs.get();
-        ctx.time   = cursor;
-
-        std::shared_ptr<AVFrame> frame;
-        try {
-            auto fut = engine_->scheduler->evaluate_port<std::shared_ptr<AVFrame>>(
-                g, term, ctx);
-            frame = fut.await();
-        } catch (const std::exception& ex) {
-            if (engine_) me::detail::set_error(engine_, std::string{ex.what()});
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            continue;
-        }
-        if (!frame || frame->nb_samples <= 0) {
-            /* Empty chunk (e.g. SoundTouch latency at startup if a
-             * future tempo path is wired). Advance by the standard
-             * gap step and keep the loop alive. */
-            std::lock_guard<std::mutex> lk(mu_);
-            audio_chunk_cursor_ = r_add(audio_chunk_cursor_,
-                me_rational_t{gap_advance_samples, static_cast<int64_t>(sr)});
-            continue;
-        }
-
-        const int n_ch  = frame->ch_layout.nb_channels;
-        const int n_smp = frame->nb_samples;
-        const me_rational_t chunk_start = dispatched_t;
-
-        me_player_audio_cb cb;
-        void*              user;
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            cb   = audio_cb_;
-            user = audio_user_;
-        }
-        if (cb) {
-            /* FLTP layout: AVFrame::data[ch] is the channel-`ch`
-             * plane, sized n_smp × sizeof(float). Reinterpret the
-             * uint8_t** as `const float* const*` for the cb. */
-            cb(reinterpret_cast<const float* const*>(frame->data),
-               n_ch, n_smp, chunk_start, user);
-        }
-
-        {
-            std::lock_guard<std::mutex> lk(mu_);
-            audio_dispatched_samples_ += n_smp;
-            audio_chunk_cursor_ = r_add(audio_chunk_cursor_,
-                me_rational_t{n_smp, static_cast<int64_t>(sr)});
-        }
-    }
-}
+/* `Player::audio_producer_loop` lives in
+ * `src/orchestrator/player_audio_producer.cpp` since the
+ * `debt-split-player-cpp` cycle. Class definition + threading
+ * contract are unchanged; only the body was moved to keep this TU
+ * under the SKILL §R.5 700-line ceiling. */
 
 /* ---------------------------------------------------- producer thread */
 
