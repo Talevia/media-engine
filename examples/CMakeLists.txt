@@ -89,6 +89,7 @@ set(_me_expected_examples
   09_text_clip
   10_player_pause_seek
   11_error_diagnosis
+  12_cache_invalidate
 )
 
 add_subdirectory(01_passthrough)
@@ -102,6 +103,7 @@ add_subdirectory(08_frame_server_scrub)
 add_subdirectory(09_text_clip)
 add_subdirectory(10_player_pause_seek)
 add_subdirectory(11_error_diagnosis)
+add_subdirectory(12_cache_invalidate)
 
 # --- Post-subdir self-check: every expected example target exists ---------
 foreach(_expected ${_me_expected_examples})

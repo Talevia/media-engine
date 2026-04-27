@@ -1,0 +1,1 @@
+me_add_example(12_cache_invalidate)

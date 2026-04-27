@@ -808,6 +808,21 @@ if(TARGET 07_compose_multitrack
              COMMAND $<TARGET_FILE:11_error_diagnosis>)
     set_tests_properties(example_11_error_diagnosis PROPERTIES TIMEOUT 10)
   endif()
+
+  # 12_cache_invalidate: cache-observability + invalidation demo.
+  # The example asserts internally that AssetHashCache entries drop
+  # across invalidate_asset AND that miss_count climbs across
+  # cache_clear — exits non-zero if either is false. The ctest's
+  # exit-code check below subsumes both. (Note that today
+  # invalidate_asset does NOT reach the graph-hash DiskCache —
+  # tracked as `debt-cache-invalidate-asset-graph-hash`; the demo
+  # documents that limitation in its file header.)
+  if(TARGET 12_cache_invalidate)
+    add_test(NAME example_12_cache_invalidate
+             COMMAND $<TARGET_FILE:12_cache_invalidate> "${_fixture_mp4}")
+    set_tests_properties(example_12_cache_invalidate PROPERTIES TIMEOUT 30)
+    add_dependencies(12_cache_invalidate determinism_fixture)
+  endif()
 endif()
 
 # ----- §5.7-5: libmedia_engine size budget guard ---------------------------
