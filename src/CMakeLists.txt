@@ -399,11 +399,26 @@ if(ME_WITH_GPU)
 endif()
 
 # SoundTouch link — `me::audio::TempoStretcher` wraps SoundTouch's
-# C++ API. ME_HAS_SOUNDTOUCH compile def mirrors the ME_HAS_OCIO /
-# ME_HAS_GPU pattern.
+# C++ API. ME_HAS_SOUNDTOUCH compile def must be PUBLIC because it
+# gates a struct field in `core/engine_impl.hpp` (`tempo_pool`):
+# any TU that includes engine_impl.hpp — most directly the engine
+# itself + test TUs reaching into engine internals (e.g.
+# tests/test_audio_chunk_graph.cpp, tests/test_player.cpp via the
+# scheduler-direct-access pattern) — MUST see the same view of
+# me_engine's layout, otherwise field offsets diverge and reads of
+# `eng->scheduler` (which lives after tempo_pool in the struct)
+# resolve to the wrong address. This bug surfaced as a flaky
+# `mutex lock failed: Invalid argument` in test_audio_chunk_graph
+# because the test's view of me_engine didn't include tempo_pool,
+# so `eng->scheduler` actually pointed at the (zero-init) tempo_pool
+# unique_ptr → calling `->evaluate_port` on it dereferenced a nullptr
+# and the random bytes that followed produced a corrupt-looking
+# mutex when Taskflow's Executor tried to lock its work-queue mutex.
+# Switched from PRIVATE to PUBLIC to match the ME_HAS_INFERENCE
+# pattern below — both gate struct layout, both must propagate.
 if(ME_WITH_SOUNDTOUCH)
   target_link_libraries(media_engine PRIVATE SoundTouch)
-  target_compile_definitions(media_engine PRIVATE ME_HAS_SOUNDTOUCH=1)
+  target_compile_definitions(media_engine PUBLIC ME_HAS_SOUNDTOUCH=1)
 endif()
 
 # M11 ML inference runtime gate. Unlike ME_HAS_OCIO/SoundTouch (which
