@@ -1019,3 +1019,30 @@ if(NOT WIN32)
                    "${CMAKE_SOURCE_DIR}/tools/lib_size_budget.txt")
   set_tests_properties(lib_size_budget PROPERTIES TIMEOUT 10)
 endif()
+
+# ----- engine_impl.hpp ME_HAS_X visibility audit --------------------------
+# Cycle 41 burned 7 cycles diagnosing a `pthread_mutex_lock EINVAL` flake
+# whose root cause was `ME_HAS_SOUNDTOUCH` set as PRIVATE on media_engine.
+# Because the macro gates a struct field in core/engine_impl.hpp, test TUs
+# that include the header for white-box scheduler access saw a different
+# me_engine layout than libmedia_engine.a — read `eng->scheduler` at the
+# wrong offset → random vtable dispatch → corrupt mutex bytes.
+#
+# This test guards against the same trap recurring: any ME_HAS_X
+# referenced in engine_impl.hpp MUST be PUBLIC or INTERFACE on the
+# media_engine target so the macro propagates through
+# target_link_libraries to consumers. PRIVATE silently breaks the test
+# loop the next time someone adds a struct field guarded by a
+# PRIVATE-scoped macro. The script's exit-2 message names the offending
+# macro + line + remediation, so the failure is self-explanatory.
+#
+# No dependencies beyond bash + grep + awk — pure POSIX-shell static
+# analysis of the two source files. Skipped on Windows (bash only) for
+# the same reason as lib_size_budget.
+if(NOT WIN32)
+    add_test(NAME engine_impl_compile_defs_audit
+             COMMAND bash
+                     "${CMAKE_SOURCE_DIR}/tools/check-engine-impl-compile-defs.sh"
+             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(engine_impl_compile_defs_audit PROPERTIES TIMEOUT 5)
+endif()

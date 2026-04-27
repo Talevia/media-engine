@@ -1,4 +1,18 @@
-/* Internal — not exported. */
+/* Internal — not exported.
+ *
+ * ME_HAS_X visibility constraint
+ * ------------------------------
+ * Every `ME_HAS_X` macro this header consults to gate a struct field
+ * (today: ME_HAS_SOUNDTOUCH for `tempo_pool`, ME_HAS_INFERENCE for
+ * the model-fetcher members) MUST be defined `PUBLIC` or `INTERFACE`
+ * on the `media_engine` target in `src/CMakeLists.txt`. PRIVATE
+ * silently diverges struct layout between libmedia_engine.a and any
+ * test TU that includes this header — cycle 41 burned 7 cycles
+ * diagnosing the resulting `pthread_mutex_lock EINVAL` flake. The
+ * `engine_impl_compile_defs_audit` ctest enforces the rule via
+ * `tools/check-engine-impl-compile-defs.sh`; raising a guarded
+ * macro to PRIVATE breaks the test loop with an explicit
+ * remediation message. */
 #pragma once
 
 #include "media_engine/engine.h"
