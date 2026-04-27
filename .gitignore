@@ -5,6 +5,9 @@ cmake-build-*/
 out/
 _deps/
 
+# Gradle (bindings/kotlin-native/ + bindings/jni/ examples)
+.gradle/
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
