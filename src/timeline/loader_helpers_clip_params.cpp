@@ -7,6 +7,7 @@
  * (loader_helpers_animated.cpp) + the primitive require()
  * (loader_helpers_primitives.cpp).
  */
+#include "timeline/effect_loaders/effect_loader.hpp"
 #include "timeline/loader_helpers.hpp"
 #include "timeline/loader_helpers_keyframes.hpp"
 
@@ -18,6 +19,16 @@ namespace me::timeline_loader_detail {
 
 using json = nlohmann::json;
 
+/* Effect kind dispatch: each branch is two lines now (kind tag +
+ * params parse) — the 8 typed-param parsers live in
+ * `effect_loaders/<kind>.cpp` (debt-split-loader-helpers-clip-params,
+ * mirror of cycle 42's umbrella-header per-kind split). Adding a
+ * new effect kind is: new sub-header (`effect_params/<kind>.hpp`,
+ * cycle 42) + new loader TU (`effect_loaders/<kind>.cpp`) + new
+ * `else if` branch here + new `EffectKind` enum entry + new
+ * variant slot in `EffectSpec::params`. The variant-index ↔
+ * EffectKind underlying-value invariant remains the only binding
+ * cross-cutting constraint. */
 me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
     require(j.is_object(), ME_E_PARSE, where + ": expected object");
     require(j.contains("kind"), ME_E_PARSE, where + ": missing required 'kind'");
@@ -43,200 +54,32 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
             where + ": missing required 'params'");
     const auto& p = j["params"];
     require(p.is_object(), ME_E_PARSE, where + ".params: expected object");
+    const std::string params_where = where + ".params";
 
     if (kind_str == "color") {
-        spec.kind = me::EffectKind::Color;
-        me::ColorEffectParams cp;
-        if (p.contains("brightness")) {
-            require(p["brightness"].is_number(), ME_E_PARSE,
-                    where + ".params.brightness: expected number");
-            cp.brightness = p.at("brightness").get<double>();
-        }
-        if (p.contains("contrast")) {
-            require(p["contrast"].is_number(), ME_E_PARSE,
-                    where + ".params.contrast: expected number");
-            cp.contrast = p.at("contrast").get<double>();
-        }
-        if (p.contains("saturation")) {
-            require(p["saturation"].is_number(), ME_E_PARSE,
-                    where + ".params.saturation: expected number");
-            cp.saturation = p.at("saturation").get<double>();
-        }
-        spec.params = cp;
+        spec.kind   = me::EffectKind::Color;
+        spec.params = parse_color_effect_params(p, params_where);
     } else if (kind_str == "blur") {
-        spec.kind = me::EffectKind::Blur;
-        require(p.contains("radius"), ME_E_PARSE,
-                where + ".params: blur requires 'radius'");
-        require(p["radius"].is_number(), ME_E_PARSE,
-                where + ".params.radius: expected number");
-        me::BlurEffectParams bp;
-        bp.radius = p.at("radius").get<double>();
-        spec.params = bp;
+        spec.kind   = me::EffectKind::Blur;
+        spec.params = parse_blur_effect_params(p, params_where);
     } else if (kind_str == "lut") {
-        spec.kind = me::EffectKind::Lut;
-        require(p.contains("lutPath"), ME_E_PARSE,
-                where + ".params: lut requires 'lutPath'");
-        require(p["lutPath"].is_string(), ME_E_PARSE,
-                where + ".params.lutPath: expected string");
-        me::LutEffectParams lp;
-        lp.path = p.at("lutPath").get<std::string>();
-        spec.params = lp;
+        spec.kind   = me::EffectKind::Lut;
+        spec.params = parse_lut_effect_params(p, params_where);
     } else if (kind_str == "tonemap") {
-        spec.kind = me::EffectKind::Tonemap;
-        me::TonemapEffectParams tp;
-        if (p.contains("algo")) {
-            require(p["algo"].is_string(), ME_E_PARSE,
-                    where + ".params.algo: expected string");
-            const auto algo_s = p.at("algo").get<std::string>();
-            if      (algo_s == "hable")    tp.algo = me::TonemapEffectParams::Algo::Hable;
-            else if (algo_s == "reinhard") tp.algo = me::TonemapEffectParams::Algo::Reinhard;
-            else if (algo_s == "aces")     tp.algo = me::TonemapEffectParams::Algo::ACES;
-            else throw LoadError{ME_E_PARSE,
-                where + ".params.algo: unknown '" + algo_s +
-                "' (supported: hable, reinhard, aces)"};
-        }
-        if (p.contains("targetNits")) {
-            require(p["targetNits"].is_number(), ME_E_PARSE,
-                    where + ".params.targetNits: expected number");
-            const double n = p.at("targetNits").get<double>();
-            require(n > 0.0, ME_E_PARSE,
-                    where + ".params.targetNits: must be > 0");
-            tp.target_nits = n;
-        }
-        spec.params = tp;
+        spec.kind   = me::EffectKind::Tonemap;
+        spec.params = parse_tonemap_effect_params(p, params_where);
     } else if (kind_str == "inverse_tonemap") {
-        /* Reserves the API surface for SDR → HDR expansion. Loader
-         * stores the typed params; the kernel
-         * (compose/inverse_tonemap_kernel.cpp) returns ME_E_UNSUPPORTED
-         * today — see the bullet `inverse-tonemap-effect-impl` for the
-         * deferred impl. Intentionally registered now so JSON
-         * authoring tools can target the kind ahead of the impl. */
-        spec.kind = me::EffectKind::InverseTonemap;
-        me::InverseTonemapEffectParams ip;
-        if (p.contains("algo")) {
-            require(p["algo"].is_string(), ME_E_PARSE,
-                    where + ".params.algo: expected string");
-            const auto algo_s = p.at("algo").get<std::string>();
-            if      (algo_s == "linear") ip.algo = me::InverseTonemapEffectParams::Algo::Linear;
-            else if (algo_s == "hable")  ip.algo = me::InverseTonemapEffectParams::Algo::Hable;
-            else throw LoadError{ME_E_PARSE,
-                where + ".params.algo: unknown '" + algo_s +
-                "' (supported: linear, hable)"};
-        }
-        if (p.contains("targetPeakNits")) {
-            require(p["targetPeakNits"].is_number(), ME_E_PARSE,
-                    where + ".params.targetPeakNits: expected number");
-            const double n = p.at("targetPeakNits").get<double>();
-            require(n > 0.0, ME_E_PARSE,
-                    where + ".params.targetPeakNits: must be > 0");
-            ip.target_peak_nits = n;
-        }
-        spec.params = ip;
+        spec.kind   = me::EffectKind::InverseTonemap;
+        spec.params = parse_inverse_tonemap_effect_params(p, params_where);
     } else if (kind_str == "face_sticker") {
-        /* M11 ml-effect-face-sticker-stub. Reserves the API surface
-         * for the landmark-driven sticker effect. Loader stores the
-         * typed params + cross-references an Asset.id (loader does
-         * NOT validate the cross-ref here; compose-time consumer
-         * resolves + rejects on miss); the kernel
-         * (compose/face_sticker_kernel.cpp) returns ME_E_UNSUPPORTED
-         * today — see the bullet `face-sticker-impl` for the
-         * deferred impl. Intentionally registered now so JSON
-         * authoring tools can target the kind ahead of the impl. */
-        spec.kind = me::EffectKind::FaceSticker;
-        me::FaceStickerEffectParams fp;
-        require(p.contains("landmarkAssetId") && p["landmarkAssetId"].is_string(),
-                ME_E_PARSE,
-                where + ".params.landmarkAssetId: required string field "
-                "(references an Asset.id with kind=landmark)");
-        fp.landmark_asset_id = p.at("landmarkAssetId").get<std::string>();
-        require(p.contains("stickerUri") && p["stickerUri"].is_string(),
-                ME_E_PARSE,
-                where + ".params.stickerUri: required string field");
-        fp.sticker_uri = p.at("stickerUri").get<std::string>();
-        if (p.contains("scaleX")) {
-            require(p["scaleX"].is_number(), ME_E_PARSE,
-                    where + ".params.scaleX: expected number");
-            fp.scale_x = p.at("scaleX").get<double>();
-        }
-        if (p.contains("scaleY")) {
-            require(p["scaleY"].is_number(), ME_E_PARSE,
-                    where + ".params.scaleY: expected number");
-            fp.scale_y = p.at("scaleY").get<double>();
-        }
-        if (p.contains("offsetX")) {
-            require(p["offsetX"].is_number(), ME_E_PARSE,
-                    where + ".params.offsetX: expected number");
-            fp.offset_x = p.at("offsetX").get<double>();
-        }
-        if (p.contains("offsetY")) {
-            require(p["offsetY"].is_number(), ME_E_PARSE,
-                    where + ".params.offsetY: expected number");
-            fp.offset_y = p.at("offsetY").get<double>();
-        }
-        spec.params = fp;
+        spec.kind   = me::EffectKind::FaceSticker;
+        spec.params = parse_face_sticker_effect_params(p, params_where);
     } else if (kind_str == "face_mosaic") {
-        /* M11 ml-effect-face-mosaic-stub. Reserves the API surface
-         * for the privacy-focused per-block mosaic / blur within
-         * landmark bboxes. Loader stores the typed params; the
-         * kernel (compose/face_mosaic_kernel.cpp) returns
-         * ME_E_UNSUPPORTED today — see `face-mosaic-impl` for the
-         * deferred impl. Same registered-but-deferred pattern as
-         * face_sticker (cycle 30). */
-        spec.kind = me::EffectKind::FaceMosaic;
-        me::FaceMosaicEffectParams fmp;
-        require(p.contains("landmarkAssetId") && p["landmarkAssetId"].is_string(),
-                ME_E_PARSE,
-                where + ".params.landmarkAssetId: required string field "
-                "(references an Asset.id with kind=landmark)");
-        fmp.landmark_asset_id = p.at("landmarkAssetId").get<std::string>();
-        if (p.contains("blockSizePx")) {
-            require(p["blockSizePx"].is_number_integer(), ME_E_PARSE,
-                    where + ".params.blockSizePx: expected integer");
-            const int64_t b = p.at("blockSizePx").get<int64_t>();
-            require(b > 0 && b <= 1024, ME_E_PARSE,
-                    where + ".params.blockSizePx: out of range (1..1024)");
-            fmp.block_size_px = static_cast<int>(b);
-        }
-        if (p.contains("kind")) {
-            require(p["kind"].is_string(), ME_E_PARSE,
-                    where + ".params.kind: expected string");
-            const auto kk = p.at("kind").get<std::string>();
-            if      (kk == "pixelate") fmp.kind = me::FaceMosaicEffectParams::Kind::Pixelate;
-            else if (kk == "blur")     fmp.kind = me::FaceMosaicEffectParams::Kind::Blur;
-            else throw LoadError{ME_E_PARSE,
-                where + ".params.kind: unknown '" + kk +
-                "' (supported: pixelate, blur)"};
-        }
-        spec.params = fmp;
+        spec.kind   = me::EffectKind::FaceMosaic;
+        spec.params = parse_face_mosaic_effect_params(p, params_where);
     } else if (kind_str == "body_alpha_key") {
-        /* M11 ml-effect-body-alpha-key-stub. Reserves the API
-         * surface for the segmentation-mask alpha-keying effect.
-         * Loader stores the typed params; the kernel
-         * (compose/body_alpha_key_kernel.cpp) returns
-         * ME_E_UNSUPPORTED today — see `body-alpha-key-impl` for
-         * the deferred impl. Same registered-but-deferred pattern
-         * as face_sticker / face_mosaic. */
-        spec.kind = me::EffectKind::BodyAlphaKey;
-        me::BodyAlphaKeyEffectParams bp;
-        require(p.contains("maskAssetId") && p["maskAssetId"].is_string(),
-                ME_E_PARSE,
-                where + ".params.maskAssetId: required string field "
-                "(references an Asset.id with kind=mask)");
-        bp.mask_asset_id = p.at("maskAssetId").get<std::string>();
-        if (p.contains("featherRadiusPx")) {
-            require(p["featherRadiusPx"].is_number_integer(), ME_E_PARSE,
-                    where + ".params.featherRadiusPx: expected integer");
-            const int64_t r = p.at("featherRadiusPx").get<int64_t>();
-            require(r >= 0 && r <= 256, ME_E_PARSE,
-                    where + ".params.featherRadiusPx: out of range (0..256)");
-            bp.feather_radius_px = static_cast<int>(r);
-        }
-        if (p.contains("invert")) {
-            require(p["invert"].is_boolean(), ME_E_PARSE,
-                    where + ".params.invert: expected boolean");
-            bp.invert = p.at("invert").get<bool>();
-        }
-        spec.params = bp;
+        spec.kind   = me::EffectKind::BodyAlphaKey;
+        spec.params = parse_body_alpha_key_effect_params(p, params_where);
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +

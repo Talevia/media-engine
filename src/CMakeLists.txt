@@ -265,6 +265,14 @@ add_library(media_engine STATIC
   timeline/loader_helpers_primitives.cpp
   timeline/loader_helpers_animated.cpp
   timeline/loader_helpers_clip_params.cpp
+  timeline/effect_loaders/blur.cpp
+  timeline/effect_loaders/body_alpha_key.cpp
+  timeline/effect_loaders/color.cpp
+  timeline/effect_loaders/face_mosaic.cpp
+  timeline/effect_loaders/face_sticker.cpp
+  timeline/effect_loaders/inverse_tonemap.cpp
+  timeline/effect_loaders/lut.cpp
+  timeline/effect_loaders/tonemap.cpp
   timeline/animated_number.cpp
   timeline/animated_color.cpp
   timeline/segmentation.cpp
