@@ -100,6 +100,34 @@ TEST_CASE("me_probe extracts extended video metadata (rotation / color / bit_dep
     CHECK(std::string{me_media_info_video_color_space(info.p)}     == "unknown");
 }
 
+TEST_CASE("me_probe reports no HDR metadata for SDR fixture") {
+    /* Determinism fixture is plain SDR mpeg4 with no MASTERING_DISPLAY /
+     * CONTENT_LIGHT side data attached. Every HDR field must be its
+     * default-zero value — proves the extractor doesn't false-positive
+     * on streams that lack the side data, and that the by-value
+     * struct returns cleanly across the C ABI. */
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    ME_REQUIRE_FIXTURE(fixture_path);
+    EngineHandle eng;
+    REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
+
+    InfoHandle info;
+    const std::string uri = "file://" + fixture_path;
+    REQUIRE(me_probe(eng.p, uri.c_str(), &info.p) == ME_OK);
+
+    const me_hdr_static_metadata_t hdr = me_media_info_video_hdr_metadata(info.p);
+    CHECK(hdr.has_mastering_display == 0);
+    CHECK(hdr.has_content_light     == 0);
+    CHECK(hdr.max_cll               == 0);
+    CHECK(hdr.max_fall              == 0);
+    /* Chromaticity / luminance fields stay at their default {0, 1}
+     * — `den == 1` keeps them well-formed rationals at the C ABI. */
+    CHECK(hdr.mdcv_red_x.num   == 0);
+    CHECK(hdr.mdcv_red_x.den   == 1);
+    CHECK(hdr.mdcv_max_luminance.num == 0);
+    CHECK(hdr.mdcv_max_luminance.den == 1);
+}
+
 TEST_CASE("me_probe returns ME_E_IO for a non-existent URI") {
     EngineHandle eng;
     REQUIRE(me_engine_create(nullptr, &eng.p) == ME_OK);
@@ -152,4 +180,11 @@ TEST_CASE("me_media_info_* accessors tolerate null info pointer") {
     CHECK(std::string{me_media_info_video_color_primaries(nullptr)} == "");
     CHECK(std::string{me_media_info_video_color_transfer(nullptr)} == "");
     CHECK(std::string{me_media_info_video_color_space(nullptr)} == "");
+
+    /* HDR metadata accessor returns an all-zero struct on null. */
+    const me_hdr_static_metadata_t hdr = me_media_info_video_hdr_metadata(nullptr);
+    CHECK(hdr.has_mastering_display == 0);
+    CHECK(hdr.has_content_light     == 0);
+    CHECK(hdr.max_cll               == 0);
+    CHECK(hdr.max_fall              == 0);
 }

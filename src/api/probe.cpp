@@ -8,6 +8,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/display.h>
+#include <libavutil/mastering_display_metadata.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
 #include <libavutil/rational.h>
@@ -42,6 +43,11 @@ struct me_media_info {
     std::string   video_color_transfer;
     std::string   video_color_space;
     int           video_bit_depth = 0;
+
+    /* HDR static metadata — populated from the video stream's coded
+     * side data when the container advertises HDR10 / ST 2086. All
+     * zero (default) means the container declared no HDR metadata. */
+    me_hdr_static_metadata_t video_hdr{};
 
     bool          has_audio = false;
     int           audio_sample_rate = 0;
@@ -92,6 +98,90 @@ int extract_display_rotation(const AVCodecParameters* cp) {
  * hand out "" rather than letting a crash slip across the C ABI. */
 std::string name_or_empty(const char* p) { return p ? std::string{p} : std::string{}; }
 
+me_rational_t to_me_rational_signed(AVRational r) {
+    /* Permissive variant for chromaticity / luminance side-data: the
+     * libavutil structs may carry den == 0 in a malformed source. We
+     * keep the original num and clamp den to 1 in that case so the
+     * rational stays well-formed at the C ABI without lying about
+     * the numerator. */
+    return me_rational_t{static_cast<int64_t>(r.num),
+                         r.den != 0 ? static_cast<int64_t>(r.den) : 1};
+}
+
+/* Read HDR static metadata from the video stream's coded side data
+ * — `AV_PKT_DATA_MASTERING_DISPLAY_METADATA` (SMPTE ST 2086) and
+ * `AV_PKT_DATA_CONTENT_LIGHT_LEVEL` (CTA-861.3). Both are
+ * independently optional. The two side-data types live on the
+ * codec parameters (set by libavformat when the container declared
+ * them), so probe doesn't need to decode any frames to surface
+ * them.
+ *
+ * Returns an all-zero struct when neither side-data entry is
+ * present, or when libavutil reports a half-populated mastering
+ * display struct (one of `has_primaries` / `has_luminance` clear)
+ * — downstream HDR pipelines need the full set to drive a tonemap
+ * or pass-through correctly, so a partial set is treated as
+ * unreliable rather than passed through. */
+me_hdr_static_metadata_t extract_hdr_metadata(const AVCodecParameters* cp) {
+    /* Default-construct with well-formed `me_rational_t{0, 1}` for
+     * every rational field. `me_rational_t` carries no in-class
+     * initialisers (types.h is a C-only header), so a plain `{}`
+     * would leave them as `{0, 0}` — semantically "no metadata"
+     * is fine, but `den == 0` is a typed invariant violation
+     * (types.h:55 — "den MUST be > 0 when produced by the
+     * engine"). Hosts that read these unconditionally see a
+     * usable rational regardless of the has_* flags. */
+    constexpr me_rational_t kZeroOne{0, 1};
+    me_hdr_static_metadata_t out{
+        /*has_mastering_display=*/0,
+        /*mdcv_red_x=*/kZeroOne,    /*mdcv_red_y=*/kZeroOne,
+        /*mdcv_green_x=*/kZeroOne,  /*mdcv_green_y=*/kZeroOne,
+        /*mdcv_blue_x=*/kZeroOne,   /*mdcv_blue_y=*/kZeroOne,
+        /*mdcv_white_x=*/kZeroOne,  /*mdcv_white_y=*/kZeroOne,
+        /*mdcv_min_luminance=*/kZeroOne,
+        /*mdcv_max_luminance=*/kZeroOne,
+        /*has_content_light=*/0,
+        /*max_cll=*/0, /*max_fall=*/0,
+    };
+    if (!cp || !cp->coded_side_data || cp->nb_coded_side_data <= 0) {
+        return out;
+    }
+
+    const AVPacketSideData* mdcv_sd = av_packet_side_data_get(
+        cp->coded_side_data, cp->nb_coded_side_data,
+        AV_PKT_DATA_MASTERING_DISPLAY_METADATA);
+    if (mdcv_sd && mdcv_sd->size >= sizeof(AVMasteringDisplayMetadata)) {
+        const auto* mdcv = reinterpret_cast<const AVMasteringDisplayMetadata*>(mdcv_sd->data);
+        if (mdcv->has_primaries && mdcv->has_luminance) {
+            out.has_mastering_display = 1;
+            /* AVMasteringDisplayMetadata::display_primaries[i][0] = x,
+             * display_primaries[i][1] = y, indexed [0]=R, [1]=G, [2]=B. */
+            out.mdcv_red_x   = to_me_rational_signed(mdcv->display_primaries[0][0]);
+            out.mdcv_red_y   = to_me_rational_signed(mdcv->display_primaries[0][1]);
+            out.mdcv_green_x = to_me_rational_signed(mdcv->display_primaries[1][0]);
+            out.mdcv_green_y = to_me_rational_signed(mdcv->display_primaries[1][1]);
+            out.mdcv_blue_x  = to_me_rational_signed(mdcv->display_primaries[2][0]);
+            out.mdcv_blue_y  = to_me_rational_signed(mdcv->display_primaries[2][1]);
+            out.mdcv_white_x = to_me_rational_signed(mdcv->white_point[0]);
+            out.mdcv_white_y = to_me_rational_signed(mdcv->white_point[1]);
+            out.mdcv_min_luminance = to_me_rational_signed(mdcv->min_luminance);
+            out.mdcv_max_luminance = to_me_rational_signed(mdcv->max_luminance);
+        }
+    }
+
+    const AVPacketSideData* cll_sd = av_packet_side_data_get(
+        cp->coded_side_data, cp->nb_coded_side_data,
+        AV_PKT_DATA_CONTENT_LIGHT_LEVEL);
+    if (cll_sd && cll_sd->size >= sizeof(AVContentLightMetadata)) {
+        const auto* cll = reinterpret_cast<const AVContentLightMetadata*>(cll_sd->data);
+        out.has_content_light = 1;
+        out.max_cll  = static_cast<int>(cll->MaxCLL);
+        out.max_fall = static_cast<int>(cll->MaxFALL);
+    }
+
+    return out;
+}
+
 using me::io::av_err_str;
 
 }  // namespace
@@ -121,6 +211,11 @@ extern "C" me_status_t me_probe(me_engine_t* engine, const char* uri, me_media_i
     me_media_info* info = nullptr;
     try {
         info = new me_media_info{};
+        /* Seed HDR metadata with well-formed `{0, 1}` rationals so
+         * audio-only / no-video probes still return a struct that
+         * satisfies `me_rational_t.den > 0`. The video-stream
+         * branch below overwrites this when a stream is found. */
+        info->video_hdr = extract_hdr_metadata(nullptr);
 
         if (fmt->iformat && fmt->iformat->name) {
             /* iformat->name is comma-separated for multi-format demuxers
@@ -157,6 +252,7 @@ extern "C" me_status_t me_probe(me_engine_t* engine, const char* uri, me_media_i
                     static_cast<AVPixelFormat>(cp->format))) {
                 info->video_bit_depth = desc->comp[0].depth;
             }
+            info->video_hdr = extract_hdr_metadata(cp);
         }
 
         const int astream = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
@@ -259,4 +355,12 @@ extern "C" const char* me_media_info_video_color_space(const me_media_info_t* in
 
 extern "C" int me_media_info_video_bit_depth(const me_media_info_t* info) {
     return info ? info->video_bit_depth : 0;
+}
+
+extern "C" me_hdr_static_metadata_t me_media_info_video_hdr_metadata(const me_media_info_t* info) {
+    /* Zero-flags default with well-formed `{0, 1}` rationals — same
+     * shape an SDR source produces (extract_hdr_metadata seeds the
+     * rationals identically). Safe to call on NULL info. */
+    if (info) return info->video_hdr;
+    return extract_hdr_metadata(nullptr);
 }

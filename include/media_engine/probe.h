@@ -67,6 +67,64 @@ const char*   me_media_info_video_color_transfer(const me_media_info_t* info);
 const char*   me_media_info_video_color_space(const me_media_info_t* info);
 int           me_media_info_video_bit_depth(const me_media_info_t* info);
 
+/* --- HDR static metadata (append-only since 0.0.3) ------------------------
+ *
+ * HDR10 / SMPTE ST 2086 mastering display metadata + CTA-861.3 content
+ * light level info, when the container declares them on the video
+ * stream. Independently optional — a stream may carry one, both, or
+ * neither.
+ *
+ * Fields below are valid only when the corresponding `has_*` flag is
+ * non-zero. All-zero (default-initialised) means the container did
+ * not advertise HDR static metadata.
+ *
+ *   has_mastering_display:
+ *     The `mdcv_*` fields carry SMPTE ST 2086 primaries + luminance
+ *     bounds, read from `AV_PKT_DATA_MASTERING_DISPLAY_METADATA` on
+ *     the video stream's coded side data. Set only when libavutil's
+ *     `AVMasteringDisplayMetadata` reports BOTH `has_primaries` and
+ *     `has_luminance` — a half-populated struct is treated as
+ *     unreliable (downstream HDR pipelines need the full set to
+ *     drive a tonemap or pass-through correctly).
+ *   mdcv_red_x..mdcv_white_y:
+ *     CIE 1931 chromaticities for the mastering display's R / G / B
+ *     primaries and white point, normalised to [0, 1]. Stored as
+ *     rationals (libavutil's exact `AVRational` values; no float
+ *     rounding).
+ *   mdcv_min_luminance / mdcv_max_luminance:
+ *     Mastering display luminance bounds in cd/m² (= nits).
+ *     Rational-typed for the same reason.
+ *
+ *   has_content_light:
+ *     `max_cll` and `max_fall` carry CTA-861.3 max content light
+ *     level (peak per-pixel) and max frame-average light level, both
+ *     in nits. Read from `AV_PKT_DATA_CONTENT_LIGHT_LEVEL`. A zero
+ *     value within an enabled struct means the container declared
+ *     the field as zero (rare but legal).
+ *
+ * Returned by-value from `me_media_info_video_hdr_metadata`. The
+ * accessor is safe to call when `info` is NULL or the stream has no
+ * video — it returns an all-zero struct in those cases. */
+typedef struct me_hdr_static_metadata {
+    int           has_mastering_display;
+    me_rational_t mdcv_red_x;
+    me_rational_t mdcv_red_y;
+    me_rational_t mdcv_green_x;
+    me_rational_t mdcv_green_y;
+    me_rational_t mdcv_blue_x;
+    me_rational_t mdcv_blue_y;
+    me_rational_t mdcv_white_x;
+    me_rational_t mdcv_white_y;
+    me_rational_t mdcv_min_luminance;
+    me_rational_t mdcv_max_luminance;
+
+    int           has_content_light;
+    int           max_cll;
+    int           max_fall;
+} me_hdr_static_metadata_t;
+
+me_hdr_static_metadata_t me_media_info_video_hdr_metadata(const me_media_info_t* info);
+
 #ifdef __cplusplus
 }
 #endif
