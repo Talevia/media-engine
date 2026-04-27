@@ -121,7 +121,7 @@
 - [x] `me_probe` 抽取 HDR metadata：MaxCLL / MaxFALL / MasterDisplay primaries + luminance（合并 BACKLOG `me-probe-hdr-metadata`）
 - [x] OCIO 升级：内置 + 可注入 PQ / HLG / ACES config（合并 BACKLOG `ocio-config-env-override`）
 - [x] SDR ↔ HDR 互转：tonemap (HDR → SDR via Hable / Reinhard / ACES，显式 effect kind)、inverse-tonemap stub（标记非确定性，仅 HDR 输出场景使用）
-- [ ] bench: `bench_hdr_roundtrip` HDR → HDR 透传位精度 + HDR → SDR tonemap 漂移预算
+- [x] bench: `bench_hdr_roundtrip` HDR → HDR 透传位精度 + HDR → SDR tonemap 漂移预算
 - [ ] tests: `test_hdr_metadata_propagate`（probe → timeline → encode → probe 链上不丢字段）、`test_pq_hlg_roundtrip`（解 → 渲 → 编后像素与原始误差 < ε）
 - [ ] §5.7-5 lib_size_budget 跟随实际链入的 codec 路径调整（commit body 解释）
 
