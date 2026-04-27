@@ -309,6 +309,31 @@ add_custom_command(
   VERBATIM)
 add_custom_target(determinism_fixture_with_audio DEPENDS ${_fixture_mp4_with_audio})
 
+# HDR fixture variant: HEVC Main 10 + P010 + AVMasteringDisplayMetadata
+# (BT.2020 primaries, 0.0001–1000 nits) + AVContentLightMetadata
+# (MaxCLL=1000, MaxFALL=400). Built by gen_hdr_fixture which uses
+# hevc_videotoolbox; gracefully degrades to "no fixture, exit 0" on
+# hosts without VideoToolbox (Linux / Windows). Tests that consume
+# this fixture (test_probe positive HDR case + the future
+# test-hdr-metadata-propagate / test-pq-hlg-roundtrip / bench-
+# hdr-roundtrip cycles) check the fixture's existence + size at
+# runtime via ME_REQUIRE_FIXTURE before asserting on it.
+add_executable(gen_hdr_fixture fixtures/gen_hdr_fixture.cpp)
+target_link_libraries(gen_hdr_fixture PRIVATE
+  FFMPEG::avformat
+  FFMPEG::avcodec
+  FFMPEG::avutil)
+
+set(_fixture_mp4_hdr "${_fixture_dir}/hdr_input.mp4")
+add_custom_command(
+  OUTPUT ${_fixture_mp4_hdr}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
+  COMMAND $<TARGET_FILE:gen_hdr_fixture> ${_fixture_mp4_hdr}
+  DEPENDS gen_hdr_fixture ${CMAKE_CURRENT_LIST_FILE}
+  COMMENT "Generating HDR test fixture: ${_fixture_mp4_hdr}"
+  VERBATIM)
+add_custom_target(hdr_fixture DEPENDS ${_fixture_mp4_hdr})
+
 # test_determinism depends on both fixture variants now — the video-
 # only fixture for legacy passthrough / h264 reencode cases, and the
 # with-audio fixture for the new compose-path determinism case.
@@ -316,6 +341,14 @@ add_dependencies(test_determinism determinism_fixture determinism_fixture_with_a
 target_compile_definitions(test_determinism PRIVATE
   ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
+
+# test_probe also consumes the HDR fixture for the
+# `me_media_info_video_hdr_metadata` positive-path TEST_CASE
+# (`debt-probe-hdr-positive-fixture`). Same ME_REQUIRE_FIXTURE skip
+# pattern as the SDR fixture deps above.
+add_dependencies(test_probe hdr_fixture)
+target_compile_definitions(test_probe PRIVATE
+  ME_TEST_FIXTURE_MP4_HDR="${_fixture_mp4_hdr}")
 
 # test_probe reuses the determinism fixture — same build-time MP4 gives
 # us a known codec / dimensions / framerate / color-tag state to assert
