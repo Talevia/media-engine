@@ -15,6 +15,7 @@
 #pragma once
 
 #include "graph/eval_context.hpp"
+#include "graph/eval_error.hpp"
 #include "graph/future.hpp"
 #include "graph/graph.hpp"
 #include "media_engine/types.h"
@@ -129,17 +130,22 @@ namespace me::graph {
 template<typename T>
 T Future<T>::await() {
     if (!eval_ || !run_future_.valid()) {
-        throw std::runtime_error("Future::await on empty future");
+        throw EvalError(ME_E_INTERNAL, "Future::await on empty future");
     }
     run_future_.wait();
     if (eval_->error_status() != ME_OK) {
-        throw std::runtime_error(eval_->error_message().empty()
-            ? "kernel failed"
-            : eval_->error_message());
+        /* Surface the kernel's status code to the caller — previously
+         * this was a plain runtime_error so api/* layers couldn't
+         * distinguish ME_E_IO from ME_E_DECODE. Callers that only
+         * `catch (const std::exception&)` still match because
+         * EvalError publicly inherits runtime_error. */
+        throw EvalError(eval_->error_status(),
+                         eval_->error_message().empty() ? "kernel failed"
+                                                          : eval_->error_message());
     }
     const auto& slot = eval_->output_at(terminal_);
     if (!std::holds_alternative<T>(slot.v)) {
-        throw std::runtime_error("Future::await: terminal output type mismatch");
+        throw EvalError(ME_E_INTERNAL, "Future::await: terminal output type mismatch");
     }
     return std::get<T>(slot.v);
 }

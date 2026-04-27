@@ -1,5 +1,6 @@
 #include "io/demux_kernel.hpp"
 
+#include "graph/eval_error.hpp"
 #include "graph/types.hpp"
 #include "io/demux_context.hpp"
 #include "task/context.hpp"
@@ -29,6 +30,12 @@ std::string strip_file_scheme(const std::string& uri) {
     return uri;
 }
 
+std::string av_err_str_local(int rc) {
+    char buf[AV_ERROR_MAX_STRING_SIZE] = {0};
+    av_strerror(rc, buf, sizeof(buf));
+    return std::string{buf};
+}
+
 me_status_t demux_kernel(task::TaskContext&,
                          const graph::Properties& props,
                          std::span<const graph::InputValue>,
@@ -44,11 +51,24 @@ me_status_t demux_kernel(task::TaskContext&,
     auto ctx = std::make_shared<DemuxContext>();
     ctx->uri = uri;
 
+    /* Throw EvalError with the libav error string instead of returning
+     * a bare ME_E_IO — callers (api/thumbnail.cpp, api/render.cpp) catch
+     * EvalError to recover both the status code AND a descriptive
+     * message including "avformat_open_input(...)" so the test
+     * test_thumbnail.cpp:178 ("last_error contains avformat_open_input")
+     * can match. The scheduler's catch records both fields onto the
+     * EvalInstance; Future::await re-throws an EvalError carrying them. */
     int rc = avformat_open_input(&ctx->fmt, path.c_str(), nullptr, nullptr);
-    if (rc < 0) return ME_E_IO;
+    if (rc < 0) {
+        throw graph::EvalError(ME_E_IO,
+            "avformat_open_input(\"" + path + "\") failed: " + av_err_str_local(rc));
+    }
 
     rc = avformat_find_stream_info(ctx->fmt, nullptr);
-    if (rc < 0) return ME_E_DECODE;
+    if (rc < 0) {
+        throw graph::EvalError(ME_E_DECODE,
+            "avformat_find_stream_info(\"" + path + "\") failed: " + av_err_str_local(rc));
+    }
 
     outs[0].v = std::move(ctx);
     return ME_OK;

@@ -2,6 +2,7 @@
 
 #include "core/engine_impl.hpp"
 #include "graph/eval_context.hpp"
+#include "graph/eval_error.hpp"
 #include "graph/future.hpp"
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
@@ -107,6 +108,15 @@ extern "C" me_status_t me_thumbnail_png(
             auto fut = engine->scheduler->evaluate_port<
                            std::shared_ptr<me::graph::RgbaFrameData>>(graph, terminal, ctx);
             rgba = fut.await();
+        } catch (const me::graph::EvalError& ex) {
+            /* Preserve the kernel's status code (ME_E_IO from
+             * avformat_open_input failure, ME_E_DECODE from
+             * find_stream_info, etc.) and the kernel's message —
+             * which includes "avformat_open_input(\"<path>\")"
+             * for the IO case so test_thumbnail's last_error check
+             * matches. */
+            me::detail::set_error(engine, std::string{ex.what()});
+            return ex.status();
         } catch (const std::exception& ex) {
             me::detail::set_error(engine, std::string{ex.what()});
             return ME_E_DECODE;

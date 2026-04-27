@@ -1,6 +1,7 @@
 #include "scheduler/scheduler.hpp"
 
 #include "graph/eval_context.hpp"
+#include "graph/eval_error.hpp"
 #include "resource/frame_pool.hpp"
 #include "resource/stateful_pool.hpp"
 #include "task/context.hpp"
@@ -112,6 +113,15 @@ void run_node(graph::NodeId       id,
         status = kernel(ctx, node.props,
                         std::span<const graph::InputValue>{ins.data(), ins.size()},
                         std::span<graph::OutputSlot>      {outs.data(), outs.size()});
+    } catch (const graph::EvalError& e) {
+        /* Kernel raised a typed status — preserve both the status
+         * and message so the api-layer caller can surface the
+         * original code (e.g. ME_E_IO from avformat_open_input
+         * failure rather than the generic ME_E_INTERNAL). */
+        eval.set_error(e.status(), e.what());
+        eval.set_state(id, NodeState::Failed);
+        eval.cancel_flag().store(true, std::memory_order_release);
+        return;
     } catch (const std::exception& e) {
         eval.set_error(ME_E_INTERNAL, e.what());
         eval.set_state(id, NodeState::Failed);
