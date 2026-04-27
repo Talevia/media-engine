@@ -109,6 +109,7 @@ set(_test_suites
   test_player
   test_api_surface_budget
   test_cache_hit_rate_lower_bound
+  test_inference_coreml_skeleton
 )
 
 foreach(_suite ${_test_suites})
@@ -1019,6 +1020,15 @@ if(NOT WIN32)
                    "${CMAKE_SOURCE_DIR}/tools/lib_size_budget.txt")
   set_tests_properties(lib_size_budget PROPERTIES TIMEOUT 10)
 endif()
+
+# test_inference_coreml_skeleton — exercises me::inference::CoreMlRuntime's
+# stub state. Reaches into src/inference/ for the runtime + coreml_runtime
+# headers (private; the inference namespace is engine-internal). The
+# ME_HAS_INFERENCE compile-def propagates from media_engine's PUBLIC
+# target_compile_definitions, so the suite sees the same on/off as the
+# engine itself.
+target_include_directories(test_inference_coreml_skeleton PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
 
 # ----- engine_impl.hpp ME_HAS_X visibility audit --------------------------
 # Cycle 41 burned 7 cycles diagnosing a `pthread_mutex_lock EINVAL` flake
