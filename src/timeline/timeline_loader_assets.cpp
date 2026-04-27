@@ -26,6 +26,39 @@ namespace me::timeline_loader_detail {
 
 using json = nlohmann::json;
 
+/* Parse the `"type"` JSON field (M11 ml-asset-schema). Backward-
+ * compatible: absent / "media" → AssetKind::Media (existing JSON
+ * shape, unchanged). Unknown values raise ME_E_UNSUPPORTED so a
+ * typo doesn't silently degrade to Media. */
+me::AssetKind parse_asset_kind(const json& a, const std::string& id) {
+    if (!a.contains("type") || !a["type"].is_string()) {
+        return me::AssetKind::Media;
+    }
+    const std::string t = a["type"].get<std::string>();
+    if (t.empty() || t == "media")     return me::AssetKind::Media;
+    if (t == "landmark")               return me::AssetKind::Landmark;
+    if (t == "mask")                   return me::AssetKind::Mask;
+    if (t == "keypoints")              return me::AssetKind::Keypoints;
+    throw LoadError{ME_E_UNSUPPORTED,
+        "asset[" + id + "].type: unknown value \"" + t +
+        "\" (expected \"media\" / \"landmark\" / \"mask\" / \"keypoints\")"};
+}
+
+/* Parse the `"model"` sub-object — required for non-Media kinds.
+ * M11 §136 mandates model_id / model_version / quantization. */
+me::MlAssetMetadata parse_ml_metadata(const json& m, const std::string& id) {
+    auto required_string = [&](const char* field) -> std::string {
+        require(m.contains(field) && m[field].is_string(), ME_E_PARSE,
+            "asset[" + id + "].model." + field + ": required string field");
+        return m[field].get<std::string>();
+    };
+    me::MlAssetMetadata md;
+    md.model_id      = required_string("id");
+    md.model_version = required_string("version");
+    md.quantization  = required_string("quantization");
+    return md;
+}
+
 void parse_assets_into(const json& doc, me::Timeline& tl) {
     if (!doc.contains("assets")) return;
 
@@ -61,9 +94,26 @@ void parse_assets_into(const json& doc, me::Timeline& tl) {
         if (a.contains("colorSpace")) {
             cs = parse_color_space(a["colorSpace"], "asset[" + id + "]");
         }
-        tl.assets.emplace(std::move(id),
-                           me::Asset{std::move(uri), std::move(hex),
-                                     std::move(cs)});
+
+        const me::AssetKind kind = parse_asset_kind(a, id);
+        std::optional<me::MlAssetMetadata> ml;
+        if (kind != me::AssetKind::Media) {
+            require(a.contains("model") && a["model"].is_object(), ME_E_PARSE,
+                "asset[" + id + "].model: required object for non-media asset kind");
+            ml = parse_ml_metadata(a["model"], id);
+        } else {
+            require(!a.contains("model"), ME_E_PARSE,
+                "asset[" + id + "].model: only valid when type is non-media");
+        }
+
+        me::Asset asset{
+            std::move(uri),
+            std::move(hex),
+            std::move(cs),
+            kind,
+            std::move(ml),
+        };
+        tl.assets.emplace(std::move(id), std::move(asset));
     }
 }
 

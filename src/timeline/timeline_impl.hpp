@@ -30,6 +30,30 @@
 
 namespace me {
 
+/* Asset kind axis. Defaults to Media — existing JSON without a
+ * `"type"` field continues to parse unchanged. ML asset kinds
+ * (Landmark / Mask / Keypoints) are produced by an inference
+ * runtime upstream of the engine; they reference a model via
+ * `MlAssetMetadata` so the engine can content-hash + cache them
+ * (M11 §137 contentHash key includes model_id / version /
+ * quantization). */
+enum class AssetKind : uint8_t {
+    Media     = 0,   /* video / audio / image — the only kind shipped pre-M11. */
+    Landmark  = 1,   /* Nx2 floats per frame + per-point confidence. */
+    Mask      = 2,   /* alpha sequence (e.g. portrait segmentation). */
+    Keypoints = 3,   /* skeleton with connectivity (e.g. body-pose track). */
+};
+
+/* Common ML-asset metadata — the M11 §136 schema requires every
+ * non-Media asset to carry these three fields so the contentHash
+ * key (M11 §137) can include them and the model lazy-load
+ * callback (M11 §138) can validate licensing. */
+struct MlAssetMetadata {
+    std::string model_id;
+    std::string model_version;
+    std::string quantization;   /* e.g. "fp32" / "fp16" / "int8" */
+};
+
 struct Asset {
     std::string uri;          /* resolved later (strip file:// at I/O time) */
 
@@ -42,6 +66,14 @@ struct Asset {
      * JSON asset object carried `"colorSpace":{...}`. M2-prep — M2 OCIO
      * is the only consumer. */
     std::optional<ColorSpace> color_space;
+
+    /* Asset kind. Defaults to Media; loader sets Landmark / Mask /
+     * Keypoints when JSON carries `"type":"landmark"` etc. */
+    AssetKind kind = AssetKind::Media;
+
+    /* Required when kind != Media; nullopt for Media. Loader enforces
+     * the kind→metadata invariant. */
+    std::optional<MlAssetMetadata> ml_metadata;
 };
 
 struct Clip {

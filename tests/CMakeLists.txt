@@ -31,6 +31,7 @@ set(_test_suites
   test_timeline_schema_audio
   test_timeline_schema_clip_attributes
   test_timeline_schema_color_space
+  test_timeline_schema_ml_asset
   test_timeline_schema_effects
   test_timeline_schema_transitions
   test_content_hash
@@ -131,6 +132,8 @@ target_include_directories(test_timeline_schema_audio
 target_include_directories(test_timeline_schema_clip_attributes
                             PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(test_timeline_schema_color_space
+                            PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_timeline_schema_ml_asset
                             PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(test_timeline_schema_effects
                             PRIVATE ${CMAKE_SOURCE_DIR}/src)
