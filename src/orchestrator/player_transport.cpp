@@ -68,12 +68,18 @@ me_status_t Player::play(float rate) {
      * tier (2) of the rate-gating doc above. Hosts asking for 4×
      * fast-forward / 0.25× slow-mo deserve a clear refusal. */
     if (rate < 0.5f || rate > 2.0f)            return ME_E_UNSUPPORTED;
-    if (rate != 1.0f &&
-        (has_audio_track_ || clock_.kind() == ME_CLOCK_AUDIO)) {
-        /* LEGIT: audio + rate ≠ 1 needs SoundTouch tempo wiring per
-         * debt-player-rate-audio-tempo; reject until that lands. */
-        return ME_E_UNSUPPORTED;
-    }
+    /* Audio + rate ≠ 1 used to be UNSUPPORTED here; now wired
+     * through `me::audio::TempoStretcher` (SoundTouch) in
+     * `audio_producer_loop`. The cursor accounting splits into
+     * (a) input cursor advancing at the timeline sample rate, and
+     * (b) dispatched cursor advancing at `n_smp / rate` host
+     * samples per emit. See player_audio_producer.cpp for the
+     * full read-stretch-emit loop. ME_CLOCK_AUDIO master + rate ≠ 1
+     * also OK now: hosts that drive AUDIO master are responsible
+     * for reporting the time-stretched playhead via
+     * report_audio_playhead — without that the cold-start WALL
+     * fallback in playback_clock.cpp keeps things sane. */
+    current_rate_.store(rate, std::memory_order_release);
     clock_.play(rate);
     {
         std::lock_guard<std::mutex> lk(mu_);

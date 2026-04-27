@@ -44,6 +44,8 @@
 
 struct me_engine;
 
+namespace me::audio { class TempoStretcher; }
+
 namespace me::orchestrator {
 
 class Player {
@@ -108,6 +110,26 @@ private:
     bool                                    has_audio_track_ = false;
     me_rational_t                           audio_chunk_cursor_{0, 1};
     int64_t                                 audio_dispatched_samples_ = 0;
+
+    /* Variable-rate audio support — `debt-player-rate-audio-tempo`.
+     *   - current_rate_: snapshot of the last play(rate) value, read
+     *     by the audio producer thread without taking mu_. Atomic so
+     *     mid-playback rate changes propagate without blocking the
+     *     pacer / state machine on the audio thread's lock. 1.0 is
+     *     the default (matches play(1.0) and pause()-zero clock).
+     *   - tempo_: lazily instantiated SoundTouch wrapper. Created on
+     *     the FIRST audio_producer_loop iteration that observes
+     *     rate ≠ 1.0; reused for subsequent rate changes via
+     *     set_tempo(). Owned solely by the audio producer thread —
+     *     no lock needed because no other thread reads or writes it.
+     *   - Lifetime: tempo_ is destroyed when Player goes away (the
+     *     audio thread has joined by then). std::unique_ptr<…> with
+     *     a forward-declared TempoStretcher requires the destructor
+     *     to be defined in player.cpp where the full type is in
+     *     scope; the explicit ~Player() declaration above already
+     *     covers that. */
+    std::atomic<float>                      current_rate_{1.0f};
+    std::unique_ptr<me::audio::TempoStretcher> tempo_;
 
     /* State protected by mu_. */
     mutable std::mutex                      mu_;

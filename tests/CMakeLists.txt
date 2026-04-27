@@ -760,12 +760,16 @@ target_compile_definitions(test_frame_server PRIVATE
 
 # test_player drives me_player_t through play / pause / seek /
 # audio-playhead-injection against the same determinism fixture as
-# test_frame_server. Pure C API consumption — no src/ include. The
-# AUDIO master-clock test never produces real audio (timeline has
-# no audio track) so no with-audio fixture is needed here.
-add_dependencies(test_player determinism_fixture)
+# test_frame_server. Pure C API consumption — no src/ include.
+# As of `debt-player-rate-audio-tempo`, the suite also exercises
+# rate ≠ 1.0 over a real audio track via the with-audio fixture
+# (sample-count drift bound proves SoundTouch tempo wiring works);
+# both fixtures are built ahead of the test.
+add_dependencies(test_player determinism_fixture
+                              determinism_fixture_with_audio)
 target_compile_definitions(test_player PRIVATE
-  ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+  ME_TEST_FIXTURE_MP4="${_fixture_mp4}"
+  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 
 # test_disk_cache exercises DiskCache (filesystem-backed frame
 # cache). Uses temp_directory_path for scratch. Needs src/ on

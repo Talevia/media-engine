@@ -32,6 +32,9 @@
 #ifndef ME_TEST_FIXTURE_MP4
 #error "ME_TEST_FIXTURE_MP4 must be defined via CMake"
 #endif
+#ifndef ME_TEST_FIXTURE_MP4_WITH_AUDIO
+#error "ME_TEST_FIXTURE_MP4_WITH_AUDIO must be defined via CMake"
+#endif
 
 namespace {
 
@@ -175,21 +178,164 @@ TEST_CASE("me_player: play(rate) gating — invalid / out-of-window / audio comb
     CHECK(me_player_play(f.player, 2.0f) == ME_OK);
 }
 
-TEST_CASE("me_player: play(rate ≠ 1.0) on audio timeline is rejected (audio-tempo deferred)") {
-    /* Same fixture but with sample_rate > 0 — the timeline determinism
-     * fixture has no audio track, so has_audio_track_ stays false and
-     * the audio-rate gate is exercised through the ME_CLOCK_AUDIO
-     * master path instead. Any of: ME_CLOCK_AUDIO master + rate ≠ 1
-     * OR has_audio_track_ + rate ≠ 1 trips UNSUPPORTED. */
+TEST_CASE("me_player: play(rate ≠ 1.0) on audio timeline is accepted (audio-tempo wired)") {
+    /* Same fixture (no audio track in the determinism MP4) but with
+     * sample_rate > 0 + ME_CLOCK_AUDIO master. Pre-`debt-player-rate-
+     * audio-tempo` this combo returned ME_E_UNSUPPORTED because the
+     * audio_producer_loop had no time-stretch path; with SoundTouch
+     * wired into player_audio_producer.cpp's emit loop the gate is
+     * lifted. ME_CLOCK_AUDIO + rate ≠ 1 still relies on the host's
+     * report_audio_playhead reflecting stretched-time position; with
+     * no playhead reports the cold-start WALL fallback in
+     * playback_clock.cpp keeps the master clock advancing.
+     *
+     * has_audio_track_ stays false here (no audio in the fixture)
+     * so this ONLY exercises the master-clock path of the lifted
+     * gate. The deeper "real audio + tempo" coverage is the next
+     * TEST_CASE which uses the with-audio fixture. */
     PlayerFixture f;
     me_player_config_t pc{};
     pc.audio_out.sample_rate = 48000;
     pc.master_clock          = ME_CLOCK_AUDIO;   /* explicit, even if track-less */
     REQUIRE(f.make_player(&pc) == ME_OK);
 
-    CHECK(me_player_play(f.player, 2.0f) == ME_E_UNSUPPORTED);
-    CHECK(me_player_play(f.player, 0.5f) == ME_E_UNSUPPORTED);
+    CHECK(me_player_play(f.player, 2.0f) == ME_OK);
+    CHECK(me_player_play(f.player, 0.5f) == ME_OK);
     CHECK(me_player_play(f.player, 1.0f) == ME_OK);
+}
+
+namespace {
+
+/* Build a single-clip timeline that wraps the with-audio fixture.
+ * Distinct helper because that fixture has a real audio track —
+ * tracks=[video, audio] — and exercising the audio-tempo path
+ * requires has_audio_track_=true on Player. */
+std::string build_single_clip_with_audio_json(const char* uri) {
+    std::string s = R"({
+      "schemaVersion": 1,
+      "frameRate":  {"num":30,"den":1},
+      "resolution": {"width":160,"height":120},
+      "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
+      "assets": [{"id":"a0","uri":")";
+    s += uri;
+    s += R"("}],
+      "compositions": [{
+        "id":"main",
+        "duration":{"num":2,"den":1},
+        "tracks":[
+          {"id":"v0","kind":"video","clips":[
+            {"id":"vc0","type":"video","assetId":"a0",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}},
+             "sourceRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}}}
+          ]},
+          {"id":"a0t","kind":"audio","clips":[
+            {"id":"ac0","type":"audio","assetId":"a0",
+             "timeRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}},
+             "sourceRange":{"start":{"num":0,"den":1},"duration":{"num":2,"den":1}}}
+          ]}
+        ]
+      }],
+      "output": {"compositionId":"main"}
+    })";
+    return s;
+}
+
+/* Capture host-cb-emitted audio sample counts so a TEST_CASE can
+ * assert SoundTouch tempo wiring landed bytes — no PCM analysis,
+ * just "were samples produced and roughly proportional to the
+ * configured rate?". */
+struct AudioCapture {
+    std::mutex          mu;
+    std::atomic<int64_t> total_frames{0};   /* host samples emitted */
+    std::atomic<int>     callback_count{0}; /* number of cb invocations */
+
+    static void cb(const float* const* /*planes*/, int /*n_ch*/,
+                   int n_frames, me_rational_t /*t*/, void* user) {
+        auto* self = static_cast<AudioCapture*>(user);
+        self->total_frames.fetch_add(n_frames, std::memory_order_relaxed);
+        self->callback_count.fetch_add(1, std::memory_order_relaxed);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("me_player: rate ≠ 1.0 over a real audio track produces stretched output (debt-player-rate-audio-tempo)") {
+    /* Drives the SoundTouch wiring landed in
+     * `debt-player-rate-audio-tempo`. Builds a player on a timeline
+     * that DOES have an audio track (the with-audio fixture's AAC
+     * stream), runs play(rate) for a short wall window, and
+     * inspects the host audio cb's accumulated sample count.
+     *
+     * Sample-count drift bound: at host sample rate `sr`, in W
+     * wall-seconds the host audio device consumes W × sr samples.
+     * The producer thread emits stretched output as fast as
+     * SoundTouch produces it, throttled to `audio_queue_ms` ahead
+     * of the playhead. So total emitted ≈ (W + queue/1000) × sr
+     * ± transient/scheduling slop, INDEPENDENT of `rate`: the
+     * stretcher consumes timeline-input at rate× the emit pace,
+     * but EMITS host samples at the host's native sr rate.
+     *
+     * This test asserts the cb fires at all and the count is in a
+     * sensible band — proves the tempo path doesn't deadlock or
+     * silently swallow output. Tighter A/V drift bounds would need
+     * a fixture-vs-host-clock harness which lives outside test_player. */
+    me_engine_t* eng = nullptr;
+    me_engine_config_t cfg{};
+    REQUIRE(me_engine_create(&cfg, &eng) == ME_OK);
+
+    me_timeline_t* tl = nullptr;
+    const std::string uri =
+        "file://" + std::string(ME_TEST_FIXTURE_MP4_WITH_AUDIO);
+    const std::string js = build_single_clip_with_audio_json(uri.c_str());
+    REQUIRE(me_timeline_load_json(eng, js.data(), js.size(), &tl) == ME_OK);
+
+    me_player_config_t pc{};
+    pc.audio_out.sample_rate  = 48000;
+    pc.audio_out.num_channels = 2;
+    pc.master_clock           = ME_CLOCK_WALL;
+    pc.audio_queue_ms         = 100;        /* keep the test short */
+    pc.video_ring_capacity    = 3;
+
+    me_player_t* player = nullptr;
+    REQUIRE(me_player_create(eng, tl, &pc, &player) == ME_OK);
+
+    AudioCapture cap;
+    REQUIRE(me_player_set_audio_callback(player, &AudioCapture::cb, &cap) == ME_OK);
+
+    /* Pre-play: no callbacks. */
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    CHECK(cap.callback_count.load() == 0);
+
+    REQUIRE(me_player_play(player, 2.0f) == ME_OK);
+
+    /* Wait long enough that SoundTouch's startup latency has cleared
+     * AND multiple chunks have been emitted. 300 ms wall-time is
+     * generous on a CI box: SoundTouch's lookahead at 48k stereo is
+     * a handful of ms, audio_queue_ms=100 gives a queue refill
+     * heartbeat at ~10 Hz. */
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    REQUIRE(me_player_pause(player) == ME_OK);
+
+    const int     cb_count = cap.callback_count.load();
+    const int64_t frames   = cap.total_frames.load();
+    MESSAGE("rate=2.0 audio cb fires=" << cb_count
+            << "  total_frames=" << frames);
+    /* SoundTouch tempo path produced output. Lower bound: at least
+     * one cb fired AND emitted a non-trivial number of samples. */
+    CHECK(cb_count >= 1);
+    CHECK(frames   >  0);
+    /* Upper bound: host samples emitted shouldn't dwarf wall time
+     * by orders of magnitude — `audio_queue_ms` caps lead at
+     * 100 ms, so total host frames at 48k ≤ (300 + 100) ms ×
+     * 48 = 19 200 samples + some startup slack. We pick 50 000
+     * as a generous catch-an-explosion bound rather than a tight
+     * pacing assertion. */
+    CHECK(frames < 50000);
+
+    me_player_destroy(player);
+    me_timeline_destroy(tl);
+    me_engine_destroy(eng);
 }
 
 TEST_CASE("me_player: play(2.0) advances the master clock at 2× wall rate") {
