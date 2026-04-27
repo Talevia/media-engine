@@ -482,7 +482,7 @@ void Player::producer_loop() {
             epoch_start = seek_epoch_;
         }
 
-        /* Compile + evaluate. resolve_active_clip_at + the inline
+        /* Compile + evaluate. compile_compose_graph + the inline
          * scheduler submission below are both blocking; the slow
          * piece is the await on the decode + sws_scale graph. The
          * scheduler's OutputCache absorbs repeats.
@@ -495,31 +495,6 @@ void Player::producer_loop() {
             std::unique_lock<std::mutex> lk(mu_);
             if (shutdown_) return;
             state_cv_.wait_for(lk, std::chrono::milliseconds(50));
-            continue;
-        }
-        ResolvedClip resolved;
-        const me_status_t lookup = resolve_active_clip_at(*tl_, cursor, &resolved);
-        const std::string&  uri      = resolved.uri;
-        const me_rational_t source_t = resolved.source_t;
-
-        if (lookup == ME_E_NOT_FOUND) {
-            /* Gap inside the timeline. Advance one frame and try
-             * again — the timeline's clip layout will eventually
-             * either cover the new cursor or push us past duration. */
-            std::lock_guard<std::mutex> lk(mu_);
-            if (seek_epoch_ == epoch_start &&
-                r_cmp(produce_cursor_, cursor) == 0) {
-                produce_cursor_ = r_add(produce_cursor_, frame_period_);
-            }
-            continue;
-        }
-        if (lookup != ME_OK) {
-            /* Asset / timeline malformed — pause output. The host can
-             * recover via seek + replace timeline at the C API. */
-            std::unique_lock<std::mutex> lk(mu_);
-            if (shutdown_) return;
-            state_cv_.wait_for(lk, std::chrono::milliseconds(50));
-            if (shutdown_) return;
             continue;
         }
 
@@ -539,21 +514,40 @@ void Player::producer_loop() {
         me::graph::Graph     g;
         me::graph::PortRef   term{};
         bool                 submit_failed = false;
+        bool                 gap = false;
         std::string          err;
         try {
             if (!engine_ || !engine_->scheduler) throw std::runtime_error("no scheduler");
-            auto pair = compile_frame_graph(uri, source_t);
-            g    = std::move(pair.first);
-            term = pair.second;
-            me::graph::EvalContext ctx;
-            ctx.frames = engine_->frames.get();
-            ctx.codecs = engine_->codecs.get();
-            ctx.time   = source_t;
-            fut = engine_->scheduler->evaluate_port<
-                       std::shared_ptr<me::graph::RgbaFrameData>>(g, term, ctx);
+            const me_status_t cs = compile_compose_graph(*tl_, cursor, &g, &term);
+            if (cs == ME_E_NOT_FOUND) {
+                gap = true;
+            } else if (cs != ME_OK) {
+                err = "compile_compose_graph failed";
+                submit_failed = true;
+            } else {
+                me::graph::EvalContext ctx;
+                ctx.frames = engine_->frames.get();
+                ctx.codecs = engine_->codecs.get();
+                ctx.time   = cursor;
+                fut = engine_->scheduler->evaluate_port<
+                           std::shared_ptr<me::graph::RgbaFrameData>>(g, term, ctx);
+            }
         } catch (const std::exception& ex) {
             err = ex.what();
             submit_failed = true;
+        }
+
+        if (gap) {
+            /* Timeline gap at this cursor — advance one frame and
+             * retry. Same recovery as before, just relocated post-
+             * compile (now that compile_compose_graph is the lookup
+             * point). */
+            std::lock_guard<std::mutex> lk(mu_);
+            if (seek_epoch_ == epoch_start &&
+                r_cmp(produce_cursor_, cursor) == 0) {
+                produce_cursor_ = r_add(produce_cursor_, frame_period_);
+            }
+            continue;
         }
 
         if (!submit_failed) {

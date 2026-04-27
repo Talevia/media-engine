@@ -1,14 +1,20 @@
 #include "media_engine/render.h"
 #include "core/engine_impl.hpp"
 #include "core/frame_impl.hpp"
+#include "graph/eval_context.hpp"
+#include "graph/future.hpp"
+#include "graph/graph.hpp"
 #include "graph/types.hpp"
 #include "orchestrator/compose_frame.hpp"
 #include "orchestrator/exporter.hpp"
 #include "resource/asset_hash_cache.hpp"
 #include "resource/disk_cache.hpp"
+#include "scheduler/scheduler.hpp"
 #include "timeline/timeline_impl.hpp"
 
+#include <exception>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -30,6 +36,21 @@ namespace {
  * refactor-passthrough-into-graph-exporter migration. */
 std::shared_ptr<const me::Timeline> borrow_timeline(const me_timeline_t* h) {
     return std::shared_ptr<const me::Timeline>(&h->tl, [](const me::Timeline*) {});
+}
+
+/* DiskCache key derived from the compiled graph's content_hash. Same
+ * (timeline-state, time) → same graph topology + props → same content
+ * hash → same key. Single-track-no-transform timelines collapse to the
+ * 3-node M1 graph whose hash includes the IoDemux uri prop and the
+ * IoDecodeVideo source_t props, so this key is at least as specific as
+ * the legacy `<asset_hash>:<source_num>:<source_den>` shape was. The
+ * legacy shape supported `me_cache_invalidate_asset` prefix matching;
+ * graph-hash keys lose that fast-path — me_cache_clear remains the
+ * universal escape hatch. */
+std::string disk_cache_key_from(const me::graph::Graph& g) {
+    std::ostringstream os;
+    os << "g:" << std::hex << g.content_hash();
+    return os.str();
 }
 
 }  // namespace
@@ -95,57 +116,56 @@ extern "C" me_status_t me_render_frame(
     me_frame_t**         out_frame) {
 
     if (!engine || !timeline || !out_frame) return ME_E_INVALID_ARG;
+    if (!engine->scheduler) return ME_E_INVALID_ARG;
     *out_frame = nullptr;
     me::detail::clear_error(engine);
 
-    /* Resolve which clip is active at `time`; if `time` falls in a
-     * gap (or past end) report NOT_FOUND to the host. */
-    me::orchestrator::ResolvedClip clip;
-    if (const auto s = me::orchestrator::resolve_active_clip_at(
-            timeline->tl, time, &clip); s != ME_OK) {
+    /* Compile the per-frame compose graph first so cache lookup can
+     * key off graph.content_hash(). compile_compose_graph returns
+     * ME_E_NOT_FOUND when `time` falls in a gap (no contributing
+     * video layer). */
+    me::graph::Graph   graph;
+    me::graph::PortRef terminal{};
+    if (const auto s = me::orchestrator::compile_compose_graph(
+            timeline->tl, time, &graph, &terminal); s != ME_OK) {
         return s;
     }
 
-    /* DiskCache peek (persistent across processes). Key =
-     * `<asset_hash>:<source_num>:<source_den>` so the same (asset,
-     * timeline-local moment) returns the cached frame and all entries
-     * for a given asset share a common prefix
-     * (me_cache_invalidate_asset walks on prefix). The in-process
-     * scheduler.cache (inside the engine's scheduler) handles same-
-     * process repeat fetches; disk_cache survives process restarts
-     * and is what me_cache_stats / me_cache_clear /
-     * me_cache_invalidate_asset (src/api/cache.cpp) report on. Empty
-     * asset_hash → skip cache (can't key). */
-    std::string asset_hash;
-    if (engine->asset_hashes) {
-        asset_hash = engine->asset_hashes->get_or_compute(clip.uri);
-    }
-    std::string cache_key;
-    if (!asset_hash.empty()) {
-        cache_key = asset_hash + ":" +
-                    std::to_string(clip.source_t.num) + ":" +
-                    std::to_string(clip.source_t.den);
-        if (engine->disk_cache && engine->disk_cache->enabled()) {
-            auto cached = engine->disk_cache->get(cache_key);
-            if (cached.has_value()) {
-                auto mf = std::make_unique<me_frame>();
-                mf->width  = cached->width;
-                mf->height = cached->height;
-                mf->stride = cached->stride;
-                mf->rgba   = std::move(cached->rgba);
-                *out_frame = mf.release();
-                return ME_OK;
-            }
+    /* DiskCache peek — keyed by the compiled graph's content hash so
+     * same (timeline-state, time) hits, distinct timelines or distinct
+     * times miss. This replaces the legacy
+     * `<asset_hash>:<source_num>:<source_den>` key shape that
+     * single-track timelines used. */
+    const std::string cache_key = disk_cache_key_from(graph);
+    if (engine->disk_cache && engine->disk_cache->enabled()) {
+        auto cached = engine->disk_cache->get(cache_key);
+        if (cached.has_value()) {
+            auto mf = std::make_unique<me_frame>();
+            mf->width  = cached->width;
+            mf->height = cached->height;
+            mf->stride = cached->stride;
+            mf->rgba   = std::move(cached->rgba);
+            *out_frame = mf.release();
+            return ME_OK;
         }
     }
 
-    /* Cache miss — submit + await the per-frame video graph. */
+    /* Cache miss — submit + await the per-frame video graph. Inline
+     * the evaluate (rather than calling compose_frame_at) so the
+     * graph object built above flows directly into the scheduler;
+     * compose_frame_at would re-build it. */
     std::shared_ptr<me::graph::RgbaFrameData> rgba;
-    std::string err;
-    if (const auto s = me::orchestrator::compose_frame_at(
-            engine, timeline->tl, time, &rgba, &err); s != ME_OK) {
-        if (!err.empty()) me::detail::set_error(engine, std::move(err));
-        return s;
+    me::graph::EvalContext ctx;
+    ctx.frames = engine->frames.get();
+    ctx.codecs = engine->codecs.get();
+    ctx.time   = time;
+    try {
+        auto fut = engine->scheduler->evaluate_port<
+                       std::shared_ptr<me::graph::RgbaFrameData>>(graph, terminal, ctx);
+        rgba = fut.await();
+    } catch (const std::exception& ex) {
+        me::detail::set_error(engine, std::string{ex.what()});
+        return ME_E_DECODE;
     }
     if (!rgba) return ME_E_DECODE;
 
@@ -160,8 +180,7 @@ extern "C" me_status_t me_render_frame(
 
     /* DiskCache write-through (persistent layer). Best-effort —
      * failures don't affect the render path. */
-    if (!cache_key.empty() &&
-        engine->disk_cache && engine->disk_cache->enabled()) {
+    if (engine->disk_cache && engine->disk_cache->enabled()) {
         engine->disk_cache->put(cache_key, mf->rgba.data(),
                                  mf->width, mf->height,
                                  static_cast<int>(mf->stride));

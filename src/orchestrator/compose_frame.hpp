@@ -7,26 +7,22 @@
  *   (b) streaming, stateful     — Exporter
  *   (c) playback session        — Player (composes (a) + (b))
  *
- * Path (a) is just a few free functions: resolve which clip is active
- * at a given timeline-coordinate `time`, build the per-frame video
- * graph, evaluate it, optionally PNG-encode the result. Earlier
- * cycles wrapped each of these in a class (Previewer /
- * CompositionThumbnailer). The classes had no per-instance state and
- * no methods beyond a single one — pure bookkeeping. They were
- * deleted; the helpers below are the replacement.
+ * Path (a) is just a few free functions: compile the per-frame video
+ * graph for a (Timeline, time) pair, evaluate it, optionally PNG-encode
+ * the result.
  *
  * Consumers:
  *   - me_render_frame   (src/api/render.cpp)            — RGBA + disk_cache
  *   - me_player_t       (src/orchestrator/player.cpp)   — RGBA, no cache, with cancel
  *   - compose_png_at    (this header)                   — composition-level PNG
  *
- * Phase-1 limitation (matches the old Previewer): the active-clip
- * resolver only walks the bottom track. Multi-track compose is
- * gated on the `previewer-multi-track-compose-graph` backlog item;
- * when it lands, `compile_frame_graph` grows into something like
- * `compile_compose_graph(active_clips, t)` and `resolve_active_clip_at`
- * grows into `active_clips_at`. All callers below just pick up the
- * change at recompile time.
+ * compile_compose_graph walks every video track in declaration order
+ * (= bottom→top z-order), at each track resolving either a single
+ * active clip or an active cross-dissolve transition, then composing
+ * the per-track outputs via RenderComposeCpu when more than one
+ * contributes. Single-clip-no-transform-no-transition collapses to
+ * the simple 3-node `IoDemux → IoDecodeVideo → RenderConvertRgba8`
+ * graph (same shape M1 used) so that case stays cheap.
  */
 #pragma once
 
@@ -45,38 +41,31 @@ struct me_engine;
 
 namespace me::orchestrator {
 
-/* What `resolve_active_clip_at` returns: the asset URI to demux + the
- * clip-local time to seek/decode for. Both are the inputs to
- * `compile_frame_graph`. */
-struct ResolvedClip {
-    std::string    uri;
-    me_rational_t  source_t{0, 1};
-};
-
-/* Find the active video clip at `time` in `tl`. Single-bottom-track
- * lookup (Phase-1 limitation; see file header). Returns:
- *   ME_OK                  — `*out` populated
- *   ME_E_NOT_FOUND         — `time` outside every clip's [start, end)
- *   ME_E_INVALID_ARG       — null tl / empty tracks / empty clips */
-me_status_t resolve_active_clip_at(
+/* Build the per-frame video graph for `time` against `tl`.
+ *
+ * Topology depends on what's active at `time`:
+ *
+ *   • Exactly one video track contributes a single clip with no
+ *     transform → 3-node chain (M1 shape):
+ *       IoDemux → IoDecodeVideo → RenderConvertRgba8
+ *
+ *   • Otherwise (multi-layer, transform, or active transition):
+ *     per layer build the 3-node chain, then either RenderAffineBlit
+ *     (if the layer has a Transform or the canvas needs a resize) and
+ *     RenderCrossDissolve (if the layer is in a transition window).
+ *     All N per-layer outputs feed RenderComposeCpu's variadic input.
+ *
+ * Returns ME_E_NOT_FOUND when no video track contributes at `time`
+ * (every track has either no active clip or a disabled track). The
+ * Graph is move-only and the out-pair owns it. Caller must keep the
+ * Graph alive until any scheduler.evaluate_port future against it
+ * has been awaited — sched::EvalInstance stores the graph by const
+ * reference (eval_instance.hpp:66). */
+me_status_t compile_compose_graph(
     const me::Timeline&  tl,
     me_rational_t        time,
-    ResolvedClip*        out);
-
-/* Build the three-node per-frame video decode graph:
- *
- *   IoDemux(uri) → IoDecodeVideo(source_t) → RenderConvertRgba8
- *
- * The Graph object is move-only and the returned value-pair owns it.
- * The PortRef points at the "rgba" terminal (RgbaFrameData typed).
- *
- * Caller must keep the Graph alive until any
- * scheduler.evaluate_port future against it has been awaited —
- * sched::EvalInstance stores the graph by const reference
- * (eval_instance.hpp:66). */
-std::pair<graph::Graph, graph::PortRef>
-compile_frame_graph(const std::string& uri,
-                     me_rational_t      source_t);
+    graph::Graph*        out_graph,
+    graph::PortRef*      out_terminal);
 
 /* Resolve + compile + submit + await for the timeline-coordinate
  * `time`. Single-shot, no cancel — long-lived consumers (Player)
