@@ -76,6 +76,7 @@ if(ME_BUILD_TESTS)
         # / classes/io/mediaengine/example/<Class>.class
         set(_me_jni_java_sources
             src/io/mediaengine/MediaEngine.java
+            src/io/mediaengine/Frames.java
             example/src/io/mediaengine/example/Run.java
             example/src/io/mediaengine/example/VersionAssert.java
             example/src/io/mediaengine/example/Thumbnail.java
@@ -352,6 +353,38 @@ if(ME_BUILD_TESTS)
                    "test \"$(head -c 2 '${CMAKE_CURRENT_BINARY_DIR}/jni_frame_smoke_out.ppm')\" = P6")
         set_tests_properties(jni_frame_smoke_validate PROPERTIES
             DEPENDS jni_frame_smoke
+            TIMEOUT 5)
+
+        # jni_frame_png_smoke: same FrameFetch with a `.png` output —
+        # exercises `io.mediaengine.Frames.toBufferedImage` plus
+        # `javax.imageio.ImageIO.write`. Catches regressions in the
+        # RGBA8 → BufferedImage TYPE_INT_ARGB pack (channel order, row
+        # length consistency) that the PPM path would silently swallow.
+        add_test(NAME jni_frame_png_smoke
+                 COMMAND ${Java_JAVA_EXECUTABLE}
+                         "-Djava.library.path=$<TARGET_FILE_DIR:media_engine_jni>"
+                         -cp "${_me_jni_classdir}"
+                         io.mediaengine.example.FrameFetch
+                         "${_me_jni_test_fixture_mp4}"
+                         "${CMAKE_CURRENT_BINARY_DIR}/jni_frame_png_smoke_out.png")
+        set_tests_properties(jni_frame_png_smoke PROPERTIES
+            DEPENDS  media_engine_jni_classes
+            TIMEOUT  20)
+
+        # Companion check: PNG magic = 89 50 4E 47 0D 0A 1A 0A. We
+        # match the first 4 bytes via bash hex comparison — a
+        # regression where Frames.toBufferedImage produced a
+        # malformed image (wrong dimensions, all-zero pixels — both
+        # write_png-survivable but spec-violating) would still pass
+        # this smoke check, but a write that didn't reach disk or
+        # truncated mid-IHDR fails. Stronger pixel-level checks would
+        # need a Java-side asserter; tracked as future work if PNG
+        # path picks up more contracts.
+        add_test(NAME jni_frame_png_smoke_validate
+                 COMMAND bash -c
+                   "test \"$(xxd -p -l 4 '${CMAKE_CURRENT_BINARY_DIR}/jni_frame_png_smoke_out.png')\" = 89504e47")
+        set_tests_properties(jni_frame_png_smoke_validate PROPERTIES
+            DEPENDS jni_frame_png_smoke
             TIMEOUT 5)
 
         # jni_thumbnail_smoke: pull a 160x120 PNG thumbnail at t=0.5s

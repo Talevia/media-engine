@@ -2,27 +2,40 @@
  * FrameFetch — JVM-side demo of me_render_frame via the
  * MediaEngine.frame(Timeline, tNum, tDen) bridge. Builds a
  * single-clip passthrough timeline over <source.mp4>, fetches
- * the frame at t=1/2 (0.5 s), writes a PPM to <output.ppm>.
+ * the frame at t=1/2 (0.5 s), writes the output to either:
+ *
+ *   - PPM (P6 magic, RGB) when output ends in `.ppm` — the
+ *     dependency-free path; readable by any image viewer / netpbm.
+ *   - PNG via `javax.imageio.ImageIO.write` when output ends in
+ *     `.png` — exercises `io.mediaengine.Frames.toBufferedImage`
+ *     so the helper participates in CI. Demonstrates the
+ *     "RGBA8 → BufferedImage TYPE_INT_ARGB → PNG" round-trip
+ *     hosts pull off ImageIO / Swing / Java2D.
  *
  * Hosts (talevia scrub UI, agent preview) need raw RGBA frames —
- * thumbnail() is the PNG-encoded path; this is the
- * decoded-pixels path that doesn't pay for PNG encoding.
+ * thumbnail() is the PNG-encoded path that runs entirely native;
+ * this example is the decoded-pixels path that hands the bytes
+ * back to Java for arbitrary downstream processing.
  *
  * Usage:
  *   java -Djava.library.path=<libdir> -cp <classes-dir> \
  *        io.mediaengine.example.FrameFetch \
- *        <source.mp4> <output.ppm>
+ *        <source.mp4> <output.ppm | output.png>
  */
 package io.mediaengine.example;
 
+import io.mediaengine.Frames;
 import io.mediaengine.MediaEngine;
 import io.mediaengine.MediaEngine.Frame;
 import io.mediaengine.MediaEngine.Timeline;
 
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.OutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import javax.imageio.ImageIO;
 
 public final class FrameFetch {
 
@@ -45,8 +58,17 @@ public final class FrameFetch {
                         + " (status=" + MediaEngine.lastStatus() + ")");
                 System.exit(1);
             }
-            try (OutputStream out = Files.newOutputStream(Paths.get(output))) {
-                writePpm(out, f);
+            if (output.endsWith(".png")) {
+                final BufferedImage img = Frames.toBufferedImage(f);
+                if (!ImageIO.write(img, "png", new File(output))) {
+                    System.err.println("ImageIO.write found no PNG writer "
+                            + "(unexpected on a standard JDK install)");
+                    System.exit(1);
+                }
+            } else {
+                try (OutputStream out = Files.newOutputStream(Paths.get(output))) {
+                    writePpm(out, f);
+                }
             }
             System.out.printf("wrote %s (%dx%d, %d bytes RGBA)%n",
                     output, f.width(), f.height(), f.rgba().length);
