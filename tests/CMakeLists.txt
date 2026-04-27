@@ -87,6 +87,7 @@ set(_test_suites
   test_bench_harness
   test_decode_kernels
   test_io_decode_audio
+  test_audio_resample_kernel
   test_scheduler_cache
   test_player
 )
@@ -613,6 +614,12 @@ target_link_libraries(test_io_decode_audio PRIVATE Taskflow)
 add_dependencies(test_io_decode_audio determinism_fixture_with_audio)
 target_compile_definitions(test_io_decode_audio PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
+
+# test_audio_resample_kernel constructs synthetic AVFrames to drive
+# the AudioResample kernel; needs libav for AVFrame construction.
+target_include_directories(test_audio_resample_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_audio_resample_kernel PRIVATE
+  FFMPEG::avutil FFMPEG::avcodec FFMPEG::swresample)
 
 # test_scheduler_cache exercises sched::OutputCache (peek-before-dispatch +
 # bounded LRU). Uses mock kernels registered into the bootstrap test slots
