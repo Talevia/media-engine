@@ -85,6 +85,7 @@ set(_test_suites
   test_encode_hevc_main10
   test_tonemap_kernel
   test_inverse_tonemap_stub
+  test_face_sticker_stub
   test_hdr_metadata_propagate
   test_pq_hlg_roundtrip
   test_decode_vp9_profile2
@@ -694,6 +695,14 @@ target_include_directories(test_tonemap_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # test_tonemap_kernel above — pure header-only consumer of the
 # kernel TU; needs src/ for compose/inverse_tonemap_kernel.hpp.
 target_include_directories(test_inverse_tonemap_stub PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_face_sticker_stub pins the registered-but-deferred contract
+# for me::compose::apply_face_sticker_inplace PLUS the JSON loader
+# round-trip for `kind: "face_sticker"` (M11 ml-effect-face-sticker-
+# stub). Reaches into src/ for the kernel header and the timeline IR
+# types; uses the schema-fixtures harness for the JSON cases (same
+# pattern as test_timeline_schema_ml_asset).
+target_include_directories(test_face_sticker_stub PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_subtitle_renderer exercises me::text::SubtitleRenderer
 # (libass wrapper). ME_HAS_LIBASS compile def gates the real

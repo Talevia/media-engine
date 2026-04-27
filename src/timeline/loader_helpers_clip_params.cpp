@@ -132,10 +132,53 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
             ip.target_peak_nits = n;
         }
         spec.params = ip;
+    } else if (kind_str == "face_sticker") {
+        /* M11 ml-effect-face-sticker-stub. Reserves the API surface
+         * for the landmark-driven sticker effect. Loader stores the
+         * typed params + cross-references an Asset.id (loader does
+         * NOT validate the cross-ref here; compose-time consumer
+         * resolves + rejects on miss); the kernel
+         * (compose/face_sticker_kernel.cpp) returns ME_E_UNSUPPORTED
+         * today — see the bullet `face-sticker-impl` for the
+         * deferred impl. Intentionally registered now so JSON
+         * authoring tools can target the kind ahead of the impl. */
+        spec.kind = me::EffectKind::FaceSticker;
+        me::FaceStickerEffectParams fp;
+        require(p.contains("landmarkAssetId") && p["landmarkAssetId"].is_string(),
+                ME_E_PARSE,
+                where + ".params.landmarkAssetId: required string field "
+                "(references an Asset.id with kind=landmark)");
+        fp.landmark_asset_id = p.at("landmarkAssetId").get<std::string>();
+        require(p.contains("stickerUri") && p["stickerUri"].is_string(),
+                ME_E_PARSE,
+                where + ".params.stickerUri: required string field");
+        fp.sticker_uri = p.at("stickerUri").get<std::string>();
+        if (p.contains("scaleX")) {
+            require(p["scaleX"].is_number(), ME_E_PARSE,
+                    where + ".params.scaleX: expected number");
+            fp.scale_x = p.at("scaleX").get<double>();
+        }
+        if (p.contains("scaleY")) {
+            require(p["scaleY"].is_number(), ME_E_PARSE,
+                    where + ".params.scaleY: expected number");
+            fp.scale_y = p.at("scaleY").get<double>();
+        }
+        if (p.contains("offsetX")) {
+            require(p["offsetX"].is_number(), ME_E_PARSE,
+                    where + ".params.offsetX: expected number");
+            fp.offset_x = p.at("offsetX").get<double>();
+        }
+        if (p.contains("offsetY")) {
+            require(p["offsetY"].is_number(), ME_E_PARSE,
+                    where + ".params.offsetY: expected number");
+            fp.offset_y = p.at("offsetY").get<double>();
+        }
+        spec.params = fp;
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
-                        "' (supported: color, blur, lut, tonemap, inverse_tonemap)"};
+                        "' (supported: color, blur, lut, tonemap, inverse_tonemap, "
+                        "face_sticker)"};
     }
     return spec;
 }
