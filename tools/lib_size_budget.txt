@@ -1,0 +1,35 @@
+# media-engine static library size budget — VISION §5.7-5 guard.
+#
+# tools/check_lib_size.sh reads the size of
+# `$<TARGET_FILE:media_engine>` and asserts ≤ the per-config ceiling
+# below. ctest "lib_size_budget" runs the script.
+#
+# Why per-config: Debug carries DWARF + assertions; Release strips
+# both. A single number would either be permissive enough that
+# release inflation hides, or tight enough that Debug always fails.
+# Per-config keeps both regimes honest.
+#
+# Bumping these REQUIRES a commit body explaining the source of
+# growth (new dependency, new GPU path linked unconditionally,
+# generated tables). Silent inflation = link-graph debt that we
+# don't see until the Android APK or iOS bundle bloats.
+#
+# Baselines as of M9 inception (cycle establishing this guard).
+# This repo's top-level CMakeLists.txt defaults CMAKE_BUILD_TYPE to
+# Release when unset, so `cmake -B build -S .` hits the Release row;
+# Debug only fires on explicit `-DCMAKE_BUILD_TYPE=Debug`.
+#
+# Measured on dev box (cycle establishing this guard):
+#   Release build/src/libmedia_engine.a ≈ 2.3 MB
+# Debug not yet measured — ceiling left at the same 4 MB pending an
+# explicit Debug build.
+#
+# Format: <CONFIG>=<bytes>
+# Lines starting with # are comments. Unknown configs are skipped by
+# check_lib_size.sh (LENIENT — see comment there). Tighten as CI
+# stabilises and the per-config baseline variance is known.
+
+Debug=4194304
+Release=4194304
+RelWithDebInfo=4194304
+MinSizeRel=2097152

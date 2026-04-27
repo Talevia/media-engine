@@ -1,0 +1,23 @@
+# media-engine public C API surface budget — VISION §5.7-4 guard.
+#
+# tests/test_api_surface_budget.cpp scans include/media_engine.h +
+# include/media_engine/*.h and asserts current counts ≤ these ceilings.
+# A regression that grows the public surface fails the test.
+#
+# Bumping these numbers REQUIRES a commit body explaining:
+#   - what new public functions / fields were added
+#   - why they couldn't be expressed as opaque-handle additions or
+#     orthogonal capabilities behind existing entry points
+#
+# Silent inflation = the engine is drifting toward a kitchen-sink C
+# ABI by accident. VISION §1's "agent-callable compiler" thesis only
+# holds if the surface stays small and deliberate.
+#
+# Baseline as of M9 inception (cycle establishing this guard):
+#   functions=53, fields=39
+# Headroom: ~50% to absorb M9-and-beyond planned adds (HDR probe
+# accessors, OpenFX entry points) without thrashing this file every
+# cycle. Tighten back when M9 ships and headroom is excessive.
+
+functions=80
+fields=60

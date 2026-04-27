@@ -24,6 +24,7 @@
 #include <media_engine.h>
 
 #include "bench_harness.hpp"
+#include "peak_rss.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -65,6 +66,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     struct EngineGuard { me_engine_t* p; ~EngineGuard() { me_engine_destroy(p); } } g{eng};
+
+    /* Sample peak RSS pre-workload so the post-workload reading lets
+     * us report the *delta* the bench produced, not whatever the
+     * process inherited from doctest harness / CI runner. */
+    const std::int64_t rss_before = me::bench::peak_rss_bytes();
 
     const std::string uri = "file://" + fixture_path;
     const me_rational_t t = {1, 2};  /* ~0.5 s into the 2 s fixture */
@@ -110,6 +116,44 @@ int main(int argc, char** argv) {
 
     std::printf("bench_thumbnail_png: avg=%.3f ms (%.2f fps) budget=%.1f ms\n",
                 avg_ms, fps, kBudgetMs);
+
+    /* §5.7-1 cache stats dump — observation only here; numerical
+     * lower-bound assertion lives in tests/test_cache_hit_rate_lower_bound.cpp.
+     * Repeated me_thumbnail_png on the same (uri, t, w, h) should
+     * exercise the asset-level decode cache, so post-warmup hits should
+     * dominate. Visible in CI logs lets perf trend reviews catch a
+     * cache-keying regression even if the timing budget still passes. */
+    me_cache_stats_t cs{};
+    if (me_cache_stats(eng, &cs) == ME_OK) {
+        const std::int64_t total = cs.hit_count + cs.miss_count;
+        const double hit_rate = total > 0
+            ? static_cast<double>(cs.hit_count) / static_cast<double>(total)
+            : 0.0;
+        std::printf("bench_thumbnail_png: cache hits=%lld misses=%lld "
+                    "hit_rate=%.2f entries=%lld mem=%lld B codec_ctx=%lld\n",
+                    static_cast<long long>(cs.hit_count),
+                    static_cast<long long>(cs.miss_count),
+                    hit_rate,
+                    static_cast<long long>(cs.entry_count),
+                    static_cast<long long>(cs.memory_bytes_used),
+                    static_cast<long long>(cs.codec_ctx_count));
+    }
+
+    /* §5.7-3 peak RSS — observation only (no budget). Establishes
+     * the per-platform baseline; tightening into a hard budget is a
+     * follow-up cycle once we have multi-run variance data. Reported
+     * as delta over rss_before to subtract harness overhead. */
+    const std::int64_t rss_after = me::bench::peak_rss_bytes();
+    if (rss_before > 0 && rss_after > 0) {
+        const std::int64_t delta = rss_after - rss_before;
+        std::printf("bench_thumbnail_png: peak_rss before=%lld B after=%lld B "
+                    "delta=%lld B\n",
+                    static_cast<long long>(rss_before),
+                    static_cast<long long>(rss_after),
+                    static_cast<long long>(delta));
+    } else {
+        std::printf("bench_thumbnail_png: peak_rss unavailable on this platform\n");
+    }
 
     if (avg_ms > kBudgetMs) {
         std::fprintf(stderr, "bench_thumbnail_png: PERF REGRESSION — "

@@ -93,6 +93,8 @@ set(_test_suites
   test_audio_chunk_graph
   test_scheduler_cache
   test_player
+  test_api_surface_budget
+  test_cache_hit_rate_lower_bound
 )
 
 foreach(_suite ${_test_suites})
@@ -130,6 +132,20 @@ target_include_directories(test_timeline_segment PRIVATE ${CMAKE_SOURCE_DIR}/src
 # the template's behaviour in isolation (the two bench targets only
 # exercise the happy path transitively).
 target_include_directories(test_bench_harness PRIVATE ${CMAKE_SOURCE_DIR}/bench)
+
+# test_api_surface_budget — VISION §5.7-4 guard. Receives header
+# scan path + budget file path as compile definitions so it works
+# regardless of ctest invocation cwd.
+target_compile_definitions(test_api_surface_budget PRIVATE
+  ME_TEST_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+  ME_TEST_API_BUDGET_FILE="${CMAKE_SOURCE_DIR}/tools/api_surface_budget.txt")
+
+# test_cache_hit_rate_lower_bound — VISION §5.7-6 guard. Loads the
+# determinism fixture timeline JSON; fixture paths injected the same
+# way as bench_thumbnail_png so the test is invocation-cwd-independent.
+add_dependencies(test_cache_hit_rate_lower_bound determinism_fixture)
+target_compile_definitions(test_cache_hit_rate_lower_bound PRIVATE
+  ME_TEST_FIXTURE_MP4="${CMAKE_BINARY_DIR}/tests/fixtures/determinism_input.mp4")
 
 # test_compose_alpha_over drives me::compose::alpha_over() from
 # `src/compose/alpha_over.hpp` with known RGBA8 triples to pin the
@@ -792,4 +808,21 @@ if(TARGET 07_compose_multitrack
              COMMAND $<TARGET_FILE:11_error_diagnosis>)
     set_tests_properties(example_11_error_diagnosis PROPERTIES TIMEOUT 10)
   endif()
+endif()
+
+# ----- §5.7-5: libmedia_engine size budget guard ---------------------------
+# Reads the size of the just-built static library and asserts ≤ the
+# per-config ceiling in tools/lib_size_budget.txt. A new dependency
+# or generated table that bloats the link graph fails this test
+# rather than silently shipping inflated artifacts to host repos.
+# Skipped on Windows (bash-only script); the budget file is platform-
+# agnostic but the runner is not yet — Win-port is a follow-up.
+if(NOT WIN32)
+  add_test(NAME lib_size_budget
+           COMMAND bash
+                   "${CMAKE_SOURCE_DIR}/tools/check_lib_size.sh"
+                   "$<TARGET_FILE:media_engine>"
+                   "$<CONFIG>"
+                   "${CMAKE_SOURCE_DIR}/tools/lib_size_budget.txt")
+  set_tests_properties(lib_size_budget PROPERTIES TIMEOUT 10)
 endif()
