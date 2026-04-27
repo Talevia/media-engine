@@ -30,6 +30,8 @@ set(_test_suites
   test_timeline_schema
   test_timeline_schema_audio
   test_timeline_schema_clip_attributes
+  test_timeline_schema_color_space
+  test_timeline_schema_effects
   test_timeline_schema_transitions
   test_content_hash
   test_determinism
@@ -120,6 +122,10 @@ target_include_directories(test_timeline_schema
 target_include_directories(test_timeline_schema_audio
                             PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(test_timeline_schema_clip_attributes
+                            PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_timeline_schema_color_space
+                            PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(test_timeline_schema_effects
                             PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(test_timeline_schema_transitions
                             PRIVATE ${CMAKE_SOURCE_DIR}/src)

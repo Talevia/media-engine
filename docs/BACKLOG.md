@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **debt-split-test-timeline-schema-clip-attributes-cpp** — `wc -l tests/test_timeline_schema_clip_attributes.cpp` returns 704 (forced P0 per SKILL §R.5: tests >700). After this cycle's 9 colorspace TEST_CASEs, the file mixes effect-kind parsing (lines ~16–152) + asset.colorSpace combos (~154–340) + clip transform (~340–500) + audio-clip gain + transition fragments. **方向：** split by schema section — `tests/test_timeline_schema_effects.cpp` (effect-kind dispatch + param-shape rejection), `tests/test_timeline_schema_color_space.cpp` (the M10 colorSpace alias + combo matrix), keep clip-attribute remainder under 400 lines. Mirrors the test-file split pattern from cycle 87 (`debt-split-test-timeline-schema-cpp`). No coverage change. Milestone §M10-debt，Rubric §5.4。
 
 ## P1（强烈建议，跨 milestone debt）
 
