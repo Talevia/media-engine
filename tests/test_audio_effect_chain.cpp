@@ -11,6 +11,7 @@
 #include "audio/gain_audio_effect.hpp"
 #include "audio/lowpass_audio_effect.hpp"
 #include "audio/pan_audio_effect.hpp"
+#include "audio/peaking_eq_audio_effect.hpp"
 
 #include <cmath>
 #include <memory>
@@ -152,6 +153,142 @@ TEST_CASE("LowpassAudioEffect: reset clears per-channel state") {
     eff.process(samples2.data(), samples2.size(), 1, 44100);
     /* samples2[0] = a * 0 + (1-a) * 0 = 0. */
     CHECK(samples2[0] == doctest::Approx(0.0f));
+}
+
+/* ---------------------------------------------- PeakingEQ */
+
+namespace {
+double rms(const std::vector<float>& v) {
+    double sum_sq = 0.0;
+    for (float s : v) sum_sq += static_cast<double>(s) * s;
+    return std::sqrt(sum_sq / v.size());
+}
+}  // namespace
+
+TEST_CASE("PeakingEqAudioEffect: gain_db=0 is approximate identity") {
+    /* A 0 dB peaking filter is mathematically the identity within
+     * the cookbook's quantisation: A=1, so b coefficients reduce
+     * to (1+α, -2cos, 1-α) and a coefficients to (1+α, -2cos, 1-α)
+     * — same triple, normalised away. Reality has float epsilon
+     * drift; assert within 1e-5 instead of strict equality. */
+    me::audio::PeakingEqAudioEffect eq(1000.0f, 0.0f, 1.0f);
+    const auto in = make_sine_interleaved(44100, 1000.0, 0.05, 1);
+    std::vector<float> out = in;
+    eq.process(out.data(), out.size(), 1, 44100);
+    for (std::size_t i = 0; i < in.size(); ++i) {
+        CHECK(out[i] == doctest::Approx(in[i]).epsilon(1e-5));
+    }
+}
+
+TEST_CASE("PeakingEqAudioEffect: positive gain_db amplifies the centre frequency") {
+    /* +12 dB at 1 kHz centre, Q=2, sample rate 44100. A 1 kHz sine
+     * fed in steady-state should come out roughly 4x amplitude
+     * (12 dB ≈ ×3.98 linear). The first ~1000 samples are filter
+     * settling; measure RMS over the back half to skip transient. */
+    me::audio::PeakingEqAudioEffect eq(1000.0f, 12.0f, 2.0f);
+    auto samples = make_sine_interleaved(44100, 1000.0, 0.1, 1);
+    eq.process(samples.data(), samples.size(), 1, 44100);
+    std::vector<float> tail(samples.end() - 2000, samples.end());
+    auto in = make_sine_interleaved(44100, 1000.0, 0.1, 1);
+    std::vector<float> in_tail(in.end() - 2000, in.end());
+
+    const double in_rms  = rms(in_tail);    /* sine RMS ≈ 0.707 */
+    const double out_rms = rms(tail);
+    /* Boost factor band: 12 dB linear gain ≈ 3.98×. Allow 3.0..5.0
+     * to absorb Q-shape sample alignment + steady-state convergence
+     * imperfections. */
+    CHECK(out_rms / in_rms > 3.0);
+    CHECK(out_rms / in_rms < 5.0);
+}
+
+TEST_CASE("PeakingEqAudioEffect: negative gain_db attenuates the centre frequency") {
+    /* -12 dB cut at 1 kHz: linear ≈ ×0.25. Same shape as positive
+     * but inverted — out_rms / in_rms in 0.15..0.35. */
+    me::audio::PeakingEqAudioEffect eq(1000.0f, -12.0f, 2.0f);
+    auto samples = make_sine_interleaved(44100, 1000.0, 0.1, 1);
+    eq.process(samples.data(), samples.size(), 1, 44100);
+    std::vector<float> tail(samples.end() - 2000, samples.end());
+    auto in = make_sine_interleaved(44100, 1000.0, 0.1, 1);
+    std::vector<float> in_tail(in.end() - 2000, in.end());
+
+    const double in_rms  = rms(in_tail);
+    const double out_rms = rms(tail);
+    CHECK(out_rms / in_rms > 0.15);
+    CHECK(out_rms / in_rms < 0.35);
+}
+
+TEST_CASE("PeakingEqAudioEffect: off-band frequency passes through near-unchanged") {
+    /* +12 dB at 1 kHz with Q=2 leaves a 100 Hz signal nearly
+     * untouched — the boost is centred at 1 kHz with a moderately
+     * narrow Q, so 100 Hz (one octave below + skirt) sees < 3 dB
+     * boost. Out RMS / in RMS should land in 0.85..1.5. */
+    me::audio::PeakingEqAudioEffect eq(1000.0f, 12.0f, 2.0f);
+    auto samples = make_sine_interleaved(44100, 100.0, 0.1, 1);
+    eq.process(samples.data(), samples.size(), 1, 44100);
+    std::vector<float> tail(samples.end() - 2000, samples.end());
+    auto in = make_sine_interleaved(44100, 100.0, 0.1, 1);
+    std::vector<float> in_tail(in.end() - 2000, in.end());
+
+    const double in_rms  = rms(in_tail);
+    const double out_rms = rms(tail);
+    CHECK(out_rms / in_rms > 0.85);
+    CHECK(out_rms / in_rms < 1.5);
+}
+
+TEST_CASE("PeakingEqAudioEffect: parameter setters mark coeffs dirty") {
+    /* Setting freq/gain/q should be picked up on the next process()
+     * call — coeffs_dirty_ flag forces recompute. Sanity: change
+     * gain_db from +12 to 0 between two passes; the second pass
+     * should produce ~identity output even though coefficients
+     * were "stale" until process() re-derived them. */
+    me::audio::PeakingEqAudioEffect eq(1000.0f, 12.0f, 2.0f);
+    /* First pass — boost. */
+    auto warm = make_sine_interleaved(44100, 1000.0, 0.05, 1);
+    eq.process(warm.data(), warm.size(), 1, 44100);
+
+    /* Reset filter memory + flip gain to 0; expect identity. */
+    eq.reset();
+    eq.set_gain_db(0.0f);
+    auto in  = make_sine_interleaved(44100, 1000.0, 0.05, 1);
+    std::vector<float> out = in;
+    eq.process(out.data(), out.size(), 1, 44100);
+    /* Drop the first 64 samples so direct-form-I settling completes. */
+    for (std::size_t i = 64; i < in.size(); ++i) {
+        CHECK(out[i] == doctest::Approx(in[i]).epsilon(1e-4));
+    }
+}
+
+TEST_CASE("PeakingEqAudioEffect: reset clears state") {
+    me::audio::PeakingEqAudioEffect eq(1000.0f, 12.0f, 2.0f);
+    /* Push DC to load the filter state. */
+    std::vector<float> warmup(1000, 1.0f);
+    eq.process(warmup.data(), warmup.size(), 1, 44100);
+    eq.reset();
+    /* After reset, feeding zeros should produce zeros (no decay
+     * from prior state). */
+    std::vector<float> zeros(10, 0.0f);
+    eq.process(zeros.data(), zeros.size(), 1, 44100);
+    for (float s : zeros) CHECK(s == doctest::Approx(0.0f));
+}
+
+TEST_CASE("PeakingEqAudioEffect: chains with other effects") {
+    me::audio::AudioEffectChain chain;
+    chain.append(std::make_unique<me::audio::GainAudioEffect>(0.5f));
+    chain.append(std::make_unique<me::audio::PeakingEqAudioEffect>(
+                    1000.0f, 6.0f, 1.0f));
+    REQUIRE(chain.size() == 2);
+    CHECK(std::string{chain.kind_at(1)} == "peaking_eq");
+
+    /* Smoke: chain runs without crashing on a 1 kHz sine. */
+    auto samples = make_sine_interleaved(44100, 1000.0, 0.05, 1);
+    chain.process(samples.data(), samples.size(), 1, 44100);
+    /* Output should be finite + non-zero. */
+    bool has_signal = false;
+    for (float s : samples) {
+        REQUIRE(std::isfinite(s));
+        if (std::abs(s) > 1e-3f) has_signal = true;
+    }
+    CHECK(has_signal);
 }
 
 TEST_CASE("AudioEffectChain: empty chain is a no-op") {
