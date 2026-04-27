@@ -301,6 +301,7 @@ add_library(media_engine STATIC
   io/demux_context.cpp
   io/demux_kernel.cpp
   io/decode_video_kernel.cpp
+  io/decode_audio_kernel.cpp
   io/mux_context.cpp
   graph/graph.cpp
   task/registry.cpp

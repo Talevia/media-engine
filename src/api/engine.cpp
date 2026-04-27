@@ -5,6 +5,7 @@
 #include "compose/cross_dissolve_kernel.hpp"
 #include "compose/encode_png_kernel.hpp"
 #include "core/engine_impl.hpp"
+#include "io/decode_audio_kernel.hpp"
 #include "io/decode_video_kernel.hpp"
 #include "io/demux_kernel.hpp"
 #include "resource/frame_pool.hpp"
@@ -26,6 +27,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
     std::call_once(kinds_once, []() {
         me::io::register_demux_kind();
         me::io::register_decode_video_kind();
+        me::io::register_decode_audio_kind();
         me::compose::register_convert_rgba8_kind();
         me::compose::register_affine_blit_kind();
         me::compose::register_compose_cpu_kind();
