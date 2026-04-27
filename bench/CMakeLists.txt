@@ -124,6 +124,24 @@ if(ME_BUILD_TESTS)
     RUN_SERIAL TRUE)
 endif()
 
+# bench_audio_effect_chain — per-chunk throughput signal for the
+# full M4 audio effect chain (Gain + Pan + PeakingEq + Lowpass).
+# M9-followup polish (bench-perf-budget-coverage-expand) — the
+# chain runs in Player::audio_producer_loop's per-chunk emit path
+# but had no bench coverage. Pure scalar float math, no fixture,
+# no FFmpeg. Reaches into src/audio/ for the effect headers.
+add_executable(bench_audio_effect_chain bench_audio_effect_chain.cpp)
+target_link_libraries(bench_audio_effect_chain PRIVATE
+  media_engine::media_engine)
+target_include_directories(bench_audio_effect_chain PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+if(ME_BUILD_TESTS)
+  add_test(NAME bench_audio_effect_chain COMMAND bench_audio_effect_chain)
+  set_tests_properties(bench_audio_effect_chain PROPERTIES
+    TIMEOUT 30
+    RUN_SERIAL TRUE)
+endif()
+
 # bench_tonemap_kernel — full-frame 4K HDR→SDR tonemap throughput.
 # M10 added the apply_tonemap_inplace kernel (cycle 9); the
 # bullet `bench-perf-budget-coverage-expand` flagged that no
