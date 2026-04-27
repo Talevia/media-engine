@@ -87,6 +87,7 @@ set(_test_suites
   test_inverse_tonemap_stub
   test_face_sticker_stub
   test_face_mosaic_stub
+  test_body_alpha_key_stub
   test_hdr_metadata_propagate
   test_pq_hlg_roundtrip
   test_decode_vp9_profile2
@@ -710,6 +711,13 @@ target_include_directories(test_face_sticker_stub PRIVATE ${CMAKE_SOURCE_DIR}/sr
 # UNSUPPORTED short-circuit + JSON loader round-trip for
 # `kind: "face_mosaic"`.
 target_include_directories(test_face_mosaic_stub PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_body_alpha_key_stub mirrors test_face_mosaic_stub for the
+# M11 ml-effect-body-alpha-key-stub bullet — argument-validation
+# + UNSUPPORTED short-circuit + JSON loader round-trip for
+# `kind: "body_alpha_key"`. References a Mask asset (cycle 28's
+# AssetKind::Mask) instead of Landmark.
+target_include_directories(test_body_alpha_key_stub PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_subtitle_renderer exercises me::text::SubtitleRenderer
 # (libass wrapper). ME_HAS_LIBASS compile def gates the real

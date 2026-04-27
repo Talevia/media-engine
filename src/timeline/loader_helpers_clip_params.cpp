@@ -208,11 +208,40 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
                 "' (supported: pixelate, blur)"};
         }
         spec.params = fmp;
+    } else if (kind_str == "body_alpha_key") {
+        /* M11 ml-effect-body-alpha-key-stub. Reserves the API
+         * surface for the segmentation-mask alpha-keying effect.
+         * Loader stores the typed params; the kernel
+         * (compose/body_alpha_key_kernel.cpp) returns
+         * ME_E_UNSUPPORTED today — see `body-alpha-key-impl` for
+         * the deferred impl. Same registered-but-deferred pattern
+         * as face_sticker / face_mosaic. */
+        spec.kind = me::EffectKind::BodyAlphaKey;
+        me::BodyAlphaKeyEffectParams bp;
+        require(p.contains("maskAssetId") && p["maskAssetId"].is_string(),
+                ME_E_PARSE,
+                where + ".params.maskAssetId: required string field "
+                "(references an Asset.id with kind=mask)");
+        bp.mask_asset_id = p.at("maskAssetId").get<std::string>();
+        if (p.contains("featherRadiusPx")) {
+            require(p["featherRadiusPx"].is_number_integer(), ME_E_PARSE,
+                    where + ".params.featherRadiusPx: expected integer");
+            const int64_t r = p.at("featherRadiusPx").get<int64_t>();
+            require(r >= 0 && r <= 256, ME_E_PARSE,
+                    where + ".params.featherRadiusPx: out of range (0..256)");
+            bp.feather_radius_px = static_cast<int>(r);
+        }
+        if (p.contains("invert")) {
+            require(p["invert"].is_boolean(), ME_E_PARSE,
+                    where + ".params.invert: expected boolean");
+            bp.invert = p.at("invert").get<bool>();
+        }
+        spec.params = bp;
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
                         "' (supported: color, blur, lut, tonemap, inverse_tonemap, "
-                        "face_sticker, face_mosaic)"};
+                        "face_sticker, face_mosaic, body_alpha_key)"};
     }
     return spec;
 }
