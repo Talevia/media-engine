@@ -2,7 +2,7 @@
 
 当前里程碑（本文件唯一的真理源）：
 
-> **Current: M7 — Host bindings**
+> **Current: M9 — Performance budgets & observability**
 
 `iterate-gap` skill 在 repopulate backlog 时按「当前 milestone」偏置挑选候选——当前 milestone 未达到 exit criteria 前，跨 milestone 的 gap 进 P2 或被放回"等合适时机"，不抢当前任务资源。
 
@@ -78,7 +78,8 @@
 ### Exit criteria
 - [x] Kotlin/Native cinterop `.def` + 示例 Gradle 项目
 - [x] JVM JNI 样例（macOS / Linux）
-- [ ] 在 talevia 内建一个 `platform-impls/video-media-engine-jvm` 最小 wrapper，跑通 passthrough 替代 shell-out FFmpeg
+
+注：本 repo 端的 host binding 表面（JNI + cinterop + 示例 Gradle）已就位；talevia 侧的 `platform-impls/video-media-engine-jvm` wrapper 是跨 repo 集成任务，不计入本 repo M7 exit criteria，作为 BACKLOG `talevia-jvm-wrapper` 跨 repo 跟踪。
 
 ## M8 — Playback session（preview player + A/V sync）
 
@@ -86,15 +87,28 @@
 
 ### Exit criteria
 
-- [ ] `me_player_t` C API：create / destroy / play / pause / seek / set_video_callback / set_audio_callback / report_audio_playhead / current_time / is_playing
-- [ ] Producer + Pacer 两线程结构跑通，pause / resume / seek 在 100 ms 内响应
-- [ ] AUDIO master clock：宿主报 audio playhead 后视频帧跟随，drift P99 < ½ frame_period（沿用 M4 对 export 的 < 1 ms / 小时口径）
-- [ ] WALL master clock：timeline 无音频或 `audio_out.sample_rate == 0` 时回退，play 5 s 漂移 < 1 frame
-- [ ] seek 不污染 `OutputCache` / `disk_cache`（回扫旧时间命中），`AudioMixer` 销毁重建正确
-- [ ] `examples/09_player_pause_seek` 演示主线程 1 s 后 pause / 1 s resume / seek t=2 s / pause 全流程
-- [ ] 现有 `tests/test_frame_server*` / `examples/08_frame_server_scrub` 不 regression
-- [ ] `docs/ARCHITECTURE_GRAPH.md` §三种执行模型 (c) 已就位（已在 docs(vision) commit 落定）
+- [x] `me_player_t` C API：create / destroy / play / pause / seek / set_video_callback / set_audio_callback / report_audio_playhead / current_time / is_playing
+- [x] Producer + Pacer 两线程结构跑通，pause / resume / seek 在 100 ms 内响应
+- [x] AUDIO master clock：宿主报 audio playhead 后视频帧跟随，drift P99 < ½ frame_period（沿用 M4 对 export 的 < 1 ms / 小时口径）
+- [x] WALL master clock：timeline 无音频或 `audio_out.sample_rate == 0` 时回退，play 5 s 漂移 < 1 frame
+- [x] seek 不污染 `OutputCache` / `disk_cache`（回扫旧时间命中），`AudioMixer` 销毁重建正确
+- [x] `examples/10_player_pause_seek` 演示主线程 1 s 后 pause / 1 s resume / seek t=2 s / pause 全流程
+- [x] 现有 `tests/test_frame_server*` / `examples/08_frame_server_scrub` 不 regression
+- [x] `docs/ARCHITECTURE_GRAPH.md` §三种执行模型 (c) 已就位（已在 docs(vision) commit 落定）
 
-## M9+ — 待定
+## M9 — Performance budgets & observability harness
+
+**目标**：把 `VISION.md` §5.7 从「志愿」转成「守护」。每一条判断题都有具体的测量点 + 回归门槛，回归会 fail，预算可在 commit 里看见——不再有"无跟踪 = 预算 ∞"的 silent drift。已落地的部分（4 个 fail-on-budget bench）保留；缺的部分（内存峰值、API 表面、二进制尺寸、缓存命中率下界）补齐到「最小守护」级别——具体阈值后续 iterate-gap 调，但回归门槛此 milestone 必须就位。
+
+### Exit criteria
+
+- [ ] §5.7-1 FramePool / OutputCache / disk_cache 命中率在至少一个 bench 程序里被 dump（不只 example）
+- [ ] §5.7-3 单次渲染峰值 RSS 在至少一个 bench 程序里被 dump，跨平台（macOS mach + Linux getrusage）
+- [ ] §5.7-4 `include/media_engine/*.h` 公共 me_-prefix 函数数量 + struct 字段数有显式 budget 文件 + ctest 守护，超出 budget 必须显式 bump 数字（commit 可审计）
+- [ ] §5.7-5 release `libmedia_engine` 静态/动态库尺寸有 budget 文件 + ctest 守护，超出门槛 fail
+- [ ] §5.7-6 同一 timeline 重渲染缓存命中率下界有数值断言（不只 dump）的 test，若命中率塌穿地板会 fail
+- [ ] `VISION.md` §5.7 每条判断题旁边引用对应守护代码（bench / test 路径），让 rubric 从"问句"变"指针"
+
+## M10+ — 待定
 
 HDR（PQ/HLG）、OpenFX host、Android/iOS 打包与 HW 编码路径、网络源（http streaming）、OCIO v2 升级等——等前置里程碑落地再展开。
