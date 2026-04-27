@@ -101,3 +101,25 @@ if(ME_BUILD_TESTS)
     TIMEOUT 30
     RUN_SERIAL TRUE)
 endif()
+
+# bench_hdr_roundtrip — M10 exit criterion 7 perf+correctness
+# harness for HDR pipelines. Mode A: HDR fixture → passthrough
+# render → re-probe → assert HDR side data round-trips. Mode B:
+# render_frame → tonemap kernel → bounded-luminance correctness
+# floor + alpha pass-through. Skips on hosts without
+# hevc_videotoolbox (the gen_hdr_fixture target gracefully
+# produces no fixture there; the bench skips on missing fixture).
+add_executable(bench_hdr_roundtrip bench_hdr_roundtrip.cpp)
+target_link_libraries(bench_hdr_roundtrip PRIVATE
+  media_engine::media_engine)
+target_include_directories(bench_hdr_roundtrip PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+if(ME_BUILD_TESTS)
+  add_dependencies(bench_hdr_roundtrip hdr_fixture)
+  set(_fixture_mp4_hdr "${CMAKE_BINARY_DIR}/tests/fixtures/hdr_input.mp4")
+  add_test(NAME bench_hdr_roundtrip
+           COMMAND bench_hdr_roundtrip "${_fixture_mp4_hdr}")
+  set_tests_properties(bench_hdr_roundtrip PROPERTIES
+    TIMEOUT 30
+    RUN_SERIAL TRUE)
+endif()
