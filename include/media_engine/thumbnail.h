@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 /* Out buffer is allocated by the engine; caller must free with me_buffer_free. */
-me_status_t me_thumbnail_png(
+ME_API me_status_t me_thumbnail_png(
     me_engine_t*  engine,
     const char*   uri,
     me_rational_t time,
@@ -24,7 +24,7 @@ me_status_t me_thumbnail_png(
     uint8_t**     out_png,
     size_t*       out_size);
 
-void me_buffer_free(uint8_t* buf);
+ME_API void me_buffer_free(uint8_t* buf);
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,38 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* --- Public-API export attribute -----------------------------------------
+ *
+ * Annotates every `extern "C"` function declared by media_engine's public
+ * headers so the symbol is externally visible regardless of the engine's
+ * compile-time visibility default. The engine builds with
+ * `CXX_VISIBILITY_PRESET=hidden` (see src/CMakeLists.txt:449) to keep
+ * internal C++ symbols (OCIO / Skia / SoundTouch / Taskflow / nlohmann
+ * — none of which we want hosts to depend on by accident) from leaking
+ * across any future shared-library wrapper. ME_API selectively re-exports
+ * the C API in spite of that default.
+ *
+ * Static-archive consumers (the `examples/` directory, host CMake
+ * integrators that link `libmedia_engine.a` directly) see no behaviour
+ * change: visibility attributes are a dynamic-linker concern and a no-op
+ * for archive members. Shared-library consumers (the K/N binding's
+ * `libmedia_engine_kn.dylib` wrapper, future `bindings/jni/`-style
+ * dynamic loads) see the C API as exported and the C++ internals as
+ * hidden — exactly the contract we want.
+ *
+ * Windows: `__declspec(dllexport)` when building, `dllimport` when
+ * consuming. We don't currently produce Windows DLLs, but the macro
+ * stays single-direction (always export) so the public headers compile
+ * cleanly under MSVC for source-only host integrations; the day a real
+ * DLL build lands, gate this on a `ME_API_BUILD` define. */
+#if defined(_WIN32)
+#  define ME_API __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+#  define ME_API __attribute__((visibility("default")))
+#else
+#  define ME_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -39,7 +71,7 @@ typedef enum me_status {
 } me_status_t;
 
 /* Short English description. Never NULL. Static storage. */
-const char* me_status_str(me_status_t status);
+ME_API const char* me_status_str(me_status_t status);
 
 /* --- Version -------------------------------------------------------------- */
 typedef struct me_version {
@@ -49,7 +81,7 @@ typedef struct me_version {
     const char* git_sha;  /* static storage; empty string if unknown */
 } me_version_t;
 
-me_version_t me_version(void);
+ME_API me_version_t me_version(void);
 
 /* --- Rational number -----------------------------------------------------
  * Used for time and frame rate. den MUST be > 0 when produced by the engine;

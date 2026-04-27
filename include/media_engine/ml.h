@@ -119,7 +119,7 @@ typedef me_status_t (*me_model_fetcher_t)(
  *
  * Thread-safe: may be called from any thread; the callback storage
  * is mutex-guarded. */
-me_status_t me_engine_set_model_fetcher(
+ME_API me_status_t me_engine_set_model_fetcher(
     me_engine_t*        engine,
     me_model_fetcher_t  cb,
     void*               user);

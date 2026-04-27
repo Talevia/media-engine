@@ -1,19 +1,23 @@
 /*
- * Minimal Kotlin/Native example that links against libmedia_engine
- * built from this repo.
+ * Minimal Kotlin/Native example that links against libmedia_engine_kn
+ * — the SHARED dylib wrapper built by
+ * `bindings/kotlin-native/CMakeLists.txt`.
  *
  * Build order:
  *   1. From repo root: `cmake -B build -S . && cmake --build build`
- *      — produces build/src/libmedia_engine.a.
- *   2. From this dir:  `gradle compileKotlinNative` (smoke test:
- *      cinterop generation + Main.kt compile) or
- *      `gradle runDebugExecutableNative` (full executable build —
- *      currently blocked on the visibility issue tracked by
- *      `debt-bindings-kn-link-visibility` in the BACKLOG).
+ *      — produces build/bindings/kotlin-native/libmedia_engine_kn.dylib
+ *      (or .so on Linux).
+ *   2. From this dir:  `gradle runDebugExecutableNative`
+ *      — the gradle invocation runs cinterop, compiles Main.kt,
+ *        and executes the resulting binary; stdout prints the
+ *        engine version and a round-tripped engine handle.
  *
  * Paths walk up three levels (example/ → kotlin-native/ → bindings/
  * → repo root) to locate include/ and build/. Override by setting
  * `-PmediaEngineRoot=/absolute/path` on the gradle command line.
+ * The K/N CMakeLists.txt's ctest also passes
+ * `-PmediaEngineKnLib=$<TARGET_FILE_DIR:media_engine_kn>` so the
+ * lib path resolves cleanly for out-of-tree builds.
  */
 import org.jetbrains.kotlin.konan.target.HostManager
 
@@ -38,24 +42,21 @@ val mediaEngineRoot: String =
         ?: project.rootDir.resolve("../../..").canonicalPath
 
 val mediaEngineInclude = "$mediaEngineRoot/include"
-/* CMake puts the static archive at build/src/libmedia_engine.a
- * (from src/CMakeLists.txt:258 add_library STATIC). The cinterop
- * tool's `-libraryPath` is for header / symbol resolution, not
- * the final executable link — the gradle ctest target runs only
- * `compileKotlinNative` (cinterop generation + Main.kt compile),
- * which needs the headers but not a fully resolved link line.
+/* SHARED dylib wrapper produced by
+ * `bindings/kotlin-native/CMakeLists.txt`. The wrapper exists so
+ * cinterop sees a single library with every engine transitive dep
+ * (FFmpeg / OCIO / libass / Skia / SoundTouch / bgfx, whichever
+ * ME_WITH_* are configured) already resolved by CMake — without
+ * it the gradle build would have to enumerate every engine-
+ * internal dep, drifting whenever a new ME_WITH_* lands.
  *
- * The full executable link
- * (`linkDebugExecutableNative` → `runDebugExecutableNative`)
- * is currently blocked: media_engine sets
- * `CXX_VISIBILITY_PRESET=hidden`, so when wrapped into any shared
- * library the `me_*` C API symbols stay hidden. Resolving that
- * cleanly needs an `ME_API` annotation pass on every public
- * header — distinct ABI-scope decision deferred to a follow-up
- * bullet (`debt-bindings-kn-link-visibility`). Until then,
- * `runDebugExecutableNative` will fail at the link step on this
- * dev box; `compileKotlinNative` is what the ctest exercises. */
-val mediaEngineLib     = "$mediaEngineRoot/build/src"
+ * `mediaEngineKnLib` defaults to the dev-box convention
+ * (build dir = repo-root/build), but the K/N CMakeLists.txt
+ * passes `-PmediaEngineKnLib=$<TARGET_FILE_DIR:media_engine_kn>`
+ * for the ctest run, which works for any out-of-tree build dir. */
+val mediaEngineKnLib: String =
+    (findProperty("mediaEngineKnLib") as String?)
+        ?: "$mediaEngineRoot/build/bindings/kotlin-native"
 
 kotlin {
     val nativeTarget = when {
@@ -72,14 +73,14 @@ kotlin {
                     defFile(project.file("../media_engine.def"))
                     packageName("io.mediaengine.cinterop")
                     compilerOpts("-I$mediaEngineInclude")
-                    extraOpts("-libraryPath", mediaEngineLib)
+                    extraOpts("-libraryPath", mediaEngineKnLib)
                 }
             }
         }
         binaries {
             executable {
                 entryPoint = "io.mediaengine.example.main"
-                linkerOpts("-L$mediaEngineLib", "-lmedia_engine")
+                linkerOpts("-L$mediaEngineKnLib", "-lmedia_engine_kn")
             }
         }
     }

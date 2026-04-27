@@ -67,14 +67,14 @@ typedef struct me_engine_config {
 } me_engine_config_t;
 
 /* Create an engine. Pass NULL config for defaults. */
-me_status_t me_engine_create(const me_engine_config_t* config, me_engine_t** out);
+ME_API me_status_t me_engine_create(const me_engine_config_t* config, me_engine_t** out);
 
-void me_engine_destroy(me_engine_t* engine);
+ME_API void me_engine_destroy(me_engine_t* engine);
 
 /* Last error message on this engine (thread-local).
  * Returns a NUL-terminated string, valid until the next engine API call on
  * the calling thread. Empty string if no error has been recorded. */
-const char* me_engine_last_error(const me_engine_t* engine);
+ME_API const char* me_engine_last_error(const me_engine_t* engine);
 
 #ifdef __cplusplus
 }

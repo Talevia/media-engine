@@ -32,12 +32,12 @@ typedef struct me_cache_stats {
     int64_t codec_ctx_count;
 } me_cache_stats_t;
 
-me_status_t me_cache_stats(me_engine_t* engine, me_cache_stats_t* out);
-me_status_t me_cache_clear(me_engine_t* engine);
+ME_API me_status_t me_cache_stats(me_engine_t* engine, me_cache_stats_t* out);
+ME_API me_status_t me_cache_clear(me_engine_t* engine);
 
 /* Drop all cache entries whose inputs transitively reference the asset
  * identified by content_hash. */
-me_status_t me_cache_invalidate_asset(me_engine_t* engine, const char* content_hash);
+ME_API me_status_t me_cache_invalidate_asset(me_engine_t* engine, const char* content_hash);
 
 #ifdef __cplusplus
 }

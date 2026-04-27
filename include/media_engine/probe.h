@@ -13,25 +13,25 @@
 extern "C" {
 #endif
 
-me_status_t me_probe(me_engine_t* engine, const char* uri, me_media_info_t** out);
-void        me_media_info_destroy(me_media_info_t* info);
+ME_API me_status_t me_probe(me_engine_t* engine, const char* uri, me_media_info_t** out);
+ME_API void        me_media_info_destroy(me_media_info_t* info);
 
 /* Strings returned below live as long as `info`. */
-const char*   me_media_info_container(const me_media_info_t* info);
-me_rational_t me_media_info_duration(const me_media_info_t* info);
+ME_API const char*   me_media_info_container(const me_media_info_t* info);
+ME_API me_rational_t me_media_info_duration(const me_media_info_t* info);
 
 /* Video stream (0 if none). */
-int           me_media_info_has_video(const me_media_info_t* info);
-int           me_media_info_video_width(const me_media_info_t* info);
-int           me_media_info_video_height(const me_media_info_t* info);
-me_rational_t me_media_info_video_frame_rate(const me_media_info_t* info);
-const char*   me_media_info_video_codec(const me_media_info_t* info);
+ME_API int           me_media_info_has_video(const me_media_info_t* info);
+ME_API int           me_media_info_video_width(const me_media_info_t* info);
+ME_API int           me_media_info_video_height(const me_media_info_t* info);
+ME_API me_rational_t me_media_info_video_frame_rate(const me_media_info_t* info);
+ME_API const char*   me_media_info_video_codec(const me_media_info_t* info);
 
 /* Audio stream (0 if none). */
-int           me_media_info_has_audio(const me_media_info_t* info);
-int           me_media_info_audio_sample_rate(const me_media_info_t* info);
-int           me_media_info_audio_channels(const me_media_info_t* info);
-const char*   me_media_info_audio_codec(const me_media_info_t* info);
+ME_API int           me_media_info_has_audio(const me_media_info_t* info);
+ME_API int           me_media_info_audio_sample_rate(const me_media_info_t* info);
+ME_API int           me_media_info_audio_channels(const me_media_info_t* info);
+ME_API const char*   me_media_info_audio_codec(const me_media_info_t* info);
 
 /* --- Extended video metadata (append-only since 0.0.2) --------------------
  *
@@ -60,12 +60,12 @@ const char*   me_media_info_audio_codec(const me_media_info_t* info);
  * These are append-only — existing accessors keep their signatures and
  * semantics. Callers compiled against 0.0.1 headers link-check and run
  * unchanged. */
-int           me_media_info_video_rotation(const me_media_info_t* info);
-const char*   me_media_info_video_color_range(const me_media_info_t* info);
-const char*   me_media_info_video_color_primaries(const me_media_info_t* info);
-const char*   me_media_info_video_color_transfer(const me_media_info_t* info);
-const char*   me_media_info_video_color_space(const me_media_info_t* info);
-int           me_media_info_video_bit_depth(const me_media_info_t* info);
+ME_API int           me_media_info_video_rotation(const me_media_info_t* info);
+ME_API const char*   me_media_info_video_color_range(const me_media_info_t* info);
+ME_API const char*   me_media_info_video_color_primaries(const me_media_info_t* info);
+ME_API const char*   me_media_info_video_color_transfer(const me_media_info_t* info);
+ME_API const char*   me_media_info_video_color_space(const me_media_info_t* info);
+ME_API int           me_media_info_video_bit_depth(const me_media_info_t* info);
 
 /* --- HDR static metadata (append-only since 0.0.3) ------------------------
  *
@@ -123,7 +123,7 @@ typedef struct me_hdr_static_metadata {
     int           max_fall;
 } me_hdr_static_metadata_t;
 
-me_hdr_static_metadata_t me_media_info_video_hdr_metadata(const me_media_info_t* info);
+ME_API me_hdr_static_metadata_t me_media_info_video_hdr_metadata(const me_media_info_t* info);
 
 #ifdef __cplusplus
 }

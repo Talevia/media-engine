@@ -20,19 +20,19 @@ extern "C" {
  * json does not need to be NUL-terminated; len is authoritative.
  * Returns ME_E_PARSE on malformed JSON, ME_E_INVALID_ARG on schema
  * violations. Use me_engine_last_error for details. */
-me_status_t me_timeline_load_json(
+ME_API me_status_t me_timeline_load_json(
     me_engine_t*    engine,
     const char*     json,
     size_t          len,
     me_timeline_t** out);
 
-void me_timeline_destroy(me_timeline_t* tl);
+ME_API void me_timeline_destroy(me_timeline_t* tl);
 
 /* --- Queries -------------------------------------------------------------- */
 
-me_rational_t me_timeline_duration(const me_timeline_t* tl);
-me_rational_t me_timeline_frame_rate(const me_timeline_t* tl);
-void          me_timeline_resolution(const me_timeline_t* tl, int* width, int* height);
+ME_API me_rational_t me_timeline_duration(const me_timeline_t* tl);
+ME_API me_rational_t me_timeline_frame_rate(const me_timeline_t* tl);
+ME_API void          me_timeline_resolution(const me_timeline_t* tl, int* width, int* height);
 
 #ifdef __cplusplus
 }

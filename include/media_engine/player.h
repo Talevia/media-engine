@@ -119,7 +119,7 @@ typedef void (*me_player_audio_cb)(
  * player. `config` is copied; pass NULL for defaults (no audio output,
  * AUTO master clock, ring=3, queue=200ms). On error returns non-OK
  * and *out is left null; me_engine_last_error has the message. */
-me_status_t me_player_create(
+ME_API me_status_t me_player_create(
     me_engine_t*               engine,
     const me_timeline_t*       timeline,
     const me_player_config_t*  config,
@@ -127,18 +127,18 @@ me_status_t me_player_create(
 
 /* Tear down. Joins all internal threads; safe to call from any thread
  * other than the player's own callback. NULL-safe. */
-void me_player_destroy(me_player_t* p);
+ME_API void me_player_destroy(me_player_t* p);
 
 /* --- Callback registration ----------------------------------------------- */
 
 /* Set or clear (`cb=NULL`) the video callback. May be called any time;
  * the change becomes visible to the next frame the pacer dispatches. */
-me_status_t me_player_set_video_callback(
+ME_API me_status_t me_player_set_video_callback(
     me_player_t*        p,
     me_player_video_cb  cb,
     void*               user);
 
-me_status_t me_player_set_audio_callback(
+ME_API me_status_t me_player_set_audio_callback(
     me_player_t*        p,
     me_player_audio_cb  cb,
     void*               user);
@@ -156,7 +156,7 @@ me_status_t me_player_set_audio_callback(
  * clocks (registered but never queried). */
 typedef me_rational_t (*me_player_external_clock_cb)(void* user);
 
-me_status_t me_player_set_external_clock_callback(
+ME_API me_status_t me_player_set_external_clock_callback(
     me_player_t*                  p,
     me_player_external_clock_cb   cb,
     void*                         user);
@@ -180,29 +180,29 @@ me_status_t me_player_set_external_clock_callback(
  *                        follow-up needing reverse demux).
  *   rate outside [0.5, 2.0] OR
  *   audio + rate ≠ 1   → ME_E_UNSUPPORTED. */
-me_status_t me_player_play(me_player_t* p, float rate);
+ME_API me_status_t me_player_play(me_player_t* p, float rate);
 
 /* Pause playback. Producer thread parks; the current frame stays
  * registered; resume continues from current_time. */
-me_status_t me_player_pause(me_player_t* p);
+ME_API me_status_t me_player_pause(me_player_t* p);
 
 /* Move the playhead to `time`. Drops all in-flight + queued frames /
  * audio. After return, the next callback fires for a frame at (or
  * very near) `time`. Safe to call while playing or paused. */
-me_status_t me_player_seek(me_player_t* p, me_rational_t time);
+ME_API me_status_t me_player_seek(me_player_t* p, me_rational_t time);
 
 /* Required by ME_CLOCK_AUDIO. Host calls this from its audio device
  * callback with the timeline-coordinate position of the sample
  * currently emerging from the speaker. The video pacer chases this
  * value. No-op for ME_CLOCK_WALL. */
-me_status_t me_player_report_audio_playhead(
+ME_API me_status_t me_player_report_audio_playhead(
     me_player_t*    p,
     me_rational_t   time);
 
 /* --- Introspection ------------------------------------------------------- */
 
-me_rational_t me_player_current_time(const me_player_t* p);
-int           me_player_is_playing(const me_player_t* p);
+ME_API me_rational_t me_player_current_time(const me_player_t* p);
+ME_API int           me_player_is_playing(const me_player_t* p);
 
 #ifdef __cplusplus
 }

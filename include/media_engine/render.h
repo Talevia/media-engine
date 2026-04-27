@@ -66,7 +66,7 @@ typedef void (*me_progress_cb)(const me_progress_event_t* ev, void* user);
  *
  * Caller owns out_job; call me_render_job_destroy after the job reaches
  * a terminal state (COMPLETED / FAILED / cancelled). */
-me_status_t me_render_start(
+ME_API me_status_t me_render_start(
     me_engine_t*            engine,
     const me_timeline_t*    timeline,
     const me_output_spec_t* output,
@@ -76,13 +76,13 @@ me_status_t me_render_start(
 
 /* Request cancellation. The job will eventually emit ME_PROGRESS_FAILED
  * with status == ME_E_CANCELLED. */
-me_status_t me_render_cancel(me_render_job_t* job);
+ME_API me_status_t me_render_cancel(me_render_job_t* job);
 
 /* Block until the job reaches a terminal state. Returns the terminal
  * status of the job (ME_OK on success). */
-me_status_t me_render_wait(me_render_job_t* job);
+ME_API me_status_t me_render_wait(me_render_job_t* job);
 
-void me_render_job_destroy(me_render_job_t* job);
+ME_API void me_render_job_destroy(me_render_job_t* job);
 
 /* --- Frame server -------------------------------------------------------- */
 
@@ -91,15 +91,15 @@ void me_render_job_destroy(me_render_job_t* job);
  *
  * For scrubbing / preview: call repeatedly; the engine's frame cache will
  * serve hits when the underlying graph is unchanged. */
-me_status_t me_render_frame(
+ME_API me_status_t me_render_frame(
     me_engine_t*         engine,
     const me_timeline_t* timeline,
     me_rational_t        time,
     me_frame_t**         out_frame);
 
-void           me_frame_destroy(me_frame_t* frame);
-int            me_frame_width(const me_frame_t* f);
-int            me_frame_height(const me_frame_t* f);
+ME_API void           me_frame_destroy(me_frame_t* frame);
+ME_API int            me_frame_width(const me_frame_t* f);
+ME_API int            me_frame_height(const me_frame_t* f);
 
 /* Decoded RGBA8 pixels.
  *
@@ -117,7 +117,7 @@ int            me_frame_height(const me_frame_t* f);
  *
  * Lifetime: pointer is valid until the matching me_frame_destroy.
  *   Hosts that need long-lived ownership must copy. */
-const uint8_t* me_frame_pixels(const me_frame_t* f);
+ME_API const uint8_t* me_frame_pixels(const me_frame_t* f);
 
 #ifdef __cplusplus
 }
