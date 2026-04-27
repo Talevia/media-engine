@@ -90,6 +90,7 @@ set(_test_suites
   test_audio_resample_kernel
   test_audio_mix_kernel
   test_audio_timestretch_kernel
+  test_audio_chunk_graph
   test_scheduler_cache
   test_player
 )
@@ -636,6 +637,16 @@ target_link_libraries(test_audio_timestretch_kernel PRIVATE
 if(ME_WITH_SOUNDTOUCH)
   target_compile_definitions(test_audio_timestretch_kernel PRIVATE ME_HAS_SOUNDTOUCH=1)
 endif()
+
+# test_audio_chunk_graph — end-to-end exercise of compile_audio_chunk_graph
+# through the audio-capable determinism fixture. Same Taskflow + src/
+# pattern as test_decode_kernels.
+target_include_directories(test_audio_chunk_graph PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_audio_chunk_graph PRIVATE
+  Taskflow FFMPEG::avutil FFMPEG::avcodec)
+add_dependencies(test_audio_chunk_graph determinism_fixture_with_audio)
+target_compile_definitions(test_audio_chunk_graph PRIVATE
+  ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
 
 # test_scheduler_cache exercises sched::OutputCache (peek-before-dispatch +
 # bounded LRU). Uses mock kernels registered into the bootstrap test slots

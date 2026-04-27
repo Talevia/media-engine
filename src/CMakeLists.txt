@@ -335,6 +335,7 @@ add_library(media_engine STATIC
   orchestrator/frame_puller.cpp
   orchestrator/exporter.cpp
   orchestrator/compose_frame.cpp
+  orchestrator/audio_graph.cpp
   orchestrator/playback_clock.cpp
   orchestrator/video_frame_ring.cpp
   orchestrator/player.cpp
