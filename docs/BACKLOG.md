@@ -22,7 +22,6 @@
 ## P2（未来，当前 milestone 不挤占）
 
 - **lib-size-budget-hdr-codec** — `cat tools/lib_size_budget.txt` shows current `Release` budget; `grep -n 'Release_with_inference\|hevc' tools/lib_size_budget.txt` empty. M10 exit criterion 9 requires bumping the budget when HEVC encode + SVT-HEVC link in. **方向：** after `encode-hevc-main10-sw-svt` lands, re-measure `Release` libmedia_engine size with `ME_WITH_SVT_HEVC=ON` vs OFF; bump `tools/lib_size_budget.txt` ceiling for the SVT path with rationale in commit body (per the file's "Bumping these numbers REQUIRES a commit body explaining" header). Milestone §M10，Rubric §5.7。
-- **decode-av1-10bit** — `grep -rn 'AV_CODEC_ID_AV1\|libdav1d\|libaom' src/io CMakeLists.txt 2>/dev/null` empty. M10 exit criterion 2 third leg. **方向：** add libdav1d (BSD-2-clause, fast AV1 decoder) FetchContent OR rely on FFmpeg's built-in if Homebrew FFmpeg ships it; round-trip test mirroring `test_decode_hevc_main10`. libdav1d preferred over libaom (smaller, faster, decode-only matches our use case). Milestone §M10，Rubric §5.2。
 
 
 - **player-rate-not-one** — `src/orchestrator/player.cpp:Player::play` 拒绝 rate ≠ 1.0 with ME_E_UNSUPPORTED (`if (rate != 1.0f) return ME_E_UNSUPPORTED;`)。变速预览常用 0.5× / 2× / -1× (倒放)，需要：(a) video frame skip / repeat (rate>1 跳帧、0<rate<1 重复) — 改 producer cursor 推进 + pacer 时间对比；(b) audio tempo via SoundTouch (`src/audio/tempo.hpp:44` 已就位但 Player 路径未接入)；(c) 负 rate 需要反向 demux + 反向 frame queue。**方向：** 先做 0.5..2.0 正向变速 (skip/repeat + audio tempo)；负 rate 单独迭代。Milestone §M8-followup，Rubric §5.5。

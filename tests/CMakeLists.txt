@@ -86,6 +86,7 @@ set(_test_suites
   test_hdr_metadata_propagate
   test_pq_hlg_roundtrip
   test_decode_vp9_profile2
+  test_decode_av1_10bit
   test_subtitle_renderer
   test_skia_backend
   test_text_renderer
@@ -395,6 +396,33 @@ add_custom_target(vp9_p2_fixture DEPENDS ${_fixture_mp4_vp9p2})
 add_dependencies(test_decode_vp9_profile2 vp9_p2_fixture)
 target_compile_definitions(test_decode_vp9_profile2 PRIVATE
   ME_TEST_FIXTURE_MP4_VP9P2="${_fixture_mp4_vp9p2}")
+
+# AV1 Main 10-bit fixture: yuv420p10le SDR mp4 produced by
+# libsvtav1 (BSD-3-clause, ships with Homebrew FFmpeg per
+# --enable-libsvtav1). Closes M10 exit criterion §M10:119 third
+# leg — AV1 10-bit decode reuses the same frame_to_rgba8 path as
+# VP9 P2 / HEVC Main 10. Decoder side is libdav1d (BSD-2) auto-
+# routed by libavformat. Same skip pattern as the other 10-bit
+# fixtures via ME_REQUIRE_FIXTURE.
+add_executable(gen_av1_10bit_fixture fixtures/gen_av1_10bit_fixture.cpp)
+target_link_libraries(gen_av1_10bit_fixture PRIVATE
+  FFMPEG::avformat
+  FFMPEG::avcodec
+  FFMPEG::avutil)
+
+set(_fixture_mp4_av1_10 "${_fixture_dir}/av1_10bit_input.mp4")
+add_custom_command(
+  OUTPUT ${_fixture_mp4_av1_10}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
+  COMMAND $<TARGET_FILE:gen_av1_10bit_fixture> ${_fixture_mp4_av1_10}
+  DEPENDS gen_av1_10bit_fixture ${CMAKE_CURRENT_LIST_FILE}
+  COMMENT "Generating AV1 10-bit test fixture: ${_fixture_mp4_av1_10}"
+  VERBATIM)
+add_custom_target(av1_10bit_fixture DEPENDS ${_fixture_mp4_av1_10})
+
+add_dependencies(test_decode_av1_10bit av1_10bit_fixture)
+target_compile_definitions(test_decode_av1_10bit PRIVATE
+  ME_TEST_FIXTURE_MP4_AV1_10="${_fixture_mp4_av1_10}")
 
 # test_probe reuses the determinism fixture — same build-time MP4 gives
 # us a known codec / dimensions / framerate / color-tag state to assert
