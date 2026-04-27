@@ -383,7 +383,41 @@ Color space is described as four enums:
 - `matrix`:    `"bt709" | "bt601" | "bt2020nc" | "identity"`
 - `range`:     `"limited" | "full"`
 
-Engine converts via OpenColorIO when `workingColorSpace` differs. Unsupported combinations ⇒ `ME_E_UNSUPPORTED`.
+Each axis is independently optional inside a `colorSpace` object; an
+omitted axis means "trust the container" (loader stores
+`Unspecified`).
+
+**Transfer aliases.** `me_probe` reports the formal SMPTE / ARIB
+spelling that libavutil emits, so the loader accepts those as
+synonyms for `pq` / `hlg` to keep probe → timeline JSON round-trips
+mechanical:
+
+- `"smpte2084"` ≡ `"pq"` (HDR10)
+- `"arib-std-b67"` ≡ `"hlg"` (BT.2100 HLG / ARIB STD-B67)
+
+Both spellings parse to the same enum; the canonical short form is
+preferred in hand-written JSON.
+
+**Cross-axis combo validation.** When two axes are both specified
+(neither is `Unspecified`), the loader rejects the
+physically-inconsistent combinations below with `ME_E_PARSE`. Partial
+descriptors (one axis unspecified) bypass the relevant rule — the
+loader can't second-guess what the container declares.
+
+| Rule | Reject when… | Reason |
+|---|---|---|
+| R1 | `transfer ∈ {pq, hlg}` and `primaries ∉ {Unspecified, bt2020}` | PQ (HDR10) and HLG (BT.2100) are defined only over BT.2020 primaries |
+| R2 | `matrix == bt2020nc` and `primaries ∉ {Unspecified, bt2020}` | BT.2020 non-constant-luminance matrix coefficients derive from BT.2020 primaries |
+| R3 | `matrix == identity` and `range ∉ {Unspecified, full}` | Identity matrix encodes GBR planes, which are always full-range per H.264 / HEVC |
+
+These rules cover the obvious mis-tagging traps; legitimate
+narrow-gamut SDR descriptors like `{primaries: bt2020, transfer:
+bt709, matrix: bt2020nc, range: limited}` remain accepted because
+gamut and OETF are independent axes.
+
+Engine converts via OpenColorIO when `workingColorSpace` differs.
+Unsupported (but otherwise consistent) combinations ⇒
+`ME_E_UNSUPPORTED` at render time.
 
 ## Not yet supported
 
