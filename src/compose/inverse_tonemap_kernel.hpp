@@ -1,28 +1,42 @@
 /*
- * inverse_tonemap_kernel — SDR → HDR expansion stub.
+ * inverse_tonemap_kernel — SDR → HDR expansion (partial impl).
  *
  * Counterpart to `tonemap_kernel.{hpp,cpp}` (M10 exit criterion 6
- * second half — `inverse-tonemap-effect-stub`). The bullet's brief
- * is "register the kind, defer the impl, return ME_E_UNSUPPORTED
- * with a clear pointer to the follow-up bullet" — see
- * `inverse-tonemap-effect-impl` in the P2 backlog.
+ * second half — `inverse-tonemap-effect-stub`). Cycle 24 landed
+ * `Linear`; `Hable` stays UNSUPPORTED (tracked as
+ * `inverse-tonemap-hable-impl` — needs linear-light float
+ * buffers).
  *
- * Why deferred. Inverse tonemap fundamentally INVENTS information
- * the SDR input doesn't contain (specular highlights collapsed
- * onto byte 255, deep shadow texture crushed into the bottom
- * octave). Real implementations (HDR boost, Dolby Content Mapping,
- * DeepHDR neural networks) are non-deterministic by construction —
- * output depends on GPU non-determinism, model weights at the time
- * of call, etc. VISION §3.1's deterministic-software-path contract
- * forbids landing such an op into the default chain. The stub here
- * preserves the API surface so timeline JSON authoring tools can
- * include `kind: "inverse_tonemap"` ahead of the impl.
+ * Algo semantics:
  *
- * Determinism on the stub. The function unconditionally returns
- * ME_E_UNSUPPORTED for any input — that's a deterministic answer.
- * The comment-level diag (no err out param to match
- * `apply_tonemap_inplace`'s signature) names the follow-up bullet
- * so callers grepping for it land on the impl tracker.
+ *   Linear  : `out = clamp(in/255 * (target_peak_nits/100), 0, 255)`
+ *             per RGB channel, byte-deterministic. At target_peak_nits
+ *             = 100 it's exact identity; higher values clip the
+ *             upper part of the SDR signal as the byte domain
+ *             saturates. Documented placeholder until a 16-bit
+ *             working buffer arrives in M11+; the lost dynamic
+ *             range is the price of byte-domain output. Real HDR
+ *             expansion needs floats, so this is a "smoke test"-
+ *             grade impl that exercises the registration path
+ *             without claiming photographic correctness.
+ *   Hable   : returns ME_E_UNSUPPORTED. Inverse Hable is invertible
+ *             only on [0, white_scale] in linear-light space; byte
+ *             rounding makes the round-trip non-deterministic
+ *             enough to fail VISION §3.1.
+ *
+ * Why a partial impl. Real SDR → HDR expansion (HDR boost, Dolby
+ * Content Mapping, DeepHDR neural networks) INVENTS information
+ * that's structurally absent from the SDR input — those approaches
+ * are non-deterministic by construction. Linear refuses to invent
+ * anything: it's a deterministic linear scale that exists for
+ * scenarios where a 16-bit pipeline downstream of the byte buffer
+ * (e.g. `target_peak_nits=200` for partial expansion to a
+ * mid-brightness HDR display) wants the linear scaling without
+ * tone-curve invention.
+ *
+ * Determinism. Linear: pure scalar float arithmetic with std::lround,
+ * no SIMD intrinsics, no parallelism. Same input → same output bytes.
+ * VISION §3.1 satisfied.
  */
 #pragma once
 
@@ -33,11 +47,9 @@
 
 namespace me::compose {
 
-/* Always returns ME_E_UNSUPPORTED today. Documented at the kind
- * registration point (timeline_ir_params.hpp) and the loader
- * dispatch (loader_helpers_clip_params.cpp). When the
- * `inverse-tonemap-effect-impl` bullet lands, this signature stays
- * — only the body changes. */
+/* `Linear` algo writes deterministic output bytes; `Hable` algo
+ * still returns ME_E_UNSUPPORTED until the linear-light buffer
+ * tracked as `inverse-tonemap-hable-impl` lands. */
 me_status_t apply_inverse_tonemap_inplace(
     std::uint8_t*                              rgba,
     int                                        width,
