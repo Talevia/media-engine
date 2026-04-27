@@ -46,6 +46,9 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
     if (!video_codec.empty() && video_codec != "h264" && !is_hevc) {
         if (err) *err = "open_video_encoder: unsupported video_codec '" +
                         video_codec + "' (expected '' / 'h264' / 'hevc')";
+        /* LEGIT: codec-name dispatch is closed over the set we ship.
+         * New codec names land via additional `is_<codec>` branches
+         * above; until then UNSUPPORTED is the right shape. */
         return ME_E_UNSUPPORTED;
     }
 

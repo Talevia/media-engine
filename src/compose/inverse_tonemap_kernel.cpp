@@ -63,10 +63,10 @@ me_status_t apply_inverse_tonemap_inplace(
     using Algo = me::InverseTonemapEffectParams::Algo;
 
     if (params.algo == Algo::Hable) {
-        /* Hable inverse needs linear-light float buffers; tracked as
-         * `inverse-tonemap-hable-impl` in the BACKLOG. Until a 16-bit
-         * pipeline lands the byte-domain inverse is lossy enough to
-         * be non-deterministic across rounds. */
+        /* LEGIT: Hable inverse needs linear-light float buffers — see
+         * `inverse-tonemap-hable-impl` BACKLOG bullet. Byte-domain
+         * inverse rounds enough that round-trip drift fails VISION
+         * §3.1 byte-identity; deferred until M11+ float pipeline. */
         return ME_E_UNSUPPORTED;
     }
 

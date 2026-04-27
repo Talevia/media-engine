@@ -132,9 +132,14 @@ me_status_t Player::play(float rate) {
      * forward (frames dropped) without explicit skip/repeat in the
      * producer. Only the play() admission gate needed to relax. */
     if (!std::isfinite(rate) || rate <= 0.0f) return ME_E_INVALID_ARG;
+    /* LEGIT: outside [0.5, 2.0] forward window — bound-by-design per
+     * tier (2) of the rate-gating doc above. Hosts asking for 4×
+     * fast-forward / 0.25× slow-mo deserve a clear refusal. */
     if (rate < 0.5f || rate > 2.0f)            return ME_E_UNSUPPORTED;
     if (rate != 1.0f &&
         (has_audio_track_ || clock_.kind() == ME_CLOCK_AUDIO)) {
+        /* LEGIT: audio + rate ≠ 1 needs SoundTouch tempo wiring per
+         * debt-player-rate-audio-tempo; reject until that lands. */
         return ME_E_UNSUPPORTED;
     }
     clock_.play(rate);
