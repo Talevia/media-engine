@@ -79,6 +79,11 @@ struct KindInfo {
      * must mark this false — sharing the handle across evaluations would
      * leak state between callers. Default true matches the common case. */
     bool                    cacheable     = true;
+    /* If true, the LAST entry in input_schema describes a repeating port:
+     * the Builder accepts ≥ (input_schema.size() - 1) actual input refs,
+     * with all repeats sharing the schema entry's type. Used for kernels
+     * like RenderComposeCpu where the layer count is timeline-driven. */
+    bool                    variadic_last_input = false;
     KernelFn                kernel        = nullptr;
     std::vector<graph::Port> input_schema;
     std::vector<graph::Port> output_schema;

@@ -86,15 +86,31 @@ NodeId Graph::Builder::add(task::TaskKindId kind,
     n.time_invariant = info->time_invariant;
     n.cacheable      = info->cacheable;
 
-    /* Inputs — name/type come from schema, source from caller. Enforce arity. */
-    if (input_refs.size() != info->input_schema.size()) {
+    /* Inputs — name/type come from schema, source from caller. Enforce arity.
+     * Variadic kernels: when info->variadic_last_input is true, the final
+     * schema entry describes a repeating port; caller must provide at least
+     * (schema.size() - 1) refs, and all refs at index ≥ (schema.size() - 1)
+     * share the last schema entry's type. */
+    if (info->variadic_last_input) {
+        if (info->input_schema.empty()) {
+            throw std::runtime_error("graph::Builder::add: variadic kind has empty input_schema");
+        }
+        const size_t fixed = info->input_schema.size() - 1;
+        if (input_refs.size() < fixed) {
+            throw std::runtime_error("graph::Builder::add: input count below fixed prefix");
+        }
+    } else if (input_refs.size() != info->input_schema.size()) {
         throw std::runtime_error("graph::Builder::add: input count mismatch");
     }
     n.inputs.reserve(input_refs.size());
     for (size_t i = 0; i < input_refs.size(); ++i) {
         InputPort p;
-        p.name   = info->input_schema[i].name;
-        p.type   = info->input_schema[i].type;
+        const size_t schema_idx =
+            (info->variadic_last_input && i >= info->input_schema.size() - 1)
+                ? info->input_schema.size() - 1
+                : i;
+        p.name   = info->input_schema[schema_idx].name;
+        p.type   = info->input_schema[schema_idx].type;
         p.source = input_refs[i];
         n.inputs.push_back(std::move(p));
     }

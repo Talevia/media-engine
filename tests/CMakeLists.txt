@@ -60,6 +60,7 @@ set(_test_suites
   test_frame_server_concurrent
   test_compose_affine_blit
   test_render_affine_blit
+  test_render_compose_cpu
   test_audio_track_feed
   test_audio_mixer
   test_effect_chain
@@ -159,6 +160,10 @@ target_include_directories(test_compose_affine_blit PRIVATE ${CMAKE_SOURCE_DIR}/
 # for task/registry + graph/types — the C API doesn't expose graph
 # evaluation, by design.
 target_include_directories(test_render_affine_blit PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_render_compose_cpu exercises the RenderComposeCpu kernel + the
+# Builder's variadic_last_input path.
+target_include_directories(test_render_compose_cpu PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_audio_resample constructs synthetic AVFrames to drive
 # me::audio::resample_to — needs libav headers + src/ include.
