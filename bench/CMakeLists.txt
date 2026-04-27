@@ -102,6 +102,28 @@ if(ME_BUILD_TESTS)
     RUN_SERIAL TRUE)
 endif()
 
+# bench_ocio_apply — full-frame 4K BT.709 → linear OCIO transform
+# throughput. M9-followup polish (bench-perf-budget-coverage-expand)
+# — the OCIO color pipeline lives on the per-frame compose path
+# whenever colorSpace ≠ identity, but had no bench coverage. The
+# whole TU is gated by ME_HAS_OCIO; OFF builds get a 0-line skip
+# binary that exits 0, ON builds get the real measurement. Same
+# RUN_SERIAL pattern as bench_tonemap_kernel.
+add_executable(bench_ocio_apply bench_ocio_apply.cpp)
+target_link_libraries(bench_ocio_apply PRIVATE
+  media_engine::media_engine)
+target_include_directories(bench_ocio_apply PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(ME_WITH_OCIO)
+  target_compile_definitions(bench_ocio_apply PRIVATE ME_HAS_OCIO=1)
+endif()
+
+if(ME_BUILD_TESTS)
+  add_test(NAME bench_ocio_apply COMMAND bench_ocio_apply)
+  set_tests_properties(bench_ocio_apply PROPERTIES
+    TIMEOUT 60
+    RUN_SERIAL TRUE)
+endif()
+
 # bench_tonemap_kernel — full-frame 4K HDR→SDR tonemap throughput.
 # M10 added the apply_tonemap_inplace kernel (cycle 9); the
 # bullet `bench-perf-budget-coverage-expand` flagged that no
