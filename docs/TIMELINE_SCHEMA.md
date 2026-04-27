@@ -332,6 +332,7 @@ Loaded effect kinds (as of `timeline-loader-effect-parse`, 2026-04-24) — see `
 - `blur` — `radius: number` (required).
 - `lut` — `lutPath: string` (required). Asset-ref resolution is the LUT effect's responsibility; today it's a raw path string.
 - `tonemap` — `algo: string` (default `"hable"`; one of `"hable" | "reinhard" | "aces"`), `targetNits: number` (default 100, must be > 0). Industry-standard HDR→SDR curves applied per-channel to the RGBA8 working buffer; alpha is pass-through. Output is byte-deterministic for a fixed input + algo + targetNits. CPU kernel: `src/compose/tonemap_kernel.cpp`.
+- `inverse_tonemap` — `algo: string` (default `"linear"`; one of `"linear" | "hable"`), `targetPeakNits: number` (default 1000, must be > 0). **Registered but deferred-impl** — the kernel returns `ME_E_UNSUPPORTED` today; the kind exists so timeline JSON authoring tools can target it ahead of the impl. Real SDR→HDR expansion is non-deterministic by construction (specular invention, shadow-texture reconstruction); see backlog `inverse-tonemap-effect-impl` for the deferred path. CPU kernel: `src/compose/inverse_tonemap_kernel.cpp`.
 
 The IR carries these in `me::Clip::effects` as a typed `std::variant` by kind. GPU effect consumers land with follow-up `effect-gpu-*` bullets. `cross_dissolve` is a separate section (§Transition) — not a clip effect.
 

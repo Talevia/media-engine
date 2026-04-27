@@ -301,6 +301,7 @@ add_library(media_engine STATIC
   compose/cross_dissolve_kernel.cpp
   compose/encode_png_kernel.cpp
   compose/tonemap_kernel.cpp
+  compose/inverse_tonemap_kernel.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
   io/demux_kernel.cpp

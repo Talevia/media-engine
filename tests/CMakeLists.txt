@@ -82,6 +82,7 @@ set(_test_suites
   test_reencode_pts_remap
   test_encode_hevc_main10
   test_tonemap_kernel
+  test_inverse_tonemap_stub
   test_subtitle_renderer
   test_skia_backend
   test_text_renderer
@@ -575,6 +576,13 @@ target_link_libraries(test_encode_hevc_main10 PRIVATE
 # Pure RGBA8 byte math — no libav, no fixtures. Needs src/ on
 # include path for compose/tonemap_kernel.hpp.
 target_include_directories(test_tonemap_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_inverse_tonemap_stub pins the deferred-impl contract for
+# me::compose::apply_inverse_tonemap_inplace (registered kind +
+# UNSUPPORTED short-circuit + buffer not mutated). Same shape as
+# test_tonemap_kernel above — pure header-only consumer of the
+# kernel TU; needs src/ for compose/inverse_tonemap_kernel.hpp.
+target_include_directories(test_inverse_tonemap_stub PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_subtitle_renderer exercises me::text::SubtitleRenderer
 # (libass wrapper). ME_HAS_LIBASS compile def gates the real

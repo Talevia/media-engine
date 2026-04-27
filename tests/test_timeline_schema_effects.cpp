@@ -222,3 +222,57 @@ TEST_CASE("effects: tonemap targetNits <= 0 rejected as ME_E_PARSE") {
     CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
     CHECK(tl == nullptr);
 }
+
+/* --- M10 inverse_tonemap effect (SDR → HDR; registered, deferred impl) --- */
+TEST_CASE("effects: inverse_tonemap with default params (Linear / 1000 nits)") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"inverse_tonemap","params":{}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    REQUIRE(tl->tl.clips.size() == 1);
+    const auto& effs = tl->tl.clips[0].effects;
+    REQUIRE(effs.size() == 1);
+    CHECK(effs[0].kind == me::EffectKind::InverseTonemap);
+    const auto* ip = std::get_if<me::InverseTonemapEffectParams>(&effs[0].params);
+    REQUIRE(ip != nullptr);
+    CHECK(ip->algo == me::InverseTonemapEffectParams::Algo::Linear);
+    CHECK(ip->target_peak_nits == doctest::Approx(1000.0));
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("effects: inverse_tonemap with explicit Hable + 600 peak nits") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"inverse_tonemap","params":{"algo":"hable","targetPeakNits":600}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    REQUIRE(load(f.eng, j, &tl) == ME_OK);
+    const auto* ip = std::get_if<me::InverseTonemapEffectParams>(
+        &tl->tl.clips[0].effects[0].params);
+    REQUIRE(ip != nullptr);
+    CHECK(ip->algo == me::InverseTonemapEffectParams::Algo::Hable);
+    CHECK(ip->target_peak_nits == doctest::Approx(600.0));
+    me_timeline_destroy(tl);
+}
+
+TEST_CASE("effects: inverse_tonemap unknown algo rejected as ME_E_PARSE") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"inverse_tonemap","params":{"algo":"deephdr"}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+}
+
+TEST_CASE("effects: inverse_tonemap targetPeakNits <= 0 rejected") {
+    EngineFixture f;
+    const std::string j = tb::minimal_video_clip()
+        .with_clip_extra(R"("effects":[{"kind":"inverse_tonemap","params":{"targetPeakNits":0}}],)")
+        .build();
+    me_timeline_t* tl = nullptr;
+    CHECK(load(f.eng, j, &tl) == ME_E_PARSE);
+    CHECK(tl == nullptr);
+}

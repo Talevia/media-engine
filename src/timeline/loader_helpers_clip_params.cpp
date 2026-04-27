@@ -104,10 +104,38 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
             tp.target_nits = n;
         }
         spec.params = tp;
+    } else if (kind_str == "inverse_tonemap") {
+        /* Reserves the API surface for SDR → HDR expansion. Loader
+         * stores the typed params; the kernel
+         * (compose/inverse_tonemap_kernel.cpp) returns ME_E_UNSUPPORTED
+         * today — see the bullet `inverse-tonemap-effect-impl` for the
+         * deferred impl. Intentionally registered now so JSON
+         * authoring tools can target the kind ahead of the impl. */
+        spec.kind = me::EffectKind::InverseTonemap;
+        me::InverseTonemapEffectParams ip;
+        if (p.contains("algo")) {
+            require(p["algo"].is_string(), ME_E_PARSE,
+                    where + ".params.algo: expected string");
+            const auto algo_s = p.at("algo").get<std::string>();
+            if      (algo_s == "linear") ip.algo = me::InverseTonemapEffectParams::Algo::Linear;
+            else if (algo_s == "hable")  ip.algo = me::InverseTonemapEffectParams::Algo::Hable;
+            else throw LoadError{ME_E_PARSE,
+                where + ".params.algo: unknown '" + algo_s +
+                "' (supported: linear, hable)"};
+        }
+        if (p.contains("targetPeakNits")) {
+            require(p["targetPeakNits"].is_number(), ME_E_PARSE,
+                    where + ".params.targetPeakNits: expected number");
+            const double n = p.at("targetPeakNits").get<double>();
+            require(n > 0.0, ME_E_PARSE,
+                    where + ".params.targetPeakNits: must be > 0");
+            ip.target_peak_nits = n;
+        }
+        spec.params = ip;
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
-                        "' (supported: color, blur, lut, tonemap)"};
+                        "' (supported: color, blur, lut, tonemap, inverse_tonemap)"};
     }
     return spec;
 }
