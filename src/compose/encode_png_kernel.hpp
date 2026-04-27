@@ -2,10 +2,9 @@
  * compose::encode_png kernel registration.
  *
  * Registers TaskKindId::RenderEncodePng. 1×RgbaFrame → 1×ByteBuffer
- * (raw PNG bytes). Wraps the existing me::detail::encode_rgb_to_png
- * helper into the graph kernel ABI so PNG generation becomes a
- * scheduled Node instead of an inline branch in
- * compose_png_at / me_thumbnail_png.
+ * (raw PNG bytes). Internally runs sws_scale RGBA8→RGB24 + libavcodec
+ * PNG encode in a single kernel invocation — the same two steps that
+ * compose_png_at and me_thumbnail_png each ran inline pre-this-kernel.
  *
  * Schema:
  *   inputs:  [rgba: RgbaFrame]

@@ -1,48 +1,30 @@
 #include "media_engine/thumbnail.h"
-#include "api/thumbnail_encode_png.hpp"
-#include "core/engine_impl.hpp"
-#include "io/av_err.hpp"
-#include "io/ffmpeg_raii.hpp"
-#include "resource/codec_pool.hpp"
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/mathematics.h>
-#include <libswscale/swscale.h>
-}
+#include "core/engine_impl.hpp"
+#include "graph/eval_context.hpp"
+#include "graph/future.hpp"
+#include "graph/graph.hpp"
+#include "graph/types.hpp"
+#include "scheduler/scheduler.hpp"
+#include "task/context.hpp"
+#include "task/registry.hpp"
+#include "task/task_kind.hpp"
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
+#include <span>
 #include <string>
-#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace {
 
-using CodecCtxPtr = me::resource::CodecPool::Ptr;
-using FramePtr    = me::io::AvFramePtr;
-using PacketPtr   = me::io::AvPacketPtr;
-using SwsPtr      = me::io::SwsContextPtr;
-
-using me::io::av_err_str;
-
-std::string strip_file_scheme(std::string_view uri) {
-    constexpr std::string_view p{"file://"};
-    if (uri.size() >= p.size() &&
-        std::equal(p.begin(), p.end(), uri.begin())) {
-        uri.remove_prefix(p.size());
-    }
-    return std::string{uri};
-}
-
 /* Given native W×H and user's max bounding box, derive output dims that
  * preserve aspect ratio. 0 in a bound means "unconstrained on this axis".
- * Both 0 → native passthrough. Dims are clamped to even numbers where
- * required by the encoder (PNG doesn't need this, but keeps behavior
- * predictable if we ever swap in a different codec). */
+ * Both 0 → native passthrough. */
 void fit_bounds(int native_w, int native_h, int max_w, int max_h,
                 int& out_w, int& out_h) {
     if (max_w <= 0 && max_h <= 0) { out_w = native_w; out_h = native_h; return; }
@@ -54,215 +36,36 @@ void fit_bounds(int native_w, int native_h, int max_w, int max_h,
     out_h = std::max(1, static_cast<int>(native_h * r + 0.5));
 }
 
-me_status_t decode_first_frame_at_or_after(AVFormatContext*   fmt,
-                                           int                vs_idx,
-                                           AVCodecContext*    dec,
-                                           int64_t            target_pts_stb,
-                                           FramePtr&          out_frame,
-                                           std::string*       err) {
-    PacketPtr pkt(av_packet_alloc());
-    FramePtr  frame(av_frame_alloc());
+/* Build the 3-node decode graph for an asset URI:
+ *   IoDemux(uri) → IoDecodeVideo(source_t) → RenderConvertRgba8
+ * Same shape as compose_frame's M1 path. The IoDecodeVideo kernel's
+ * "hit-or-keep" decode policy already matches the legacy
+ * decode_first_frame_at_or_after semantics — seek backward, decode
+ * forward, return the first frame whose pts >= target_pts_stb (or
+ * the last frame seen if EOF). */
+std::pair<me::graph::Graph, me::graph::PortRef>
+build_thumbnail_graph(const std::string& uri, me_rational_t source_t) {
+    me::graph::Graph::Builder b;
 
-    while (true) {
-        int rc = av_read_frame(fmt, pkt.get());
-        if (rc == AVERROR_EOF) {
-            /* Hit EOF: send flush packet to decoder to drain any buffered
-             * frame that still qualifies. */
-            rc = avcodec_send_packet(dec, nullptr);
-            if (rc < 0 && rc != AVERROR_EOF) {
-                if (err) *err = "flush decode: " + av_err_str(rc);
-                return ME_E_DECODE;
-            }
-        } else if (rc < 0) {
-            if (err) *err = "read_frame: " + av_err_str(rc);
-            return ME_E_IO;
-        } else {
-            if (pkt->stream_index != vs_idx) {
-                av_packet_unref(pkt.get());
-                continue;
-            }
-            rc = avcodec_send_packet(dec, pkt.get());
-            av_packet_unref(pkt.get());
-            if (rc < 0) {
-                if (err) *err = "send_packet: " + av_err_str(rc);
-                return ME_E_DECODE;
-            }
-        }
+    me::graph::Properties demux_props;
+    demux_props["uri"].v = uri;
+    auto n_demux = b.add(me::task::TaskKindId::IoDemux,
+                          std::move(demux_props), {});
 
-        while (true) {
-            int r = avcodec_receive_frame(dec, frame.get());
-            if (r == AVERROR(EAGAIN)) break;
-            if (r == AVERROR_EOF) {
-                if (out_frame) return ME_OK;
-                if (err) *err = "decoder drained without producing a frame";
-                return ME_E_DECODE;
-            }
-            if (r < 0) {
-                if (err) *err = "receive_frame: " + av_err_str(r);
-                return ME_E_DECODE;
-            }
-            const int64_t frame_pts = (frame->pts != AV_NOPTS_VALUE) ? frame->pts
-                                                                    : frame->best_effort_timestamp;
-            if (frame_pts != AV_NOPTS_VALUE && frame_pts < target_pts_stb) {
-                /* keep decoding; remember latest frame in case target is past EOF */
-                out_frame.reset(av_frame_clone(frame.get()));
-                av_frame_unref(frame.get());
-                continue;
-            }
-            /* Reached target or best we'll get. */
-            out_frame.reset(av_frame_clone(frame.get()));
-            av_frame_unref(frame.get());
-            return ME_OK;
-        }
-    }
-}
+    me::graph::Properties dec_props;
+    dec_props["source_t_num"].v = static_cast<int64_t>(source_t.num);
+    dec_props["source_t_den"].v = static_cast<int64_t>(source_t.den);
+    auto n_decode = b.add(me::task::TaskKindId::IoDecodeVideo,
+                           std::move(dec_props),
+                           { me::graph::PortRef{n_demux, 0} });
 
-me_status_t probe_and_render(me_engine_t*  engine,
-                             const char*   uri_c,
-                             me_rational_t time,
-                             int           max_w_arg,
-                             int           max_h_arg,
-                             uint8_t**     out_png,
-                             size_t*       out_size) {
-    *out_png  = nullptr;
-    *out_size = 0;
+    auto n_rgba = b.add(me::task::TaskKindId::RenderConvertRgba8,
+                         {},
+                         { me::graph::PortRef{n_decode, 0} });
 
-    const std::string path = strip_file_scheme(uri_c);
-
-    /* --- Open input + find video stream ---------------------------------- */
-    AVFormatContext* fmt = nullptr;
-    int rc = avformat_open_input(&fmt, path.c_str(), nullptr, nullptr);
-    if (rc < 0) {
-        me::detail::set_error(engine, "avformat_open_input: " + av_err_str(rc));
-        return ME_E_IO;
-    }
-    rc = avformat_find_stream_info(fmt, nullptr);
-    if (rc < 0) {
-        me::detail::set_error(engine, "avformat_find_stream_info: " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_DECODE;
-    }
-    const int vs = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
-    if (vs < 0) {
-        me::detail::set_error(engine, "no video stream");
-        avformat_close_input(&fmt);
-        /* LEGIT: source file contains no video stream — thumbnail is
-         * undefined; report as unsupported with a clear message. */
-        return ME_E_UNSUPPORTED;
-    }
-
-    /* --- Decoder --------------------------------------------------------- */
-    AVStream* vstream = fmt->streams[vs];
-    const AVCodec* dec_codec = avcodec_find_decoder(vstream->codecpar->codec_id);
-    if (!dec_codec) {
-        me::detail::set_error(engine, std::string("no decoder for ") +
-                                       avcodec_get_name(vstream->codecpar->codec_id));
-        avformat_close_input(&fmt);
-        /* LEGIT: FFmpeg build lacks a decoder for this codec id;
-         * runtime reject with codec name in last_error. */
-        return ME_E_UNSUPPORTED;
-    }
-    CodecCtxPtr dec = engine->codecs
-        ? engine->codecs->allocate(dec_codec)
-        : CodecCtxPtr{nullptr, me::resource::CodecPool::Deleter{nullptr}};
-    if (!dec) { avformat_close_input(&fmt); return ME_E_OUT_OF_MEMORY; }
-    rc = avcodec_parameters_to_context(dec.get(), vstream->codecpar);
-    if (rc < 0) {
-        me::detail::set_error(engine, "params_to_ctx: " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_INTERNAL;
-    }
-    dec->pkt_timebase = vstream->time_base;
-    rc = avcodec_open2(dec.get(), dec_codec, nullptr);
-    if (rc < 0) {
-        me::detail::set_error(engine, "open decoder: " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_DECODE;
-    }
-
-    /* --- Seek to target time (AV_TIME_BASE, backwards to nearest KF) ---- */
-    me_rational_t t = time;
-    if (t.den <= 0) t.den = 1;
-    if (t.num < 0)  t.num = 0;
-    const int64_t target_us = av_rescale_q(t.num, AVRational{1, static_cast<int>(t.den)},
-                                            AV_TIME_BASE_Q);
-    rc = avformat_seek_file(fmt, -1, INT64_MIN, target_us, target_us,
-                             AVSEEK_FLAG_BACKWARD);
-    if (rc < 0) {
-        /* Some containers (concat demuxer, raw streams) don't seek; fall
-         * back to decoding from the start if target is near zero, else
-         * surface the error. */
-        if (target_us > AV_TIME_BASE) {   /* > 1 s in */
-            me::detail::set_error(engine, "seek failed: " + av_err_str(rc));
-            avformat_close_input(&fmt);
-            return ME_E_IO;
-        }
-    }
-    avcodec_flush_buffers(dec.get());
-
-    /* --- Decode forward until we hit a frame at/after target ------------ */
-    const int64_t target_stb = av_rescale_q(target_us, AV_TIME_BASE_Q, vstream->time_base);
-    FramePtr decoded;
-    std::string err;
-    me_status_t s = decode_first_frame_at_or_after(fmt, vs, dec.get(), target_stb,
-                                                    decoded, &err);
-    if (s != ME_OK) {
-        me::detail::set_error(engine, std::move(err));
-        avformat_close_input(&fmt);
-        return s;
-    }
-    if (!decoded) {
-        me::detail::set_error(engine, "decoder produced no frame");
-        avformat_close_input(&fmt);
-        return ME_E_DECODE;
-    }
-
-    const int native_w = decoded->width;
-    const int native_h = decoded->height;
-    int out_w = 0, out_h = 0;
-    fit_bounds(native_w, native_h, max_w_arg, max_h_arg, out_w, out_h);
-
-    /* --- Convert to RGB24 at output dims --------------------------------- */
-    SwsPtr sws(sws_getContext(native_w, native_h, static_cast<AVPixelFormat>(decoded->format),
-                               out_w, out_h, AV_PIX_FMT_RGB24,
-                               SWS_BILINEAR, nullptr, nullptr, nullptr));
-    if (!sws) {
-        me::detail::set_error(engine, "sws_getContext");
-        avformat_close_input(&fmt);
-        return ME_E_INTERNAL;
-    }
-    FramePtr rgb(av_frame_alloc());
-    rgb->format = AV_PIX_FMT_RGB24;
-    rgb->width  = out_w;
-    rgb->height = out_h;
-    rc = av_frame_get_buffer(rgb.get(), 32);
-    if (rc < 0) {
-        me::detail::set_error(engine, "frame_get_buffer(rgb): " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_OUT_OF_MEMORY;
-    }
-    rc = sws_scale(sws.get(), decoded->data, decoded->linesize, 0, native_h,
-                    rgb->data, rgb->linesize);
-    if (rc < 0) {
-        me::detail::set_error(engine, "sws_scale: " + av_err_str(rc));
-        avformat_close_input(&fmt);
-        return ME_E_INTERNAL;
-    }
-
-    /* --- PNG encode (extracted to thumbnail_encode_png.cpp) -------------- */
-    {
-        std::string enc_err;
-        const me_status_t s = me::detail::encode_rgb_to_png(
-            rgb, out_w, out_h, engine->codecs.get(), out_png, out_size, &enc_err);
-        if (s != ME_OK) {
-            if (!enc_err.empty()) me::detail::set_error(engine, std::move(enc_err));
-            avformat_close_input(&fmt);
-            return s;
-        }
-    }
-
-    avformat_close_input(&fmt);
-    return ME_OK;
+    me::graph::PortRef terminal{n_rgba, 0};
+    b.name_terminal("rgba", terminal);
+    return {std::move(b).build(), terminal};
 }
 
 }  // namespace
@@ -279,12 +82,99 @@ extern "C" me_status_t me_thumbnail_png(
     if (out_png)  *out_png  = nullptr;
     if (out_size) *out_size = 0;
     if (!engine || !uri || !out_png || !out_size) return ME_E_INVALID_ARG;
+    if (!engine->scheduler) return ME_E_INVALID_ARG;
 
     me::detail::clear_error(engine);
 
+    me_rational_t t = time;
+    if (t.den <= 0) t.den = 1;
+    if (t.num <  0) t.num = 0;
+
     try {
-        return probe_and_render(engine, uri, time, max_width, max_height,
-                                 out_png, out_size);
+        /* Stage 1: decode + convert to RGBA8 via graph. The IoDemux +
+         * IoDecodeVideo + RenderConvertRgba8 chain replaces the
+         * inline avformat_open_input + decode_first_frame_at_or_after
+         * + sws_scale that lived here pre-graph migration. */
+        auto [graph, terminal] = build_thumbnail_graph(std::string{uri}, t);
+
+        me::graph::EvalContext ctx;
+        ctx.frames = engine->frames.get();
+        ctx.codecs = engine->codecs.get();
+        ctx.time   = t;
+
+        std::shared_ptr<me::graph::RgbaFrameData> rgba;
+        try {
+            auto fut = engine->scheduler->evaluate_port<
+                           std::shared_ptr<me::graph::RgbaFrameData>>(graph, terminal, ctx);
+            rgba = fut.await();
+        } catch (const std::exception& ex) {
+            me::detail::set_error(engine, std::string{ex.what()});
+            return ME_E_DECODE;
+        }
+        if (!rgba) return ME_E_DECODE;
+
+        const int native_w = rgba->width;
+        const int native_h = rgba->height;
+        if (native_w <= 0 || native_h <= 0) return ME_E_DECODE;
+
+        int out_w = 0, out_h = 0;
+        fit_bounds(native_w, native_h, max_width, max_height, out_w, out_h);
+
+        /* Stage 2: scale-to-fit via RenderAffineBlit kernel, when needed.
+         * Source dims are only known after the graph runs, so the
+         * AffineBlit can't be baked into compile time. Direct kernel
+         * call (no scheduler) is equivalent semantics. */
+        std::shared_ptr<me::graph::RgbaFrameData> resized = rgba;
+        if (out_w != native_w || out_h != native_h) {
+            auto blit_fn = me::task::best_kernel_for(
+                me::task::TaskKindId::RenderAffineBlit, me::task::Affinity::Cpu);
+            if (!blit_fn) return ME_E_UNSUPPORTED;
+
+            me::graph::Properties bp;
+            bp["dst_w"].v   = static_cast<int64_t>(out_w);
+            bp["dst_h"].v   = static_cast<int64_t>(out_h);
+            bp["scale_x"].v = static_cast<double>(out_w) / static_cast<double>(native_w);
+            bp["scale_y"].v = static_cast<double>(out_h) / static_cast<double>(native_h);
+
+            me::graph::InputValue in;
+            in.v = rgba;
+            me::graph::OutputSlot out;
+            me::task::TaskContext kctx{};
+            if (blit_fn(kctx, bp,
+                        std::span<const me::graph::InputValue>{&in, 1},
+                        std::span<me::graph::OutputSlot>      {&out, 1}) != ME_OK) {
+                return ME_E_INTERNAL;
+            }
+            auto* p = std::get_if<std::shared_ptr<me::graph::RgbaFrameData>>(&out.v);
+            if (!p || !*p) return ME_E_INTERNAL;
+            resized = *p;
+        }
+
+        /* Stage 3: PNG encode via RenderEncodePng kernel. */
+        auto enc_fn = me::task::best_kernel_for(
+            me::task::TaskKindId::RenderEncodePng, me::task::Affinity::Cpu);
+        if (!enc_fn) return ME_E_UNSUPPORTED;
+
+        me::graph::InputValue enc_in;
+        enc_in.v = resized;
+        me::graph::OutputSlot enc_out;
+        me::task::TaskContext kctx{};
+        if (enc_fn(kctx, {},
+                   std::span<const me::graph::InputValue>{&enc_in, 1},
+                   std::span<me::graph::OutputSlot>      {&enc_out, 1}) != ME_OK) {
+            return ME_E_ENCODE;
+        }
+
+        auto* png_pp = std::get_if<std::shared_ptr<std::vector<uint8_t>>>(&enc_out.v);
+        if (!png_pp || !*png_pp) return ME_E_ENCODE;
+        const auto& png = **png_pp;
+
+        auto* buf = static_cast<uint8_t*>(std::malloc(png.size()));
+        if (!buf) return ME_E_OUT_OF_MEMORY;
+        std::memcpy(buf, png.data(), png.size());
+        *out_png  = buf;
+        *out_size = png.size();
+        return ME_OK;
     } catch (const std::bad_alloc&) {
         if (*out_png) { std::free(*out_png); *out_png = nullptr; *out_size = 0; }
         return ME_E_OUT_OF_MEMORY;

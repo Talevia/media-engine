@@ -340,7 +340,6 @@ add_library(media_engine STATIC
   api/player.cpp
   api/probe.cpp
   api/thumbnail.cpp
-  api/thumbnail_encode_png.cpp
   api/cache.cpp
 )
 add_library(media_engine::media_engine ALIAS media_engine)
