@@ -63,6 +63,7 @@ set(_test_suites
   test_render_compose_cpu
   test_render_cross_dissolve
   test_compose_multi_track_graph
+  test_render_encode_png
   test_audio_track_feed
   test_audio_mixer
   test_effect_chain
@@ -173,6 +174,9 @@ target_include_directories(test_render_cross_dissolve PRIVATE ${CMAKE_SOURCE_DIR
 # test_compose_multi_track_graph asserts compile_compose_graph topology
 # for hand-built Timeline IR (single/multi track, transform, gaps).
 target_include_directories(test_compose_multi_track_graph PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_render_encode_png exercises the RenderEncodePng kernel ABI.
+target_include_directories(test_render_encode_png PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # test_audio_resample constructs synthetic AVFrames to drive
 # me::audio::resample_to — needs libav headers + src/ include.

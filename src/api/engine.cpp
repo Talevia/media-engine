@@ -3,6 +3,7 @@
 #include "compose/compose_cpu_kernel.hpp"
 #include "compose/convert_rgba8_kernel.hpp"
 #include "compose/cross_dissolve_kernel.hpp"
+#include "compose/encode_png_kernel.hpp"
 #include "core/engine_impl.hpp"
 #include "io/decode_video_kernel.hpp"
 #include "io/demux_kernel.hpp"
@@ -29,6 +30,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_affine_blit_kind();
         me::compose::register_compose_cpu_kind();
         me::compose::register_cross_dissolve_kind();
+        me::compose::register_encode_png_kind();
     });
 
     auto* e = new (std::nothrow) me_engine{};

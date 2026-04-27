@@ -63,6 +63,7 @@ enum class TypeId : uint8_t {
     DemuxCtx      = 6,   /* io::DemuxContext — packet stream source */
     AvFrameHandle = 7,   /* shared_ptr<AVFrame> with libav-aware deleter — decoded raw frame */
     RgbaFrame     = 8,   /* shared_ptr<RgbaFrameData> — tightly-packed RGBA8 frame */
+    ByteBuffer    = 9,   /* shared_ptr<vector<uint8_t>> — opaque encoded bytes (PNG, JPEG, ...) */
     /* AudioBuf / MetaBlob will be appended; never reordered. */
 };
 
@@ -78,7 +79,8 @@ struct InputValue {
         std::shared_ptr<resource::FrameHandle>,
         std::shared_ptr<io::DemuxContext>,
         std::shared_ptr<AVFrame>,
-        std::shared_ptr<RgbaFrameData>
+        std::shared_ptr<RgbaFrameData>,
+        std::shared_ptr<std::vector<uint8_t>>
     > v;
 
     TypeId type() const noexcept {
