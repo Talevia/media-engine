@@ -89,6 +89,7 @@ set(_test_suites
   test_io_decode_audio
   test_audio_resample_kernel
   test_audio_mix_kernel
+  test_audio_timestretch_kernel
   test_scheduler_cache
   test_player
 )
@@ -627,6 +628,14 @@ target_link_libraries(test_audio_resample_kernel PRIVATE
 target_include_directories(test_audio_mix_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_audio_mix_kernel PRIVATE
   FFMPEG::avutil FFMPEG::avcodec)
+
+# test_audio_timestretch_kernel — gated on ME_HAS_SOUNDTOUCH.
+target_include_directories(test_audio_timestretch_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_audio_timestretch_kernel PRIVATE
+  FFMPEG::avutil FFMPEG::avcodec)
+if(ME_WITH_SOUNDTOUCH)
+  target_compile_definitions(test_audio_timestretch_kernel PRIVATE ME_HAS_SOUNDTOUCH=1)
+endif()
 
 # test_scheduler_cache exercises sched::OutputCache (peek-before-dispatch +
 # bounded LRU). Uses mock kernels registered into the bootstrap test slots

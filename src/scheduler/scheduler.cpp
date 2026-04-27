@@ -2,6 +2,7 @@
 
 #include "graph/eval_context.hpp"
 #include "resource/frame_pool.hpp"
+#include "resource/stateful_pool.hpp"
 #include "task/context.hpp"
 #include "task/registry.hpp"
 #include "task/task_kind.hpp"
@@ -39,7 +40,8 @@ inline uint64_t compute_cache_key(const graph::Node& node,
 void run_node(graph::NodeId       id,
               EvalInstance&       eval,
               resource::FramePool& frames,
-              resource::CodecPool& codecs) {
+              resource::CodecPool& codecs,
+              resource::StatefulResourcePool<audio::TempoStretcher>* tempo_pool) {
     if (eval.is_cancelled()) {
         eval.set_state(id, NodeState::Failed);
         return;
@@ -95,12 +97,13 @@ void run_node(graph::NodeId       id,
     }
 
     task::TaskContext ctx;
-    ctx.time   = eval.ctx().time;
-    ctx.frames = &frames;
-    ctx.codecs = &codecs;
-    ctx.gpu    = eval.ctx().gpu;
-    ctx.cancel = &eval.cancel_flag();
-    ctx.cache  = eval.ctx().cache;
+    ctx.time       = eval.ctx().time;
+    ctx.frames     = &frames;
+    ctx.codecs     = &codecs;
+    ctx.gpu        = eval.ctx().gpu;
+    ctx.cancel     = &eval.cancel_flag();
+    ctx.cache      = eval.ctx().cache;
+    ctx.tempo_pool = tempo_pool;
 
     eval.set_state(id, NodeState::Running);
 
@@ -174,7 +177,7 @@ Scheduler::build_and_run(const graph::Graph& g, const graph::EvalContext& ctx) {
     for (size_t i = 0; i < nodes.size(); ++i) {
         const graph::NodeId id{static_cast<uint32_t>(i)};
         tf_tasks.push_back(flow->emplace([id, eval_raw = eval.get(), this]() {
-            run_node(id, *eval_raw, frames_, codecs_);
+            run_node(id, *eval_raw, frames_, codecs_, tempo_pool_);
         }));
     }
 

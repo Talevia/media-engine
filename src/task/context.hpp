@@ -11,8 +11,14 @@
 
 #include <atomic>
 
-namespace me::resource { class FramePool; class CodecPool; class GpuContext; }
-namespace me::sched    { class OutputCache; }
+namespace me::resource {
+    class FramePool;
+    class CodecPool;
+    class GpuContext;
+    template <typename T> class StatefulResourcePool;
+}
+namespace me::audio { class TempoStretcher; }
+namespace me::sched { class OutputCache; }
 
 namespace me::task {
 
@@ -23,6 +29,14 @@ struct TaskContext {
     resource::GpuContext*    gpu    = nullptr; /* null if CPU kernel */
     const std::atomic<bool>* cancel = nullptr; /* per-EvalInstance cancel flag */
     sched::OutputCache*      cache  = nullptr; /* injected by scheduler; null when caller passes ctx without scheduler ownership */
+
+    /* Stateful resource pool for SoundTouch instances. Kernels (e.g.
+     * AudioTimestretch) borrow per-track instances keyed by an
+     * instance_key prop, preserving SoundTouch's internal pitch
+     * buffer state across chunked invocations within a Player
+     * session. Null-allowed: kernels fall back to a fresh-per-call
+     * instance when missing (state continuity lost). */
+    resource::StatefulResourcePool<audio::TempoStretcher>* tempo_pool = nullptr;
 };
 
 }  // namespace me::task

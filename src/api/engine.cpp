@@ -5,6 +5,11 @@
 #include "compose/cross_dissolve_kernel.hpp"
 #include "audio/mix_kernel.hpp"
 #include "audio/resample_kernel.hpp"
+#ifdef ME_HAS_SOUNDTOUCH
+#include "audio/tempo.hpp"
+#include "audio/timestretch_kernel.hpp"
+#include "resource/stateful_pool.hpp"
+#endif
 #include "compose/encode_png_kernel.hpp"
 #include "core/engine_impl.hpp"
 #include "io/decode_audio_kernel.hpp"
@@ -37,6 +42,9 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_encode_png_kind();
         me::audio::register_resample_kind();
         me::audio::register_mix_kind();
+#ifdef ME_HAS_SOUNDTOUCH
+        me::audio::register_timestretch_kind();
+#endif
     });
 
     auto* e = new (std::nothrow) me_engine{};
@@ -60,9 +68,20 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
                               e->config.cache_dir ? std::string(e->config.cache_dir)
                                                   : std::string{},
                               e->config.disk_cache_bytes);
+#ifdef ME_HAS_SOUNDTOUCH
+        /* Pool factory left empty — AudioTimestretch kernel is
+         * the constructor since it knows the per-input rate +
+         * channels (StatefulResourcePool::adopt path). */
+        e->tempo_pool   = std::make_unique<
+            me::resource::StatefulResourcePool<me::audio::TempoStretcher>>(
+                []() { return std::unique_ptr<me::audio::TempoStretcher>(); });
+#endif
         e->scheduler    = std::make_unique<me::sched::Scheduler>(
                               me::sched::Config{.cpu_threads = e->config.num_worker_threads},
                               *e->frames, *e->codecs);
+#ifdef ME_HAS_SOUNDTOUCH
+        e->scheduler->set_tempo_pool(e->tempo_pool.get());
+#endif
     } catch (const std::exception& ex) {
         me::detail::set_error(e, ex.what());
         delete e;

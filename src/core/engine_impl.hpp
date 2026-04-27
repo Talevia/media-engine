@@ -9,6 +9,11 @@
 #include "resource/frame_pool.hpp"
 #include "scheduler/scheduler.hpp"
 
+#ifdef ME_HAS_SOUNDTOUCH
+#include "audio/tempo.hpp"
+#include "resource/stateful_pool.hpp"
+#endif
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -33,6 +38,15 @@ struct me_engine {
      * silently no-op). Consumer is `me_render_frame`'s scrubbing
      * cache-aware path (asset_hash:source_t key, src/api/render.cpp). */
     std::unique_ptr<me::resource::DiskCache>       disk_cache;
+#ifdef ME_HAS_SOUNDTOUCH
+    /* Per-track SoundTouch instance pool. AudioTimestretch kernel
+     * borrows by instance_key (orchestrator-supplied stable id),
+     * preserving SoundTouch's internal pitch buffer across chunked
+     * invocations. Lives before scheduler so it outlives any task
+     * that holds a Handle. */
+    std::unique_ptr<me::resource::StatefulResourcePool<me::audio::TempoStretcher>>
+        tempo_pool;
+#endif
     std::unique_ptr<me::sched::Scheduler>          scheduler;
 };
 

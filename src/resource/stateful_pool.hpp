@@ -122,6 +122,23 @@ public:
         return Handle{this, key, std::move(t)};
     }
 
+    /* Wrap a caller-constructed instance into a Handle. On Handle
+     * destruction the instance is stored under `key`, just like a
+     * borrowed-then-returned Handle. Returns an empty Handle when
+     * `t` is null.
+     *
+     * Use case: kernels whose construction requires runtime
+     * parameters that the factory closure can't see (e.g.
+     * SoundTouch needs sample_rate + channels per instance, which
+     * aren't known at engine construction time). Such kernels call
+     * borrow() first; on empty Handle, build the instance from
+     * input metadata and adopt() it. The pool then preserves
+     * state across subsequent same-key invocations. */
+    Handle adopt(uint64_t key, std::unique_ptr<T> t) {
+        if (!t) return Handle{};
+        return Handle{this, key, std::move(t)};
+    }
+
     /* Drop any cached instance for `key` (e.g. after a session
      * destruction or content-hash change). Has no effect on
      * outstanding Handles for the same key — they'll release back

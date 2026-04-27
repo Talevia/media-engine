@@ -278,6 +278,7 @@ add_library(media_engine STATIC
   $<$<BOOL:${ME_WITH_GPU}>:${CMAKE_CURRENT_SOURCE_DIR}/effect/gpu_effect_chain.cpp>
   effect/lut.cpp
   $<$<BOOL:${ME_WITH_SOUNDTOUCH}>:${CMAKE_CURRENT_SOURCE_DIR}/audio/tempo.cpp>
+  $<$<BOOL:${ME_WITH_SOUNDTOUCH}>:${CMAKE_CURRENT_SOURCE_DIR}/audio/timestretch_kernel.cpp>
   $<$<BOOL:${ME_WITH_LIBASS}>:${CMAKE_CURRENT_SOURCE_DIR}/text/subtitle_renderer.cpp>
   $<$<BOOL:${ME_WITH_SKIA}>:${CMAKE_CURRENT_SOURCE_DIR}/text/skia_backend.cpp>
   $<$<BOOL:${ME_WITH_SKIA}>:${CMAKE_CURRENT_SOURCE_DIR}/text/text_renderer.cpp>

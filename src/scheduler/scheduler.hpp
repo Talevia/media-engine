@@ -27,7 +27,12 @@
 #include <memory>
 #include <string>
 
-namespace me::resource { class FramePool; class CodecPool; }
+namespace me::resource {
+    class FramePool;
+    class CodecPool;
+    template <typename T> class StatefulResourcePool;
+}
+namespace me::audio { class TempoStretcher; }
 
 namespace me::sched {
 
@@ -68,16 +73,29 @@ public:
     OutputCache&       cache()       noexcept { return cache_; }
     const OutputCache& cache() const noexcept { return cache_; }
 
+    /* Inject a stateful TempoStretcher pool. Engine constructs the
+     * pool when ME_WITH_SOUNDTOUCH is on and hands the pointer here;
+     * run_node() flows it through TaskContext.tempo_pool. Null when
+     * disabled — AudioTimestretch kernel falls back to fresh-per-call
+     * (state continuity lost). */
+    void set_tempo_pool(resource::StatefulResourcePool<audio::TempoStretcher>* p) {
+        tempo_pool_ = p;
+    }
+    resource::StatefulResourcePool<audio::TempoStretcher>* tempo_pool() const noexcept {
+        return tempo_pool_;
+    }
+
 private:
     /* Internal build: returns (run_future, eval_instance) pair. Separated from
      * the template so the bulk of the logic stays out of the header. */
     std::pair<std::shared_future<void>, std::shared_ptr<EvalInstance>>
         build_and_run(const graph::Graph&, const graph::EvalContext&);
 
-    resource::FramePool&  frames_;
-    resource::CodecPool&  codecs_;
-    OutputCache           cache_;
-    tf::Executor          cpu_;
+    resource::FramePool&                                        frames_;
+    resource::CodecPool&                                        codecs_;
+    resource::StatefulResourcePool<audio::TempoStretcher>*      tempo_pool_ = nullptr;
+    OutputCache                                                 cache_;
+    tf::Executor                                                cpu_;
 };
 
 /* ---- template impl ------------------------------------------------------ */
