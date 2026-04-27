@@ -1,6 +1,5 @@
 #include "orchestrator/player.hpp"
 
-#include "audio/mixer.hpp"
 #include "core/engine_impl.hpp"
 #include "core/frame_impl.hpp"
 #include "graph/eval_context.hpp"
@@ -8,6 +7,7 @@
 #include "graph/graph.hpp"
 #include "graph/types.hpp"
 #include "io/ffmpeg_raii.hpp"
+#include "orchestrator/audio_graph.hpp"
 #include "orchestrator/compose_frame.hpp"
 #include "scheduler/scheduler.hpp"
 #include "task/task_kind.hpp"
@@ -113,26 +113,17 @@ Player::Player(me_engine*                            engine,
     /* The clock anchors at t=0 in paused state; play() bumps anchor. */
     clock_.seek(me_rational_t{0, 1});
 
-    /* Audio path is best-effort. Failure to open demuxes / build the
-     * mixer leaves the player video-only — the host still gets video
-     * frames + the audio cb stays silent. The error is stashed on
-     * the engine's last-error slot for observability; the caller
-     * decides whether to abort by checking after create. */
+    /* Audio path. Lit when audio_out.sample_rate > 0 AND the timeline
+     * has at least one Audio track. Per-chunk graph evaluation —
+     * compile_audio_chunk_graph + scheduler.evaluate_port — replaces
+     * the streaming AudioMixer + per-asset DemuxContext fan-out the
+     * Player held pre-kernel-ize. */
     if (cfg_.audio_out.sample_rate > 0 && tl_) {
-        bool has_audio_track = false;
         for (const auto& tr : tl_->tracks) {
-            if (tr.kind == me::TrackKind::Audio) { has_audio_track = true; break; }
+            if (tr.kind == me::TrackKind::Audio) { has_audio_track_ = true; break; }
         }
-        if (has_audio_track) {
-            std::string err;
-            if (open_audio_demuxes(&err) == ME_OK &&
-                setup_audio_mixer(&err)   == ME_OK &&
-                audio_mixer_) {
-                audio_producer_ = std::thread(&Player::audio_producer_loop, this);
-            } else if (engine_ && !err.empty()) {
-                me::detail::set_error(engine_, std::move(err));
-                /* fall through with audio_mixer_ null → video-only */
-            }
+        if (has_audio_track_) {
+            audio_producer_ = std::thread(&Player::audio_producer_loop, this);
         }
     }
 
@@ -158,10 +149,6 @@ Player::~Player() {
     if (producer_.joinable())       producer_.join();
     if (pacer_.joinable())          pacer_.join();
     if (audio_producer_.joinable()) audio_producer_.join();
-    /* Mixer holds AudioTrackFeed which holds shared_ptr<DemuxContext>;
-     * audio_demuxes_ shares those pointers. Destruction order is
-     * mixer → demuxes (declaration order in player.hpp), so the
-     * feeds release their refs before this vector goes. */
 }
 
 /* ---------------------------------------------------------- transport */
@@ -205,17 +192,15 @@ me_status_t Player::seek(me_rational_t time) {
         if (in_flight_video_) in_flight_video_->cancel();
         ++seek_epoch_;
         produce_cursor_ = time;
-        /* Re-anchor the audio dispatch cursor at `time` so the
-         * throttle in audio_producer_loop reasons about the new
-         * playhead. The AudioMixer's internal samples_emitted_
-         * counter is NOT reset (no demux re-seek primitive in this
-         * codebase yet — `av_seek_frame` + AudioTrackFeed flush is a
-         * follow-up backlog item). Practical effect: post-seek
-         * audio content plays from wherever the demuxes were
-         * pointing pre-seek, with timestamps rebased to the new
-         * playhead. Acceptable for press-play / pause UX; broken
-         * for scrub-audio (documented in BACKLOG as
-         * `player-audio-seek-rebuild`). */
+        /* Reseat both audio cursors at the new playhead. The kernel-
+         * graph audio path is stateless across chunks (each chunk's
+         * graph evaluates IoDemux + IoDecodeAudio with the new
+         * source_t in props), so no demux flush / mixer rebuild is
+         * needed — the next compile_audio_chunk_graph call sees the
+         * fresh time and emits the right samples. Pre-kernel-ize this
+         * code held only audio_dispatched_samples_; now both cursors
+         * track. */
+        audio_chunk_cursor_ = time;
         const int sr = cfg_.audio_out.sample_rate;
         audio_dispatched_samples_ = sr > 0
             ? (time.num * static_cast<int64_t>(sr)) / time.den
@@ -267,111 +252,32 @@ void Player::notify_state_changed_locked() {
     state_cv_.notify_all();
 }
 
-/* ---------------------------------------------------- audio setup */
-
-me_status_t Player::open_audio_demuxes(std::string* err) {
-    if (!engine_ || !engine_->scheduler) {
-        if (err) *err = "Player::open_audio_demuxes: engine has no scheduler";
-        return ME_E_INTERNAL;
-    }
-    if (!tl_) return ME_E_INVALID_ARG;
-
-    /* Track-id → kind lookup so we only open demuxes for clips
-     * actually attached to an audio track. Mirrors the predicate
-     * inside build_audio_mixer_for_timeline. */
-    auto kind_for_track_id = [&](const std::string& track_id) {
-        for (const auto& t : tl_->tracks) {
-            if (t.id == track_id) return t.kind;
-        }
-        return me::TrackKind::Video;
-    };
-
-    audio_demuxes_.assign(tl_->clips.size(), nullptr);
-
-    for (std::size_t ci = 0; ci < tl_->clips.size(); ++ci) {
-        const me::Clip& c = tl_->clips[ci];
-        if (kind_for_track_id(c.track_id) != me::TrackKind::Audio) continue;
-
-        auto a_it = tl_->assets.find(c.asset_id);
-        if (a_it == tl_->assets.end()) {
-            if (err) *err = "Player::open_audio_demuxes: clip[" +
-                              std::to_string(ci) + "] asset id not found";
-            return ME_E_NOT_FOUND;
-        }
-
-        /* Single-node IoDemux graph; mirrors Exporter's
-         * build_demux_graph (exporter.cpp:24). */
-        graph::Graph::Builder b;
-        graph::Properties props;
-        props["uri"].v = a_it->second.uri;
-        graph::NodeId   n        = b.add(task::TaskKindId::IoDemux, std::move(props), {});
-        graph::PortRef  terminal{n, 0};
-        b.name_terminal("demux", terminal);
-        graph::Graph g = std::move(b).build();
-
-        graph::EvalContext ctx;
-        ctx.frames = engine_->frames.get();
-        ctx.codecs = engine_->codecs.get();
-
-        try {
-            auto fut = engine_->scheduler->evaluate_port<
-                           std::shared_ptr<me::io::DemuxContext>>(g, terminal, ctx);
-            audio_demuxes_[ci] = fut.await();
-        } catch (const std::exception& ex) {
-            if (err) *err = std::string("Player::open_audio_demuxes: clip[") +
-                              std::to_string(ci) + "] " + ex.what();
-            return ME_E_IO;
-        }
-    }
-    return ME_OK;
-}
-
-me_status_t Player::setup_audio_mixer(std::string* err) {
-    if (!engine_ || !engine_->codecs) {
-        if (err) *err = "Player::setup_audio_mixer: engine has no codec pool";
-        return ME_E_INTERNAL;
-    }
-
-    me::audio::AudioMixerConfig mix_cfg;
-    mix_cfg.target_rate = cfg_.audio_out.sample_rate;
-    mix_cfg.target_fmt  = AV_SAMPLE_FMT_FLTP;
-    AVChannelLayout layout{};
-    av_channel_layout_default(&layout,
-                              cfg_.audio_out.num_channels > 0
-                                  ? cfg_.audio_out.num_channels : 2);
-    /* `target_ch_layout` is owned by mixer once initialised; it copies
-     * inside the AudioMixer ctor, so we can uninit our local. */
-    mix_cfg.target_ch_layout = layout;
-    mix_cfg.frame_size       = 1024;
-    mix_cfg.peak_threshold   = 0.95f;
-
-    const me_status_t s = me::audio::build_audio_mixer_for_timeline(
-        *tl_, *engine_->codecs, audio_demuxes_, mix_cfg, audio_mixer_, err);
-
-    av_channel_layout_uninit(&layout);
-
-    /* No audio clips → ME_E_NOT_FOUND from the helper. Treat as
-     * "video-only timeline" — caller falls back. */
-    if (s == ME_E_NOT_FOUND) {
-        audio_mixer_.reset();
-        return ME_OK;
-    }
-    return s;
-}
-
 /* --------------------------------------------------- audio producer */
 
 void Player::audio_producer_loop() {
-    if (!audio_mixer_) return;
-    const int sr      = cfg_.audio_out.sample_rate;
-    const int frame_n = 1024;   /* must match setup_audio_mixer's cfg */
+    if (!has_audio_track_) return;
+    const int sr       = cfg_.audio_out.sample_rate;
+    const int channels = cfg_.audio_out.num_channels > 0
+                             ? cfg_.audio_out.num_channels : 2;
     if (sr <= 0) return;
+    if (!engine_ || !engine_->scheduler) return;
 
     /* Throttle: stay at most `audio_queue_ms` ahead of the master
      * clock. Default 200 ms when caller passed 0. */
     const int queue_ms = cfg_.audio_queue_ms > 0 ? cfg_.audio_queue_ms : 200;
-    const int chunk_ms = (frame_n * 1000) / sr;
-    (void)chunk_ms;   /* kept for clarity / future adaptive sizing */
+
+    AudioChunkParams params;
+    params.target_rate     = sr;
+    params.target_channels = channels;
+    params.target_fmt      = AV_SAMPLE_FMT_FLTP;
+
+    /* Frame budget per chunk. A typical AAC frame at 48k carries 1024
+     * samples; the kernel pipeline preserves that count through to
+     * the mixer output. We use 1024 here purely for the cursor-
+     * advance fallback when a graph eval returns ME_E_NOT_FOUND
+     * (gap inside the timeline) — the actual chunk size comes from
+     * each evaluated AVFrame's nb_samples. */
+    const int gap_advance_samples = 1024;
 
     while (true) {
         /* Wait for: shutdown OR is_playing. While paused we sit here
@@ -384,9 +290,15 @@ void Player::audio_producer_loop() {
             if (shutdown_) return;
         }
 
-        if (audio_mixer_->eof()) {
-            /* Park until shutdown. End of audio for this session;
-             * Phase 5's seek-rebuild will re-arm. */
+        /* Past timeline end → park until shutdown. */
+        me_rational_t cursor;
+        me_rational_t duration;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            cursor   = audio_chunk_cursor_;
+            duration = tl_ ? tl_->duration : me_rational_t{0, 1};
+        }
+        if (r_cmp(cursor, duration) >= 0) {
             std::unique_lock<std::mutex> lk(mu_);
             state_cv_.wait(lk, [this] { return shutdown_; });
             return;
@@ -395,16 +307,15 @@ void Player::audio_producer_loop() {
         /* Throttle ahead of clock. The next chunk we'd dispatch
          * starts at `audio_dispatched_samples_ / sr`. If that's more
          * than queue_ms ahead of the current playhead, sleep. */
-        const me_rational_t cursor_t{
+        const me_rational_t dispatched_t{
             audio_dispatched_samples_,
             static_cast<int64_t>(sr)
         };
         const me_rational_t now = clock_.current();
-        const int64_t       ahead_us = r_micros_diff(cursor_t, now);
+        const int64_t       ahead_us = r_micros_diff(dispatched_t, now);
         if (ahead_us > static_cast<int64_t>(queue_ms) * 1000) {
             std::unique_lock<std::mutex> lk(mu_);
             if (shutdown_) return;
-            /* Cap the wait so a pause / seek wakes us promptly. */
             const auto budget = std::chrono::microseconds(
                 std::min<int64_t>(ahead_us - queue_ms * 1000, 5'000));
             state_cv_.wait_for(lk, budget);
@@ -412,26 +323,56 @@ void Player::audio_producer_loop() {
             continue;
         }
 
-        /* Pull one chunk (blocks on libav decode + libswresample +
-         * mix). The mixer manages its own per-track FIFO; samples
-         * flow until eof(). */
-        AVFrame*     frame_raw = nullptr;
-        std::string  err;
-        const me_status_t pull_s = audio_mixer_->pull_next_mixed_frame(&frame_raw, &err);
-        if (pull_s == ME_E_NOT_FOUND) {
-            /* All tracks drained; loop will see eof() next iter. */
+        /* Compile + evaluate the per-chunk audio graph. ME_E_NOT_FOUND
+         * means no audio clip covers the cursor — advance one frame's
+         * worth and retry, same shape as the video producer's gap
+         * handling. */
+        graph::Graph   g;
+        graph::PortRef term{};
+        const me_status_t cs = compile_audio_chunk_graph(
+            *tl_, cursor, params, &g, &term);
+        if (cs == ME_E_NOT_FOUND) {
+            std::lock_guard<std::mutex> lk(mu_);
+            audio_chunk_cursor_ = r_add(audio_chunk_cursor_,
+                me_rational_t{gap_advance_samples, static_cast<int64_t>(sr)});
             continue;
         }
-        if (pull_s != ME_OK || !frame_raw) {
-            if (engine_ && !err.empty()) me::detail::set_error(engine_, std::move(err));
-            /* Skip and keep the producer alive. */
+        if (cs != ME_OK) {
+            /* Malformed timeline / kernel error — backoff and keep
+             * the loop alive. */
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
-        me::io::AvFramePtr frame(frame_raw);
 
-        /* Snapshot callback under lock, release before invoking so
-         * a slow host doesn't block set_audio_callback / play / pause. */
+        graph::EvalContext ctx;
+        ctx.frames = engine_->frames.get();
+        ctx.codecs = engine_->codecs.get();
+        ctx.time   = cursor;
+
+        std::shared_ptr<AVFrame> frame;
+        try {
+            auto fut = engine_->scheduler->evaluate_port<std::shared_ptr<AVFrame>>(
+                g, term, ctx);
+            frame = fut.await();
+        } catch (const std::exception& ex) {
+            if (engine_) me::detail::set_error(engine_, std::string{ex.what()});
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
+        if (!frame || frame->nb_samples <= 0) {
+            /* Empty chunk (e.g. SoundTouch latency at startup if a
+             * future tempo path is wired). Advance by the standard
+             * gap step and keep the loop alive. */
+            std::lock_guard<std::mutex> lk(mu_);
+            audio_chunk_cursor_ = r_add(audio_chunk_cursor_,
+                me_rational_t{gap_advance_samples, static_cast<int64_t>(sr)});
+            continue;
+        }
+
+        const int n_ch  = frame->ch_layout.nb_channels;
+        const int n_smp = frame->nb_samples;
+        const me_rational_t chunk_start = dispatched_t;
+
         me_player_audio_cb cb;
         void*              user;
         {
@@ -440,19 +381,19 @@ void Player::audio_producer_loop() {
             user = audio_user_;
         }
         if (cb) {
-            const int n_ch     = frame->ch_layout.nb_channels;
-            const int n_smp    = frame->nb_samples;
-            const me_rational_t chunk_start = cursor_t;
             /* FLTP layout: AVFrame::data[ch] is the channel-`ch`
-             * plane, sized n_smp × sizeof(float). The cb's `planes`
-             * argument is `const float* const*` — reinterpret the
-             * uint8_t** AVFrame::data accordingly. The frame is
-             * valid only for this call (AvFramePtr deletes after). */
+             * plane, sized n_smp × sizeof(float). Reinterpret the
+             * uint8_t** as `const float* const*` for the cb. */
             cb(reinterpret_cast<const float* const*>(frame->data),
                n_ch, n_smp, chunk_start, user);
         }
 
-        audio_dispatched_samples_ += frame_n;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            audio_dispatched_samples_ += n_smp;
+            audio_chunk_cursor_ = r_add(audio_chunk_cursor_,
+                me_rational_t{n_smp, static_cast<int64_t>(sr)});
+        }
     }
 }
 

@@ -25,10 +25,8 @@
  */
 #pragma once
 
-#include "audio/mixer.hpp"
 #include "graph/future.hpp"
 #include "graph/types.hpp"
-#include "io/demux_context.hpp"
 #include "media_engine/player.h"
 #include "media_engine/types.h"
 #include "orchestrator/playback_clock.hpp"
@@ -80,18 +78,6 @@ private:
      * seek / shutdown). */
     void notify_state_changed_locked();
 
-    /* Open one DemuxContext per audio clip via the IoDemux kernel
-     * (mirrors Exporter's per-clip demux fan-out at exporter.cpp:215).
-     * Slot is null for non-audio clips. Lifetime spans the player —
-     * AudioMixer + AudioTrackFeed hold shared_ptr into this vector. */
-    me_status_t open_audio_demuxes(std::string* err);
-
-    /* Build (or rebuild) the AudioMixer from `audio_demuxes_` using the
-     * configured audio_out spec as the mixer's target format. Caller
-     * is responsible for stalling audio_producer_ across the rebuild
-     * (Phase 5 will use this on seek). */
-    me_status_t setup_audio_mixer(std::string* err);
-
     me_engine*                              engine_     = nullptr;
     std::shared_ptr<const me::Timeline>     tl_;
     me_player_config_t                      cfg_{};
@@ -103,20 +89,23 @@ private:
     PlaybackClock                           clock_;
     VideoFrameRing                          ring_;
 
-    /* Audio path. Built lazily in ctor when:
-     *   - audio_out.sample_rate > 0, AND
-     *   - the timeline has at least one Audio track with clips.
-     * `audio_mixer_` null otherwise → audio_producer_loop early-exits.
-     * `audio_demuxes_` is parallel to tl_->clips (size match); audio
-     * clips have non-null entries, others null. */
-    std::vector<std::shared_ptr<me::io::DemuxContext>> audio_demuxes_;
-    std::unique_ptr<me::audio::AudioMixer>             audio_mixer_;
-    /* Cumulative samples this Player has dispatched to the host's
-     * audio cb. chunk_start = audio_dispatched_samples_ / sample_rate.
-     * Independent of AudioMixer's internal samples_emitted_ counter
-     * so seek (Phase 5) can reset the host-facing timestamp without
-     * touching the mixer. */
-    int64_t                                            audio_dispatched_samples_ = 0;
+    /* Audio path — kernel-graph-based as of player-audio-kernel-ize
+     * commit. The audio_producer_loop calls
+     * compile_audio_chunk_graph(*tl_, audio_chunk_cursor_, …) per
+     * chunk and evaluates through engine_->scheduler. State held
+     * here:
+     *   - has_audio_track_: gate the audio thread spawn / loop
+     *     (set at ctor by scanning tl_->tracks).
+     *   - audio_chunk_cursor_: timeline-global time of the next
+     *     chunk to compile. Advanced by chunk_nb_samples /
+     *     sample_rate per emitted chunk; reset on seek().
+     *   - audio_dispatched_samples_: cumulative samples emitted to
+     *     the host cb. Used both to compute the host-visible chunk
+     *     start timestamp AND for the queue-ahead-of-clock
+     *     throttle. Reset on seek() to time × sr. */
+    bool                                    has_audio_track_ = false;
+    me_rational_t                           audio_chunk_cursor_{0, 1};
+    int64_t                                 audio_dispatched_samples_ = 0;
 
     /* State protected by mu_. */
     mutable std::mutex                      mu_;
