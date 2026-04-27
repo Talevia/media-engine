@@ -22,7 +22,6 @@
 ## P2（未来，当前 milestone 不挤占）
 
 - **lib-size-budget-hdr-codec** — `cat tools/lib_size_budget.txt` shows current `Release` budget; `grep -n 'Release_with_inference\|hevc' tools/lib_size_budget.txt` empty. M10 exit criterion 9 requires bumping the budget when HEVC encode + SVT-HEVC link in. **方向：** after `encode-hevc-main10-sw-svt` lands, re-measure `Release` libmedia_engine size with `ME_WITH_SVT_HEVC=ON` vs OFF; bump `tools/lib_size_budget.txt` ceiling for the SVT path with rationale in commit body (per the file's "Bumping these numbers REQUIRES a commit body explaining" header). Milestone §M10，Rubric §5.7。
-- **decode-vp9-profile2** — `grep -rn 'vp9_profile2\|VP9 Profile 2\|libvpx' src/io 2>/dev/null` empty; libavformat decode path is codec-agnostic, but `convert_rgba8_kernel` rejects 10-bit pix_fmts without `decode-hevc-main10-pixfmt`'s 10-bit path. M10 exit criterion 2 second leg. **方向：** after `decode-hevc-main10-pixfmt` lands, validate VP9 P2 (10/12-bit) decode reuses the same 10-bit convert path; add `tests/test_decode_vp9_profile2.cpp`; libvpx already linked transitively via FFmpeg. Milestone §M10，Rubric §5.2。
 - **decode-av1-10bit** — `grep -rn 'AV_CODEC_ID_AV1\|libdav1d\|libaom' src/io CMakeLists.txt 2>/dev/null` empty. M10 exit criterion 2 third leg. **方向：** add libdav1d (BSD-2-clause, fast AV1 decoder) FetchContent OR rely on FFmpeg's built-in if Homebrew FFmpeg ships it; round-trip test mirroring `test_decode_hevc_main10`. libdav1d preferred over libaom (smaller, faster, decode-only matches our use case). Milestone §M10，Rubric §5.2。
 
 

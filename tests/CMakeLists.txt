@@ -85,6 +85,7 @@ set(_test_suites
   test_inverse_tonemap_stub
   test_hdr_metadata_propagate
   test_pq_hlg_roundtrip
+  test_decode_vp9_profile2
   test_subtitle_renderer
   test_skia_backend
   test_text_renderer
@@ -366,6 +367,34 @@ target_compile_definitions(test_hdr_metadata_propagate PRIVATE
 add_dependencies(test_pq_hlg_roundtrip hdr_fixture)
 target_compile_definitions(test_pq_hlg_roundtrip PRIVATE
   ME_TEST_FIXTURE_MP4_HDR="${_fixture_mp4_hdr}")
+
+# VP9 Profile 2 fixture: 10-bit YUV 4:2:0 SDR mp4 produced by
+# libvpx-vp9 (LGPL-clean BSD-2-clause, ships with Homebrew FFmpeg
+# per --enable-libvpx). Covers M10 exit criterion §M10:119 second
+# leg — VP9 P2 decode reuses the same 10-bit libswscale path that
+# HEVC Main 10's P010 hits, so the test is structural ("decode
+# produces sensible RGBA8") rather than a full ε round-trip.
+# Fixture generator gracefully degrades to "exit 0, no output" on
+# hosts without libvpx-vp9; consumers skip via ME_REQUIRE_FIXTURE.
+add_executable(gen_vp9_p2_fixture fixtures/gen_vp9_p2_fixture.cpp)
+target_link_libraries(gen_vp9_p2_fixture PRIVATE
+  FFMPEG::avformat
+  FFMPEG::avcodec
+  FFMPEG::avutil)
+
+set(_fixture_mp4_vp9p2 "${_fixture_dir}/vp9_p2_input.mp4")
+add_custom_command(
+  OUTPUT ${_fixture_mp4_vp9p2}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${_fixture_dir}
+  COMMAND $<TARGET_FILE:gen_vp9_p2_fixture> ${_fixture_mp4_vp9p2}
+  DEPENDS gen_vp9_p2_fixture ${CMAKE_CURRENT_LIST_FILE}
+  COMMENT "Generating VP9 Profile 2 test fixture: ${_fixture_mp4_vp9p2}"
+  VERBATIM)
+add_custom_target(vp9_p2_fixture DEPENDS ${_fixture_mp4_vp9p2})
+
+add_dependencies(test_decode_vp9_profile2 vp9_p2_fixture)
+target_compile_definitions(test_decode_vp9_profile2 PRIVATE
+  ME_TEST_FIXTURE_MP4_VP9P2="${_fixture_mp4_vp9p2}")
 
 # test_probe reuses the determinism fixture — same build-time MP4 gives
 # us a known codec / dimensions / framerate / color-tag state to assert
