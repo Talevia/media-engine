@@ -84,6 +84,7 @@ set(_test_suites
   test_tonemap_kernel
   test_inverse_tonemap_stub
   test_hdr_metadata_propagate
+  test_pq_hlg_roundtrip
   test_subtitle_renderer
   test_skia_backend
   test_text_renderer
@@ -356,6 +357,14 @@ target_compile_definitions(test_probe PRIVATE
 # Same fixture + skip pattern as test_probe's HDR positive case.
 add_dependencies(test_hdr_metadata_propagate hdr_fixture)
 target_compile_definitions(test_hdr_metadata_propagate PRIVATE
+  ME_TEST_FIXTURE_MP4_HDR="${_fixture_mp4_hdr}")
+
+# test_pq_hlg_roundtrip exercises pixel-level HDR round-trip
+# (decode → re-encode (HEVC) → decode → ε-compare). Same fixture
+# + skip pattern. ε-tolerance covers the HW encoder's
+# non-deterministic but bounded drift.
+add_dependencies(test_pq_hlg_roundtrip hdr_fixture)
+target_compile_definitions(test_pq_hlg_roundtrip PRIVATE
   ME_TEST_FIXTURE_MP4_HDR="${_fixture_mp4_hdr}")
 
 # test_probe reuses the determinism fixture — same build-time MP4 gives
