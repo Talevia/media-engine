@@ -1,47 +1,55 @@
 /*
- * face_mosaic_kernel — landmark-driven privacy mosaic / blur (M11 stub).
+ * face_mosaic_kernel — landmark-driven privacy mosaic / blur.
  *
- * Counterpart to face_sticker_kernel — registered-but-deferred per
- * `face-mosaic-impl` follow-up. Applies a per-block mosaic
- * (Pixelate: mean × replicate within block; Blur: box filter) to
- * the landmark's bounding-box region.
+ * Post-`face-mosaic-impl`: the kernel does the deterministic
+ * byte-level math given **pre-resolved** bbox inputs. Upstream
+ * landmark-stream resolution (running BlazeFace + projecting
+ * landmarks → `me::compose::Bbox` per face) lives in the future
+ * compose-stage wiring (`face-sticker-compose-stage-wiring` —
+ * the same resolver shape drives face_mosaic).
  *
- * Why deferred. Same prerequisites as face_sticker_kernel (see that
- * header for the full list): inference runtime + landmark stream
- * resolution + per-frame bbox computation. The mosaic / blur math
- * itself is deterministic CPU byte-arithmetic — once the bbox is
- * known, the kernel is a straightforward 2-pass loop. The block
- * here is upstream wiring, not the algorithm.
+ * Two modes (`FaceMosaicEffectParams::Kind`):
+ *   - Pixelate: tile the bbox in `block_size_px × block_size_px`
+ *     squares, replace every pixel in a tile with the per-channel
+ *     mean of that tile. Mosaic look.
+ *   - Blur: box-filter pass at radius `block_size_px / 2` over
+ *     the bbox region. Smoother privacy mask.
  *
- * Determinism on the stub. Returns ME_E_UNSUPPORTED for any input
- * — deterministic answer. The future impl is explicitly
- * deterministic (no randomness, no parallelism, no SIMD), so VISION
- * §3.1 byte-identity holds.
+ * Determinism. Pure CPU byte-arithmetic with /(N) round-half-up
+ * fixed-point — same input bytes produce the same output bytes
+ * across hosts. No SIMD, no parallelism, no rand.
  */
 #pragma once
 
+#include "compose/bbox.hpp"
 #include "timeline/timeline_ir_params.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace me::compose {
 
-/* Always returns ME_E_UNSUPPORTED today. Documented at the kind
- * registration point (timeline_ir_params.hpp:EffectKind::FaceMosaic)
- * and the loader dispatch (loader_helpers_clip_params.cpp). When
- * the `face-mosaic-impl` bullet lands, this signature stays — only
- * the body changes (likely gains a `const Landmark& bbox` arg via
- * graph::EvalContext). Argument-shape rejects (null buffer / non-
- * positive dims / undersized stride / empty landmark_asset_id /
- * non-positive block_size_px) take precedence over the UNSUPPORTED
- * short-circuit so a future impl can drop in without rewriting the
- * prologue. */
+/* Apply the configured mosaic mode within each `bbox` in
+ * `landmark_bboxes`. Empty bboxes / bbox out-of-bounds → no-op
+ * (resolver may legitimately produce empty boxes for low-
+ * confidence frames). Bboxes outside the image are clamped to
+ * the image extent before processing.
+ *
+ * `params.landmark_asset_id` is documentation-only at the
+ * kernel level (the upstream resolver consumes it). The kernel
+ * uses `params.block_size_px` (must be > 0) and `params.kind`.
+ *
+ * Argument-shape rejects:
+ *   - rgba == nullptr OR width/height <= 0 → ME_E_INVALID_ARG.
+ *   - stride_bytes < width * 4              → ME_E_INVALID_ARG.
+ *   - block_size_px <= 0                    → ME_E_INVALID_ARG. */
 me_status_t apply_face_mosaic_inplace(
     std::uint8_t*                          rgba,
     int                                    width,
     int                                    height,
     std::size_t                            stride_bytes,
-    const me::FaceMosaicEffectParams&      params);
+    const me::FaceMosaicEffectParams&      params,
+    std::span<const Bbox>                  landmark_bboxes);
 
 }  // namespace me::compose
