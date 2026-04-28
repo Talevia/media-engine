@@ -19,10 +19,12 @@
 #include "resource/disk_cache.hpp"
 #include "scratch_dir.hpp"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -237,6 +239,107 @@ TEST_CASE("DiskCache: ctor seeds disk_bytes_used from existing files") {
     CHECK(c2.disk_bytes_used() > 0);
     CHECK(c2.get("x").has_value());
     CHECK(c2.get("y").has_value());
+}
+
+TEST_CASE("DiskCache: invalidate_by_asset_hash drops every derived entry") {
+    /* Side-index path — populated by put-with-assets, consumed by
+     * invalidate_by_asset_hash. Two graph keys derived from the
+     * same source asset both vanish; an unrelated graph key
+     * survives. */
+    ScratchDir d{"disk_cache"};
+    me::resource::DiskCache c(d.path.string());
+
+    const auto rgba = make_rgba(8, 8);
+    const std::string asset_a = "aaaa";
+    const std::string asset_b = "bbbb";
+
+    /* Two entries derived from asset_a; one from asset_b. */
+    const std::array<std::string, 1> deps_a = {asset_a};
+    const std::array<std::string, 1> deps_b = {asset_b};
+    REQUIRE(c.put("g:1111", rgba.data(), 8, 8, 32,
+                  std::span<const std::string>(deps_a)));
+    REQUIRE(c.put("g:2222", rgba.data(), 8, 8, 32,
+                  std::span<const std::string>(deps_a)));
+    REQUIRE(c.put("g:3333", rgba.data(), 8, 8, 32,
+                  std::span<const std::string>(deps_b)));
+
+    REQUIRE(c.get("g:1111").has_value());
+    REQUIRE(c.get("g:2222").has_value());
+    REQUIRE(c.get("g:3333").has_value());
+
+    /* Invalidate asset_a: both g:1111 and g:2222 disappear; g:3333
+     * survives because it's only derived from asset_b. */
+    const std::size_t removed = c.invalidate_by_asset_hash(asset_a);
+    CHECK(removed == 2);
+    CHECK_FALSE(c.get("g:1111").has_value());
+    CHECK_FALSE(c.get("g:2222").has_value());
+    CHECK(c.get("g:3333").has_value());
+
+    /* Repeat invalidation is a no-op. */
+    CHECK(c.invalidate_by_asset_hash(asset_a) == 0);
+
+    /* asset_b is independent. */
+    CHECK(c.invalidate_by_asset_hash(asset_b) == 1);
+    CHECK_FALSE(c.get("g:3333").has_value());
+}
+
+TEST_CASE("DiskCache: invalidate_by_asset_hash skips stale index entries") {
+    /* If a cache key has been removed by another path (LRU evict,
+     * explicit invalidate, or clear), the index can hold dangling
+     * cache_key entries. invalidate_by_asset_hash must tolerate
+     * the missing files — count returned reflects only files
+     * actually removed. */
+    ScratchDir d{"disk_cache"};
+    me::resource::DiskCache c(d.path.string());
+
+    const auto rgba = make_rgba(8, 8);
+    const std::string asset = "cccc";
+    const std::array<std::string, 1> deps = {asset};
+
+    REQUIRE(c.put("g:keep", rgba.data(), 8, 8, 32,
+                  std::span<const std::string>(deps)));
+    REQUIRE(c.put("g:gone", rgba.data(), 8, 8, 32,
+                  std::span<const std::string>(deps)));
+
+    /* Drop one entry directly — the side-index still references it. */
+    c.invalidate("g:gone");
+    CHECK_FALSE(c.get("g:gone").has_value());
+
+    /* invalidate_by_asset_hash removes only the surviving file but
+     * still cleans up the index so subsequent calls are no-ops. */
+    CHECK(c.invalidate_by_asset_hash(asset) == 1);
+    CHECK_FALSE(c.get("g:keep").has_value());
+    CHECK(c.invalidate_by_asset_hash(asset) == 0);
+}
+
+TEST_CASE("DiskCache: put-with-assets with empty span behaves like plain put") {
+    /* Zero-length span (e.g. asset hash unknown) leaves the side-
+     * index empty — the entry still lands but invalidate-by-asset
+     * is a no-op for it. */
+    ScratchDir d{"disk_cache"};
+    me::resource::DiskCache c(d.path.string());
+
+    const auto rgba = make_rgba(8, 8);
+    REQUIRE(c.put("g:noassets", rgba.data(), 8, 8, 32,
+                  std::span<const std::string>{}));
+    REQUIRE(c.get("g:noassets").has_value());
+    CHECK(c.invalidate_by_asset_hash("anything") == 0);
+}
+
+TEST_CASE("DiskCache: clear drops the asset side-index too") {
+    ScratchDir d{"disk_cache"};
+    me::resource::DiskCache c(d.path.string());
+
+    const auto rgba = make_rgba(8, 8);
+    const std::string asset = "dddd";
+    const std::array<std::string, 1> deps = {asset};
+    REQUIRE(c.put("g:x", rgba.data(), 8, 8, 32,
+                  std::span<const std::string>(deps)));
+
+    c.clear();
+    /* After clear() the index is gone — re-invalidating produces 0
+     * (vs an undefined "tries to remove already-cleared file"). */
+    CHECK(c.invalidate_by_asset_hash(asset) == 0);
 }
 
 TEST_CASE("DiskCache: concurrent puts from multiple threads don't corrupt") {

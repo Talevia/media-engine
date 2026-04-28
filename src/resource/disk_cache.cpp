@@ -94,6 +94,25 @@ bool DiskCache::evict_one_oldest(const std::string& skip_hash) {
     return true;
 }
 
+bool DiskCache::put(const std::string&           hash,
+                     const uint8_t*               rgba,
+                     int                          width,
+                     int                          height,
+                     int                          stride,
+                     std::span<const std::string> contributing_asset_hashes) {
+    if (!put(hash, rgba, width, height, stride)) return false;
+
+    /* Side-index update under the same mutex used by put/invalidate
+     * so reads via invalidate_by_asset_hash see a consistent view. */
+    if (contributing_asset_hashes.empty()) return true;
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const std::string& asset_hash : contributing_asset_hashes) {
+        if (asset_hash.empty()) continue;
+        asset_index_[asset_hash].insert(hash);
+    }
+    return true;
+}
+
 bool DiskCache::put(const std::string& hash,
                      const uint8_t*     rgba,
                      int                width,
@@ -263,6 +282,30 @@ std::size_t DiskCache::invalidate_by_prefix(const std::string& prefix) {
     return removed;
 }
 
+std::size_t DiskCache::invalidate_by_asset_hash(const std::string& asset_hash) {
+    if (dir_.empty() || asset_hash.empty()) return 0;
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = asset_index_.find(asset_hash);
+    if (it == asset_index_.end()) return 0;
+
+    std::size_t removed = 0;
+    for (const std::string& cache_key : it->second) {
+        const std::string p = entry_path(dir_, cache_key);
+        std::error_code sz_ec;
+        const auto sz = fs::file_size(p, sz_ec);
+        std::error_code rm_ec;
+        if (fs::remove(p, rm_ec)) {
+            ++removed;
+            if (!sz_ec) {
+                disk_bytes_.fetch_sub(static_cast<int64_t>(sz),
+                                       std::memory_order_release);
+            }
+        }
+    }
+    asset_index_.erase(it);
+    return removed;
+}
+
 void DiskCache::invalidate(const std::string& hash) {
     if (dir_.empty() || hash.empty()) return;
     std::lock_guard<std::mutex> lk(mu_);
@@ -298,6 +341,7 @@ void DiskCache::clear() {
         }
     }
     disk_bytes_.fetch_sub(removed_bytes, std::memory_order_release);
+    asset_index_.clear();
 }
 
 }  // namespace me::resource

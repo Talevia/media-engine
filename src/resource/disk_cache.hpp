@@ -53,7 +53,10 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace me::resource {
@@ -90,6 +93,28 @@ public:
              int                height,
              int                stride);
 
+    /* Variant of put that also records which content-addressed assets
+     * contributed to the rendered frame. The `contributing_asset_hashes`
+     * span is consulted by `invalidate_by_asset_hash` to evict every
+     * derived frame when a source asset is invalidated.
+     *
+     * Why a separate side-index instead of prefix-matching the cache
+     * key: graph-content-hash keys (`g:<hex>`) don't carry the source
+     * asset hash as a prefix — `invalidate_by_prefix(asset_hash)` is
+     * a no-op against them. The side-index trades a small write-amp
+     * (one set insertion per contributing asset on each `put`) for
+     * O(set-size) eviction on `invalidate_by_asset_hash`.
+     *
+     * Empty / null hashes in the span are silently skipped (callers
+     * may be unable to peek a URI's asset hash if its contentHash
+     * wasn't seeded — graceful degradation). */
+    bool put(const std::string&             hash,
+             const uint8_t*                 rgba,
+             int                            width,
+             int                            height,
+             int                            stride,
+             std::span<const std::string>   contributing_asset_hashes);
+
     /* Read a cached entry. Returns nullopt if absent / corrupt. */
     std::optional<CachedFrame> get(const std::string& hash);
 
@@ -107,6 +132,15 @@ public:
      * count of entries removed. O(entries) scan; disabled cache
      * returns 0. */
     std::size_t invalidate_by_prefix(const std::string& prefix);
+
+    /* Remove every entry derived from the given asset hash, using
+     * the side-index populated by the put-with-assets overload.
+     * O(set-size) per asset (write-amp from put pays here). The
+     * index entry is dropped after eviction; subsequent calls with
+     * the same hash are no-ops. Returns count of cache entries
+     * actually removed (some may already be gone via LRU evict
+     * or explicit invalidate — those are skipped silently). */
+    std::size_t invalidate_by_asset_hash(const std::string& asset_hash);
 
     /* Cumulative hit/miss counters — get() increments one per
      * call. Survives clear(); reset via reset_counters(). */
@@ -144,10 +178,19 @@ private:
 
     std::string                dir_;           /* empty = disabled */
     std::int64_t               limit_bytes_;   /* 0 = unlimited */
-    std::mutex                 mu_;            /* guards put/get/invalidate */
+    std::mutex                 mu_;            /* guards put/get/invalidate + asset_index_ */
     std::atomic<std::int64_t>  hits_{0};
     std::atomic<std::int64_t>  misses_{0};
     std::atomic<std::int64_t>  disk_bytes_{0};  /* running total of .bin bytes */
+
+    /* Side-index: asset_hash → set of cache keys derived from it.
+     * Populated by `put` with contributing_asset_hashes; consumed by
+     * `invalidate_by_asset_hash`. Stale entries (from LRU evict /
+     * explicit invalidate of a key that's still in the index) are
+     * tolerated — invalidate_by_asset_hash skips files that no
+     * longer exist on disk. Lifetime-scoped to this DiskCache
+     * instance: not persisted across process restarts. */
+    std::unordered_map<std::string, std::unordered_set<std::string>> asset_index_;
 };
 
 }  // namespace me::resource

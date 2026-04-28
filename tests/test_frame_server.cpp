@@ -11,6 +11,7 @@
 
 #include <media_engine.h>
 
+#include "resource/content_hash.hpp"
 #include "scratch_dir.hpp"
 
 #include <cstdio>
@@ -27,9 +28,13 @@
 
 namespace {
 
-std::string build_single_clip_json(const char* uri) {
+std::string build_single_clip_json(const char* uri,
+                                    const std::string& content_hash = "") {
     /* Timeline: single 2s video clip of the fixture. frame_rate
-     * matches the fixture's 30fps. */
+     * matches the fixture's 30fps. content_hash is optional;
+     * non-empty values seed the engine's AssetHashCache so
+     * me_cache_invalidate_asset can target this asset's
+     * derived frames via the side-index. */
     std::string s = R"({
       "schemaVersion": 1,
       "frameRate":  {"num":30,"den":1},
@@ -37,7 +42,13 @@ std::string build_single_clip_json(const char* uri) {
       "colorSpace": {"primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited"},
       "assets": [{"id":"a0","uri":")";
     s += uri;
-    s += R"("}],
+    s += "\"";
+    if (!content_hash.empty()) {
+        s += ",\"contentHash\":\"sha256:";
+        s += content_hash;
+        s += "\"";
+    }
+    s += R"(}],
       "compositions": [{
         "id":"main",
         "duration":{"num":2,"den":1},
@@ -210,6 +221,74 @@ TEST_CASE("me_cache_stats: hit/miss counters advance on scrub-back") {
     /* disk_bytes_used should be positive now (two distinct frames
      * cached). */
     CHECK(s3.disk_bytes_used > 0);
+}
+
+TEST_CASE("me_cache_invalidate_asset: targeted hash drops derived disk-cache frames") {
+    /* The targeted-invalidation path: with the asset's contentHash
+     * seeded into the engine, me_cache_invalidate_asset(<asset_hash>)
+     * should evict every frame derived from this asset out of the
+     * DiskCache (graph-hash-keyed entries reached via the
+     * asset_hash → set<cache_key> side-index). Pre-debt-cache-
+     * invalidate-asset-graph-hash this would silently no-op against
+     * graph-hash keys, and the previous TEST_CASE worked around it
+     * by going through me_cache_clear instead. */
+    namespace fs = std::filesystem;
+    const std::string fixture_path = ME_TEST_FIXTURE_MP4;
+    std::string err;
+    const std::string fixture_hash =
+        me::resource::sha256_hex_streaming(fixture_path, &err);
+    REQUIRE(!fixture_hash.empty());
+
+    me::testing::ScratchDir cache_dir{"frame_server"};
+    me_engine_config_t cfg{};
+    const std::string cache_dir_str = cache_dir.path.string();
+    cfg.cache_dir = cache_dir_str.c_str();
+
+    me_engine_t* eng = nullptr;
+    REQUIRE(me_engine_create(&cfg, &eng) == ME_OK);
+
+    me_timeline_t* tl = nullptr;
+    const std::string uri = "file://" + fixture_path;
+    const std::string js  = build_single_clip_json(uri.c_str(), fixture_hash);
+    REQUIRE(me_timeline_load_json(eng, js.data(), js.size(), &tl) == ME_OK);
+
+    /* Render at t=1.0 → DiskCache populated; second render hits. */
+    me_frame_t* f1 = nullptr;
+    REQUIRE(me_render_frame(eng, tl, me_rational_t{1, 1}, &f1) == ME_OK);
+    me_frame_destroy(f1);
+
+    me_cache_stats_t s_before{};
+    me_cache_stats(eng, &s_before);
+    me_frame_t* f_hit = nullptr;
+    REQUIRE(me_render_frame(eng, tl, me_rational_t{1, 1}, &f_hit) == ME_OK);
+    me_frame_destroy(f_hit);
+    me_cache_stats_t s_hit{};
+    me_cache_stats(eng, &s_hit);
+    REQUIRE(s_hit.hit_count > s_before.hit_count);  /* cache is live */
+
+    const int64_t bytes_with_entry = s_hit.disk_bytes_used;
+    REQUIRE(bytes_with_entry > 0);
+
+    /* Targeted invalidate via the seeded fixture hash. */
+    REQUIRE(me_cache_invalidate_asset(eng, fixture_hash.c_str()) == ME_OK);
+
+    me_cache_stats_t s_post_inv{};
+    me_cache_stats(eng, &s_post_inv);
+    /* DiskCache file removed → bytes_used drops; AssetHashCache
+     * entry removed too → entry_count drops. */
+    CHECK(s_post_inv.disk_bytes_used < bytes_with_entry);
+
+    /* Next render at t=1.0 should miss disk_cache and recompute. */
+    const int64_t miss_pre = s_post_inv.miss_count;
+    me_frame_t* f_miss = nullptr;
+    REQUIRE(me_render_frame(eng, tl, me_rational_t{1, 1}, &f_miss) == ME_OK);
+    me_frame_destroy(f_miss);
+    me_cache_stats_t s_miss{};
+    me_cache_stats(eng, &s_miss);
+    CHECK(s_miss.miss_count > miss_pre);
+
+    me_timeline_destroy(tl);
+    me_engine_destroy(eng);
 }
 
 TEST_CASE("me_cache_invalidate_asset: next fetch misses") {

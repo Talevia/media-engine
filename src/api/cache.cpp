@@ -88,10 +88,17 @@ extern "C" me_status_t me_cache_invalidate_asset(me_engine_t* engine, const char
     if (engine->asset_hashes) {
         engine->asset_hashes->invalidate_by_hash(h);
     }
-    /* Cascade to DiskCache — me_render_frame keys frame entries as
-     * `<asset_hash>:<source_time>`, so invalidating by asset_hash
-     * prefix removes all cached frames derived from this asset. */
+    /* Cascade to DiskCache via the side-index populated by
+     * me_render_frame's put. Graph-hash cache keys (`g:<hex>`)
+     * can't be prefix-matched against an asset hash, so the
+     * invalidate path consults the asset_hash → set<cache_key>
+     * map maintained inside DiskCache. Invalidate_by_prefix is
+     * still called as a defence-in-depth for any future / legacy
+     * key shape that does encode the asset hash as a literal
+     * prefix; today no such key exists, so it's effectively a
+     * no-op. */
     if (engine->disk_cache) {
+        engine->disk_cache->invalidate_by_asset_hash(std::string(h));
         engine->disk_cache->invalidate_by_prefix(std::string(h));
     }
     return ME_OK;

@@ -751,6 +751,13 @@ if(ME_WITH_SKIA)
   target_compile_definitions(test_font_fallback PRIVATE ME_HAS_SKIA=1)
 endif()
 
+# test_frame_server reaches into resource/content_hash.hpp to compute
+# the fixture's sha256 — needed by the invalidate-by-asset round-trip
+# case (timeline JSON must seed contentHash so the side-index can map
+# asset_hash → graph_hash). Pattern mirrors test_content_hash + the
+# test_compose_* suites.
+target_include_directories(test_frame_server PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # test_frame_server uses the deterministic fixture MP4 to verify
 # the M6 frame-server path (me_render_frame → resolve_active_clip_at
 # + DiskCache + compose_frame_at → RGBA8 me_frame). Pure C API
@@ -979,12 +986,10 @@ if(TARGET 07_compose_multitrack
 
   # 12_cache_invalidate: cache-observability + invalidation demo.
   # The example asserts internally that AssetHashCache entries drop
-  # across invalidate_asset AND that miss_count climbs across
-  # cache_clear — exits non-zero if either is false. The ctest's
-  # exit-code check below subsumes both. (Note that today
-  # invalidate_asset does NOT reach the graph-hash DiskCache —
-  # tracked as `debt-cache-invalidate-asset-graph-hash`; the demo
-  # documents that limitation in its file header.)
+  # across invalidate_asset AND that miss_count climbs both across
+  # invalidate_asset (DiskCache side-index drops derived frames)
+  # AND across cache_clear — exits non-zero if any of those fail.
+  # The ctest's exit-code check below subsumes all three.
   if(TARGET 12_cache_invalidate)
     add_test(NAME example_12_cache_invalidate
              COMMAND $<TARGET_FILE:12_cache_invalidate> "${_fixture_mp4}")

@@ -4,12 +4,14 @@
 #include "graph/eval_context.hpp"
 #include "graph/future.hpp"
 #include "graph/graph.hpp"
+#include "graph/node.hpp"
 #include "graph/types.hpp"
 #include "orchestrator/compose_frame.hpp"
 #include "orchestrator/exporter.hpp"
 #include "resource/asset_hash_cache.hpp"
 #include "resource/disk_cache.hpp"
 #include "scheduler/scheduler.hpp"
+#include "task/task_kind.hpp"
 #include "timeline/timeline_impl.hpp"
 
 #include <exception>
@@ -17,6 +19,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 /* me_render_job wraps the orchestrator's opaque Job — the C API shape stays
  * stable even as the orchestrator evolves. The engine pointer is stashed
@@ -43,14 +46,45 @@ std::shared_ptr<const me::Timeline> borrow_timeline(const me_timeline_t* h) {
  * hash → same key. Single-track-no-transform timelines collapse to the
  * 3-node M1 graph whose hash includes the IoDemux uri prop and the
  * IoDecodeVideo source_t props, so this key is at least as specific as
- * the legacy `<asset_hash>:<source_num>:<source_den>` shape was. The
- * legacy shape supported `me_cache_invalidate_asset` prefix matching;
- * graph-hash keys lose that fast-path — me_cache_clear remains the
- * universal escape hatch. */
+ * the legacy `<asset_hash>:<source_num>:<source_den>` shape was.
+ *
+ * The legacy `<asset_hash>:<source_num>:<source_den>` shape supported
+ * me_cache_invalidate_asset via a literal prefix match. Graph-hash
+ * keys can't be prefix-matched against an asset hash, so the
+ * invalidate-by-asset path now flows through DiskCache's side-index
+ * (populated in put-with-assets below). me_cache_clear remains the
+ * universal escape hatch when the side-index is empty (e.g. cache_dir
+ * reused across process restarts). */
 std::string disk_cache_key_from(const me::graph::Graph& g) {
     std::ostringstream os;
     os << "g:" << std::hex << g.content_hash();
     return os.str();
+}
+
+/* Walk the compiled graph collecting every asset hash that contributes
+ * to the rendered frame. Source assets enter via IoDemux nodes whose
+ * "uri" prop is the file URI; we look the URI up in AssetHashCache to
+ * get its content hash. URIs with no cached hash (e.g. timeline JSON
+ * omitted contentHash and nothing has streamed-hashed yet) are
+ * skipped — invalidate_by_asset_hash for that asset will be a no-op
+ * for this frame, matching the legacy prefix-match behaviour for
+ * unhashed assets. */
+std::vector<std::string> contributing_asset_hashes(
+    const me::graph::Graph&         g,
+    const me::resource::AssetHashCache* assets) {
+
+    std::vector<std::string> out;
+    if (!assets) return out;
+    for (const me::graph::Node& node : g.nodes()) {
+        if (node.kind != me::task::TaskKindId::IoDemux) continue;
+        auto it = node.props.find("uri");
+        if (it == node.props.end()) continue;
+        const std::string* uri = std::get_if<std::string>(&it->second.v);
+        if (!uri || uri->empty()) continue;
+        std::string h = assets->peek(*uri);
+        if (!h.empty()) out.push_back(std::move(h));
+    }
+    return out;
 }
 
 }  // namespace
@@ -179,11 +213,15 @@ extern "C" me_status_t me_render_frame(
     mf->rgba = rgba->rgba;
 
     /* DiskCache write-through (persistent layer). Best-effort —
-     * failures don't affect the render path. */
+     * failures don't affect the render path. The contributing-asset
+     * span lets DiskCache index this frame for invalidate-by-asset
+     * cascade later. */
     if (engine->disk_cache && engine->disk_cache->enabled()) {
+        const auto assets = contributing_asset_hashes(graph, engine->asset_hashes.get());
         engine->disk_cache->put(cache_key, mf->rgba.data(),
                                  mf->width, mf->height,
-                                 static_cast<int>(mf->stride));
+                                 static_cast<int>(mf->stride),
+                                 std::span<const std::string>(assets));
     }
 
     *out_frame = mf.release();

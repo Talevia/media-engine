@@ -24,34 +24,21 @@
  *   3. Second `me_render_frame` for the same time finds the entry
  *      → cache hit. `hit_count` rises.
  *
- *   4. `me_cache_invalidate_asset(eng, "sha256:<hash>")` drops the
- *      AssetHashCache entry for this content hash. The
- *      `entry_count` field (which tracks AssetHashCache size)
- *      drops accordingly.
+ *   4. `me_cache_invalidate_asset(eng, "sha256:<hash>")` drops both
+ *      the AssetHashCache entry AND every DiskCache entry derived
+ *      from this asset. DiskCache reaches the graph-hash-keyed
+ *      entries via the asset_hash → set<cache_key> side-index
+ *      that `me_render_frame`'s put populates with the hashes of
+ *      every asset URI flowing through the compiled graph's
+ *      IoDemux nodes. The third render therefore misses and re-
+ *      decodes; both `entry_count` and `disk_bytes_used` drop
+ *      across the call.
  *
- *      *** Current limitation, surfaced honestly. *** As of
- *      `src/api/render.cpp:46-47`, the DiskCache key shape was
- *      migrated from `<asset_hash>:<source_num>:<source_den>` to
- *      `g:<graph_content_hash>` (a hash of the compiled compose
- *      graph). The old key had an asset-prefix the invalidate-
- *      asset call could prefix-match; the new graph-hash key does
- *      not — so DiskCache entries derived from this asset are NOT
- *      dropped by `me_cache_invalidate_asset` today. The third
- *      render below therefore still serves from DiskCache, and
- *      `miss_count` does NOT climb across invalidation. The
- *      universal escape hatch is `me_cache_clear`, demonstrated
- *      at the end of this program.
- *
- *      Tracked as backlog `debt-cache-invalidate-asset-graph-hash`
- *      — fixing it requires the graph hash to either embed the
- *      asset's content hash transitively for prefix matching, or
- *      DiskCache to grow a reverse-lookup table (asset hash →
- *      derived graph hashes).
- *
- *   5. To demonstrate the actually-working invalidation path,
- *      the program calls `me_cache_clear` and renders once more
- *      — that DOES force a miss, since clear drops every entry
- *      regardless of key shape.
+ *   5. `me_cache_clear` remains the universal escape hatch — it
+ *      drops every entry regardless of side-index state (e.g.
+ *      after a process restart that empties the in-memory index
+ *      while leaving on-disk `.bin` files intact). The 4th
+ *      render below demonstrates the same.
  *
  * Usage:
  *   12_cache_invalidate <source.mp4>
@@ -65,15 +52,19 @@
  *
  *   - `entry_count` (AssetHashCache size) drops by ≥ 1 across
  *     `me_cache_invalidate_asset`.
+ *   - `miss_count` climbs by ≥ 1 across the 3rd render (DiskCache
+ *     side-index drops the derived entry).
  *   - `miss_count` climbs by ≥ 1 across `me_cache_clear` +
  *     subsequent render.
  */
 #include <media_engine.h>
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static void print_stats(const char* label, const me_cache_stats_t* s) {
     fprintf(stderr,
@@ -95,6 +86,26 @@ int main(int argc, char** argv) {
      * frame entries; AssetHashCache is in-memory and always live. */
     const char* cache_dir = "/tmp/me_cache_invalidate_demo";
     mkdir(cache_dir, 0755);
+    /* Demo flow needs a fresh cache dir: pre-existing .bin files from
+     * a prior run would make the 1st render a hit, which skips the
+     * put-with-assets call that populates the side-index. Then the
+     * invalidate-asset cascade has nothing to evict and the
+     * verification fails spuriously. Hosts in production typically
+     * keep cache_dir warm — that's a feature, not a bug — so this
+     * cleanup is demo-specific. */
+    DIR* d = opendir(cache_dir);
+    if (d) {
+        struct dirent* e;
+        char path[1024];
+        while ((e = readdir(d))) {
+            const size_t len = strlen(e->d_name);
+            if (len < 4) continue;
+            if (strcmp(e->d_name + len - 4, ".bin") != 0) continue;
+            snprintf(path, sizeof path, "%s/%s", cache_dir, e->d_name);
+            unlink(path);
+        }
+        closedir(d);
+    }
 
     me_engine_config_t cfg = {0};
     cfg.cache_dir = cache_dir;
@@ -191,13 +202,13 @@ int main(int argc, char** argv) {
     me_cache_stats(eng, &after_inv);
     print_stats("after-invalidate-asset", &after_inv);
 
-    /* 3rd render — note miss_count likely UNCHANGED. The graph-hash
-     * disk-cache key isn't reached by the asset-prefix invalidation
-     * (see file header). */
+    /* 3rd render — must miss. DiskCache side-index dropped the
+     * derived graph-hash entry on invalidate_asset, so the engine
+     * re-decodes from source. */
     RENDER_OR_FAIL("3rd"); if (local_failure) { rc = 1; goto cleanup; }
     me_cache_stats_t after_3rd = {0};
     me_cache_stats(eng, &after_3rd);
-    print_stats("after-3rd-render      ", &after_3rd);
+    print_stats("after-3rd-render-miss ", &after_3rd);
 
     /* Universal escape hatch — drops every cache layer. */
     s = me_cache_clear(eng);
@@ -219,22 +230,29 @@ int main(int argc, char** argv) {
     /* Verification ------------------------------------------------- */
     const long long entries_dropped =
         (long long)(after_2nd.entry_count - after_inv.entry_count);
+    const long long misses_after_inv =
+        (long long)(after_3rd.miss_count - after_inv.miss_count);
     const long long misses_after_clear =
         (long long)(after_4th.miss_count - after_clr.miss_count);
     fprintf(stderr,
             "  entries dropped by invalidate_asset:  %lld\n",
             entries_dropped);
     fprintf(stderr,
+            "  miss_count delta across invalidate:   %lld\n",
+            misses_after_inv);
+    fprintf(stderr,
             "  miss_count delta across cache_clear:  %lld\n",
             misses_after_clear);
-    if (entries_dropped >= 1 && misses_after_clear >= 1) {
+    if (entries_dropped >= 1 && misses_after_inv >= 1 &&
+        misses_after_clear >= 1) {
         fprintf(stderr,
-                "  OK: invalidate_asset dropped AssetHashCache entries; "
-                "cache_clear forced a re-decode.\n");
+                "  OK: invalidate_asset dropped AssetHashCache entries + "
+                "DiskCache derived frames (side-index); cache_clear forced "
+                "a second re-decode.\n");
     } else {
         fprintf(stderr,
                 "  FAIL: expected entries_dropped >= 1 && "
-                "misses_after_clear >= 1\n");
+                "misses_after_inv >= 1 && misses_after_clear >= 1\n");
         rc = 1;
     }
 
