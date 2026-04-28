@@ -367,6 +367,12 @@ me_status_t CoreMlRuntime::run(
                     }
                 }];
             }
+            /* Apple's M11 ship-path models (BlazeFace, portrait
+             * segmentation, face landmarks) all return contiguous
+             * row-major output so this branch is a runtime-shape
+             * reject — not a deferred-impl stub. Tracked as backlog
+             * `ml-coreml-strided-mlmultiarray-output-impl` for the
+             * day a strided-output model surfaces. */
             if (!layout_contig || !copied) {
                 if (error_msg) {
                     *error_msg = std::string{"CoreMlRuntime::run: output '"} +
@@ -375,6 +381,7 @@ me_status_t CoreMlRuntime::run(
                                   "(strided output not supported in this "
                                   "cycle); flat memcpy refused";
                 }
+                /* LEGIT: ml-coreml-strided-mlmultiarray-output-impl */
                 return ME_E_UNSUPPORTED;
             }
 
