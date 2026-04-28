@@ -1,60 +1,71 @@
 /*
- * face_sticker_kernel — landmark-driven sticker overlay (M11 stub).
+ * face_sticker_kernel — landmark-driven sticker overlay.
  *
- * Counterpart to `inverse_tonemap_kernel.hpp` in shape — the
- * registered-but-deferred pattern. The bullet's brief is "register
- * the kind, defer the impl, return ME_E_UNSUPPORTED with a clear
- * pointer to the follow-up bullet" — see `face-sticker-impl` in the
- * P2 backlog.
+ * As of `face-sticker-impl` (cycle 11+, post-CoreML-runtime
+ * landing): the kernel does the deterministic byte-level math
+ * given **pre-resolved** inputs — a list of per-frame face
+ * bounding boxes (the landmark resolver's output) and the
+ * already-decoded sticker pixel buffer (the sticker decoder's
+ * output). Upstream layers handle:
  *
- * Why deferred. The actual impl needs:
- *   1. An inference runtime that consumes the landmark asset (the
- *      M11 ml-runtime cycles, blocked on ML model fetcher landing
- *      from cycle 29 + actual CoreML / ONNX adapter).
- *   2. A sticker-decoder kernel (PNG / WebP probe via libavformat;
- *      shares decode path with `me_thumbnail_png` in spirit but on
- *      a pre-existing image asset rather than a video frame).
- *   3. A compose-graph stage that composites the sticker over the
- *      RGBA8 frame at the landmark anchor with affine
- *      (scale + offset) — overlaps with the existing
- *      `RenderAffineBlit` kernel but needs landmark-time-coupled
- *      params per-frame.
+ *   1. Inference resolver — runs the landmark model
+ *      (BlazeFace, etc.) on the source frame and projects
+ *      landmarks → `me::compose::Bbox` per face. Tracked
+ *      separately under the future
+ *      `face-mosaic-resolver-wiring` cycle (the same resolver
+ *      drives face_mosaic and face_sticker).
+ *   2. Sticker decoder — decodes the `sticker_uri` (PNG / WebP)
+ *      to RGBA8 once at compose-stage init. The decoder kernel
+ *      is a sibling of the existing `me_thumbnail_png` decode
+ *      path. Tracked under `face-sticker-decoder-wiring`.
  *
- * None of those exist pre-cycle 30. The stub here preserves the
- * API surface so timeline JSON authoring tools can include
- * `kind: "face_sticker"` ahead of the impl. Same registered-but-
- * deferred pattern as `inverse_tonemap` was pre-cycle 24.
- *
- * Determinism on the stub. The function unconditionally returns
- * ME_E_UNSUPPORTED for any input — that's a deterministic answer.
+ * Determinism. Pure IEEE-754 float32 affine arithmetic + nearest-
+ * neighbor sampling via `me::compose::affine_blit`. Same inputs
+ * produce the same bytes across hosts.
  */
 #pragma once
 
+#include "compose/bbox.hpp"
 #include "timeline/timeline_ir_params.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace me::compose {
 
-/* Always returns ME_E_UNSUPPORTED today. Documented at the kind
- * registration point (timeline_ir_params.hpp:EffectKind::FaceSticker)
- * and the loader dispatch (loader_helpers_clip_params.cpp). When
- * the `face-sticker-impl` bullet lands, this signature stays — only
- * the body changes. The kernel will gain extra parameters for the
- * resolved landmark stream + sticker pixel buffer at impl time;
- * those can be appended without breaking call sites by making them
- * optional or routing through the graph::EvalContext.
+/* Composite the sticker over `rgba` at each `bbox` in
+ * `landmark_bboxes`. The sticker is scaled to (`bbox.width *
+ * params.scale_x`, `bbox.height * params.scale_y`), translated
+ * by (`params.offset_x`, `params.offset_y`) from the bbox center,
+ * and alpha-blended over the existing pixels (RGBA8 source-over).
  *
- * Argument-shape rejects (null buffer / non-positive dims / undersized
- * stride / empty landmark_asset_id / empty sticker_uri) take
- * precedence over the UNSUPPORTED short-circuit so a future impl can
- * drop in without rewriting the prologue. */
+ * Empty inputs are no-ops:
+ *   - `landmark_bboxes` empty → ME_OK, frame untouched.
+ *   - `sticker_rgba == nullptr` or `sticker_w / sticker_h <= 0`
+ *     → ME_OK, frame untouched.
+ *
+ * `params.landmark_asset_id` and `params.sticker_uri` are
+ * documentation-only at the kernel level — they tell the
+ * upstream resolver where to fetch landmark/sticker data; the
+ * kernel itself only consumes `params.scale_x/y` and
+ * `params.offset_x/y`.
+ *
+ * Argument-shape rejects:
+ *   - rgba == nullptr OR width/height <= 0 → ME_E_INVALID_ARG.
+ *   - stride_bytes < width * 4 → ME_E_INVALID_ARG.
+ *   - sticker_stride_bytes < sticker_w * 4 (when sticker_rgba
+ *     non-null) → ME_E_INVALID_ARG. */
 me_status_t apply_face_sticker_inplace(
     std::uint8_t*                          rgba,
     int                                    width,
     int                                    height,
     std::size_t                            stride_bytes,
-    const me::FaceStickerEffectParams&     params);
+    const me::FaceStickerEffectParams&     params,
+    std::span<const Bbox>                  landmark_bboxes,
+    const std::uint8_t*                    sticker_rgba,
+    int                                    sticker_width,
+    int                                    sticker_height,
+    std::size_t                            sticker_stride_bytes);
 
 }  // namespace me::compose
