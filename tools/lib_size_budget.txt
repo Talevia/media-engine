@@ -48,3 +48,26 @@ Debug_with_inference=25165824
 Release_with_inference=16777216
 RelWithDebInfo_with_inference=16777216
 MinSizeRel_with_inference=8388608
+
+# M10 SW HEVC encoder budget rows — `ME_WITH_KVAZAAR=ON` adds the
+# `_with_kvazaar` suffix; combined with ME_WITH_INFERENCE the
+# suffix becomes `_with_inference_with_kvazaar`.
+#
+# Measurements on dev box (cycle establishing the rows):
+#   Release base                          : 2,824,720 B
+#   Release with kvazaar                  : 2,842,240 B  (+17 KB; kvazaar dyn-linked)
+#   Release with inference + kvazaar      : 2,961,872 B  (+137 KB over base)
+# Static archive growth is small because libkvazaar.dylib is
+# dynamic; the new bytes are the kvazaar_hevc_encoder.o object
+# file plus its small RAII state. The ceiling is set to match the
+# parallel non-kvazaar row so future inflation (a bigger encoder
+# adapter, a new fallback path, generated tables) trips the guard.
+Debug_with_kvazaar=4194304
+Release_with_kvazaar=4194304
+RelWithDebInfo_with_kvazaar=4194304
+MinSizeRel_with_kvazaar=2097152
+
+Debug_with_inference_with_kvazaar=25165824
+Release_with_inference_with_kvazaar=16777216
+RelWithDebInfo_with_inference_with_kvazaar=16777216
+MinSizeRel_with_inference_with_kvazaar=8388608

@@ -1012,13 +1012,18 @@ if(NOT WIN32)
   # ME_WITH_INFERENCE selects an alternate budget row
   # (Release_with_inference, etc.) so the M11 ML runtime can pull in
   # CoreML / ONNX-runtime bytes without breaking the core-build
+  # ceiling. ME_WITH_KVAZAAR composes a parallel `_with_kvazaar`
+  # suffix for the M10 SW HEVC adapter; the two suffixes can stack
+  # (`_with_inference_with_kvazaar`) so each combination has its own
   # ceiling. Single-config generators read CMAKE_BUILD_TYPE; multi-
   # config (Xcode) substitutes via $<CONFIG>. Suffix is empty when
-  # the option is OFF — same row as today.
+  # neither option is set — same row as today.
+  set(_lib_size_config_suffix "")
   if(ME_WITH_INFERENCE)
-    set(_lib_size_config_suffix "_with_inference")
-  else()
-    set(_lib_size_config_suffix "")
+    string(APPEND _lib_size_config_suffix "_with_inference")
+  endif()
+  if(ME_WITH_KVAZAAR)
+    string(APPEND _lib_size_config_suffix "_with_kvazaar")
   endif()
   add_test(NAME lib_size_budget
            COMMAND bash
