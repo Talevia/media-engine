@@ -159,7 +159,11 @@ TEST_CASE("HDR pixel round-trip: decode → re-encode (HEVC) → decode within �
     spec.path           = out_path.c_str();
     spec.container      = "mp4";
     spec.video_codec    = "hevc";        /* hevc_videotoolbox per cycle 11 */
-    spec.audio_codec    = "passthrough";
+    /* audio=aac so the (hevc, aac) shape goes through the
+     * `encode-hevc-output-sink-wiring` route. The HDR fixture
+     * has no audio stream so AAC re-encode produces zero audio
+     * packets — the container ends up video-only. */
+    spec.audio_codec    = "aac";
     spec.frame_rate.num = 24;
     spec.frame_rate.den = 1;
 

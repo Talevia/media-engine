@@ -71,6 +71,17 @@ me_output_spec_t h264_aac_spec() {
     return s;
 }
 
+me_output_spec_t hevc_aac_spec() {
+    me_output_spec_t s{};
+    s.path              = "/tmp/out_hevc.mp4";
+    s.container         = "mp4";
+    s.video_codec       = "hevc";
+    s.audio_codec       = "aac";
+    s.video_bitrate_bps = 6'000'000;
+    s.audio_bitrate_bps = 128'000;
+    return s;
+}
+
 SinkCommon blank_common() {
     SinkCommon c;
     c.out_path  = "/tmp/out.mp4";
@@ -148,4 +159,37 @@ TEST_CASE("make_output_sink rejects h264/aac spec when codec_pool is null") {
                                   nullptr, &err);
     CHECK(sink == nullptr);
     CHECK(err.find("codec pool") != std::string::npos);
+}
+
+TEST_CASE("make_output_sink builds a VideoAacSink for hevc/aac spec") {
+    /* `encode-hevc-output-sink-wiring` cycle: (video=hevc, audio=aac)
+     * is now a routed spec that resolves to the same VideoAacSink as
+     * h264/aac. The dispatch in `me::orchestrator::detail::open_video_encoder`
+     * picks `hevc_videotoolbox` + P010LE for the encoder side. */
+    me::resource::CodecPool pool;
+    std::string err;
+    auto sink = make_output_sink(hevc_aac_spec(), blank_common(), one_clip(),
+                                  &pool, &err);
+    CHECK(sink != nullptr);
+    CHECK(err.empty());
+}
+
+TEST_CASE("make_output_sink builds a VideoAacSink for hevc/aac multi-clip") {
+    me::resource::CodecPool pool;
+    std::string err;
+    auto sink = make_output_sink(hevc_aac_spec(), blank_common(), two_clips(),
+                                  &pool, &err);
+    CHECK(sink != nullptr);
+    CHECK(err.empty());
+}
+
+TEST_CASE("make_output_sink rejects hevc + passthrough audio (unsupported pair)") {
+    me_output_spec_t spec = hevc_aac_spec();
+    spec.audio_codec = "passthrough";
+
+    me::resource::CodecPool pool;
+    std::string err;
+    auto sink = make_output_sink(spec, blank_common(), one_clip(), &pool, &err);
+    CHECK(sink == nullptr);
+    CHECK(err.find("supported specs") != std::string::npos);
 }

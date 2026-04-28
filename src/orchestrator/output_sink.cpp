@@ -21,8 +21,14 @@ bool is_passthrough_spec(const me_output_spec_t& s) {
     return streq(s.video_codec, "passthrough") && streq(s.audio_codec, "passthrough");
 }
 
-bool is_h264_aac_spec(const me_output_spec_t& s) {
-    return streq(s.video_codec, "h264") && streq(s.audio_codec, "aac");
+/* Accept any LGPL-clean re-encode video codec we ship (h264 +
+ * hevc as of M10's `encode-hevc-output-sink-wiring` cycle) paired
+ * with AAC audio. Adding a new video codec here means a new
+ * `streq` and a corresponding branch in
+ * `me::orchestrator::detail::open_video_encoder`. */
+bool is_video_aac_spec(const me_output_spec_t& s) {
+    if (!streq(s.audio_codec, "aac")) return false;
+    return streq(s.video_codec, "h264") || streq(s.video_codec, "hevc");
 }
 
 /* ==========================================================================
@@ -63,19 +69,23 @@ private:
 };
 
 /* ==========================================================================
- * H264AacSink — h264_videotoolbox (video) + libavcodec aac (audio).
+ * VideoAacSink — h264_videotoolbox / hevc_videotoolbox (video) + libavcodec
+ * aac (audio). The video codec name flows from `spec.video_codec` so
+ * `(h264, aac)` and `(hevc, aac)` both route here; the
+ * `open_video_encoder` helper picks the matching encoder by name.
  * Supports N-segment concat; decoders are per-clip, the encoder is shared
- * across all segments so the output carries one consistent H.264
+ * across all segments so the output carries one consistent video
  * bitstream and AAC sample stream regardless of segment count.
  * ========================================================================== */
-class H264AacSink final : public OutputSink {
+class VideoAacSink final : public OutputSink {
 public:
-    H264AacSink(SinkCommon common, const me_output_spec_t& spec,
-                 std::vector<ClipTimeRange> ranges,
-                 me::resource::CodecPool*   pool)
+    VideoAacSink(SinkCommon common, const me_output_spec_t& spec,
+                  std::vector<ClipTimeRange> ranges,
+                  me::resource::CodecPool*   pool)
         : common_(std::move(common)),
           ranges_(std::move(ranges)),
           pool_(pool),
+          video_codec_(spec.video_codec ? spec.video_codec : ""),
           video_bitrate_(spec.video_bitrate_bps),
           audio_bitrate_(spec.audio_bitrate_bps) {}
 
@@ -83,17 +93,17 @@ public:
         std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes,
         std::string*                                       err) override {
         if (demuxes.size() != ranges_.size()) {
-            if (err) *err = "h264/aac sink: demuxes / ranges size mismatch";
+            if (err) *err = "video/aac sink: demuxes / ranges size mismatch";
             return ME_E_INTERNAL;
         }
         if (demuxes.empty()) {
-            if (err) *err = "h264/aac sink: empty segment list";
+            if (err) *err = "video/aac sink: empty segment list";
             return ME_E_INVALID_ARG;
         }
         ReencodeOptions opts;
         opts.out_path            = common_.out_path;
         opts.container           = common_.container;
-        opts.video_codec         = "h264";
+        opts.video_codec         = video_codec_;
         opts.audio_codec         = "aac";
         opts.video_bitrate_bps   = video_bitrate_;
         opts.audio_bitrate_bps   = audio_bitrate_;
@@ -105,7 +115,7 @@ public:
         opts.segments.reserve(demuxes.size());
         for (size_t i = 0; i < demuxes.size(); ++i) {
             if (!demuxes[i]) {
-                if (err) *err = "h264/aac sink: null demux context at segment " +
+                if (err) *err = "video/aac sink: null demux context at segment " +
                                  std::to_string(i);
                 return ME_E_INVALID_ARG;
             }
@@ -123,6 +133,7 @@ private:
     SinkCommon                 common_;
     std::vector<ClipTimeRange> ranges_;
     me::resource::CodecPool*   pool_          = nullptr;
+    std::string                video_codec_;
     int64_t                    video_bitrate_ = 0;
     int64_t                    audio_bitrate_ = 0;
 };
@@ -149,17 +160,18 @@ std::unique_ptr<OutputSink> make_output_sink(
         /* Passthrough doesn't touch AVCodecContext; codec_pool ignored. */
         return std::make_unique<PassthroughSink>(std::move(common), std::move(clip_ranges));
     }
-    if (is_h264_aac_spec(spec)) {
+    if (is_video_aac_spec(spec)) {
         if (!codec_pool) {
             if (err) *err = "re-encode requires a codec pool (engine->codecs)";
             return nullptr;
         }
-        return std::make_unique<H264AacSink>(std::move(common), spec,
-                                              std::move(clip_ranges), codec_pool);
+        return std::make_unique<VideoAacSink>(std::move(common), spec,
+                                                std::move(clip_ranges), codec_pool);
     }
 
     if (err) *err = "phase-1: supported specs are "
-                     "(video=passthrough, audio=passthrough) or (video=h264, audio=aac)";
+                     "(video=passthrough, audio=passthrough) or "
+                     "(video=h264|hevc, audio=aac)";
     return nullptr;
 }
 
