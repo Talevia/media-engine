@@ -364,6 +364,7 @@ add_library(media_engine STATIC
   api/thumbnail.cpp
   api/cache.cpp
   $<$<BOOL:${ME_WITH_INFERENCE}>:${CMAKE_CURRENT_SOURCE_DIR}/api/ml.cpp>
+  $<$<BOOL:${ME_WITH_INFERENCE}>:${CMAKE_CURRENT_SOURCE_DIR}/inference/multiarray_layout.cpp>
   $<$<AND:$<BOOL:${ME_WITH_INFERENCE}>,$<BOOL:${APPLE}>>:${CMAKE_CURRENT_SOURCE_DIR}/inference/coreml_runtime.mm>
 )
 add_library(media_engine::media_engine ALIAS media_engine)

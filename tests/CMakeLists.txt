@@ -110,6 +110,7 @@ set(_test_suites
   test_api_surface_budget
   test_cache_hit_rate_lower_bound
   test_inference_coreml_skeleton
+  test_inference_multiarray_layout
 )
 
 foreach(_suite ${_test_suites})
@@ -1033,6 +1034,12 @@ endif()
 # target_compile_definitions, so the suite sees the same on/off as the
 # engine itself.
 target_include_directories(test_inference_coreml_skeleton PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_inference_multiarray_layout — pure C++ coverage for the
+# strided→contiguous walk used by coreml_runtime.mm. Same src/-as-
+# include pattern; no Apple frameworks needed.
+target_include_directories(test_inference_multiarray_layout PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # ----- engine_impl.hpp ME_HAS_X visibility audit --------------------------
