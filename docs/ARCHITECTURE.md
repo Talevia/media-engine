@@ -92,6 +92,8 @@ VISION §3.4 locks the supply chain at LGPL-clean. Enforcement happens here:
 | nlohmann::json | MIT | Phase 1 (JSON) |
 | doctest  | MIT    | when tests are enabled |
 | Taskflow | MIT    | CPU work-stealing task DAG (scheduler 核心) |
+| ONNX Runtime (system pkg-config: `libonnxruntime` ≥ 1.16) | MIT | Phase M11 (ML inference cross-platform CPU FP32 reference) — CMake auto-detection behind `ME_WITH_INFERENCE` via `pkg_check_modules(libonnxruntime)`. Linked dynamically (`libonnxruntime.dylib` / `.so`); host installs via `brew install onnxruntime` (macOS) or distro package (Linux). When pkg-config doesn't find it the `OnnxRuntime` backend isn't built — the engine falls back to `CoreMlRuntime` on Apple, or fails to instantiate any runtime on non-Apple (acceptable: ML-effect kernels return ME_E_UNSUPPORTED with a backlog-tracked slug). `Ort::Session` runs single-threaded with `ORT_ENABLE_BASIC` graph optimization; ML inference is in VISION §3.4's non-deterministic carve-out. |
+| CoreML.framework (Apple SDK) | Apple SDK | Phase M11 (ML inference Apple HW path) — system framework, no FetchContent. Linked as `-framework CoreML -framework Foundation` only when `APPLE AND ME_WITH_INFERENCE`. `MLModel.compileModelAtURL:` lazy-loads the host-supplied blob; `predictionFromFeatures:` runs inference. |
 
 **Rejected / never-add list**:
 - Any GPL / AGPL library in the direct link graph

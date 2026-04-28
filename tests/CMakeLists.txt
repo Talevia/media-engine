@@ -111,6 +111,7 @@ set(_test_suites
   test_cache_hit_rate_lower_bound
   test_inference_coreml_skeleton
   test_inference_multiarray_layout
+  test_inference_onnx_skeleton
 )
 
 foreach(_suite ${_test_suites})
@@ -1041,6 +1042,22 @@ target_include_directories(test_inference_coreml_skeleton PRIVATE
 # include pattern; no Apple frameworks needed.
 target_include_directories(test_inference_multiarray_layout PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
+
+# test_inference_onnx_skeleton — exercises me::inference::OnnxRuntime's
+# factory + lazy-session error path. ME_HAS_ONNX_RUNTIME is set as
+# PRIVATE on the engine target (host SDKs shouldn't care which backend
+# is linked) so we re-detect onnxruntime here via the same pkg-config
+# probe and propagate the compile def only to the test source.
+target_include_directories(test_inference_onnx_skeleton PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(_TEST_ONNX QUIET libonnxruntime)
+  if(_TEST_ONNX_FOUND)
+    target_compile_definitions(test_inference_onnx_skeleton PRIVATE
+      ME_HAS_ONNX_RUNTIME=1)
+  endif()
+endif()
 
 # ----- engine_impl.hpp ME_HAS_X visibility audit --------------------------
 # Cycle 41 burned 7 cycles diagnosing a `pthread_mutex_lock EINVAL` flake

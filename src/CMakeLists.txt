@@ -451,6 +451,35 @@ if(ME_WITH_INFERENCE)
     target_link_libraries(media_engine PRIVATE
       "-framework CoreML" "-framework Foundation")
   endif()
+
+  # ONNX Runtime backend (`src/inference/onnx_runtime.{hpp,cpp}`).
+  # Cross-platform CPU FP32 reference path per docs/MILESTONES.md
+  # §M11 exit criterion 4. Detection via pkg-config because
+  # onnxruntime ships a libonnxruntime.pc; no FetchContent yet —
+  # if a host's distribution lacks the system package, the bullet
+  # `ml-inference-runtime-onnx` follow-up can layer in
+  # FetchContent_Declare on the prebuilt-binary URL.
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(ONNXRUNTIME QUIET libonnxruntime)
+    if(ONNXRUNTIME_FOUND)
+      target_sources(media_engine PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/inference/onnx_runtime.cpp)
+      target_include_directories(media_engine PRIVATE
+        ${ONNXRUNTIME_INCLUDE_DIRS})
+      target_link_directories(media_engine PRIVATE
+        ${ONNXRUNTIME_LIBRARY_DIRS})
+      target_link_libraries(media_engine PRIVATE ${ONNXRUNTIME_LIBRARIES})
+      target_compile_definitions(media_engine PRIVATE
+        ME_HAS_ONNX_RUNTIME=1)
+      message(STATUS
+        "ONNX Runtime: ${ONNXRUNTIME_VERSION} (${ONNXRUNTIME_LIBDIR})")
+    else()
+      message(STATUS
+        "ONNX Runtime not found via pkg-config; "
+        "OnnxRuntime backend not linked")
+    endif()
+  endif()
 endif()
 
 # libass link — SubtitleRenderer uses ass_library_init /
