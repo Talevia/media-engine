@@ -438,6 +438,34 @@ endif()
 # against media_engine see the same definition the engine was built
 # with: ON-build → consumers see the symbols, OFF-build → ml.h is
 # empty for them too.
+# M10 SW HEVC fallback via Kvazaar (BSD-3, LGPL-clean per VISION
+# §3.4 ship line). pkg_check_modules detects the system install
+# (homebrew installs `kvazaar.pc` automatically). When detected the
+# adapter TU + libkvazaar link join the engine; otherwise the
+# option silently no-ops.
+if(ME_WITH_KVAZAAR)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(KVAZAAR QUIET kvazaar)
+    if(KVAZAAR_FOUND)
+      target_sources(media_engine PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/kvazaar_hevc_encoder.cpp)
+      target_include_directories(media_engine PRIVATE
+        ${KVAZAAR_INCLUDE_DIRS})
+      target_link_directories(media_engine PRIVATE
+        ${KVAZAAR_LIBRARY_DIRS})
+      target_link_libraries(media_engine PRIVATE ${KVAZAAR_LIBRARIES})
+      target_compile_definitions(media_engine PRIVATE ME_HAS_KVAZAAR=1)
+      message(STATUS "Kvazaar: ${KVAZAAR_VERSION} (${KVAZAAR_LIBDIR})")
+    else()
+      message(WARNING
+        "ME_WITH_KVAZAAR=ON but pkg_check_modules(kvazaar) failed; "
+        "SW HEVC backend not linked. Install via "
+        "`brew install kvazaar` (macOS) or `apt install libkvazaar-dev` (Linux).")
+    endif()
+  endif()
+endif()
+
 if(ME_WITH_INFERENCE)
   target_compile_definitions(media_engine PUBLIC ME_HAS_INFERENCE=1)
   if(APPLE)

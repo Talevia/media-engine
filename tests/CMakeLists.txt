@@ -112,6 +112,7 @@ set(_test_suites
   test_inference_coreml_skeleton
   test_inference_multiarray_layout
   test_inference_onnx_skeleton
+  test_kvazaar_hevc_encoder
 )
 
 foreach(_suite ${_test_suites})
@@ -1056,6 +1057,19 @@ if(PkgConfig_FOUND)
   if(_TEST_ONNX_FOUND)
     target_compile_definitions(test_inference_onnx_skeleton PRIVATE
       ME_HAS_ONNX_RUNTIME=1)
+  endif()
+endif()
+
+# test_kvazaar_hevc_encoder — exercises me::io::KvazaarHevcEncoder
+# via synthetic gray YUV420P frames. ME_HAS_KVAZAAR is PRIVATE on
+# the engine target; re-detect here so the test sees the same gate.
+target_include_directories(test_kvazaar_hevc_encoder PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+if(PkgConfig_FOUND)
+  pkg_check_modules(_TEST_KVAZAAR QUIET kvazaar)
+  if(_TEST_KVAZAAR_FOUND)
+    target_compile_definitions(test_kvazaar_hevc_encoder PRIVATE
+      ME_HAS_KVAZAAR=1)
   endif()
 endif()
 

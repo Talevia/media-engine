@@ -108,6 +108,17 @@ option(ME_BUILD_JNI      "Build JNI glue for JVM hosts (bindings/jni/)" OFF)
 # guard reads `Release_with_inference` ceiling instead of `Release`.
 option(ME_WITH_INFERENCE "Enable ML inference runtime (M11)"            OFF)
 
+# M10 software HEVC fallback. ON wires `pkg_check_modules(kvazaar)`
+# and links Kvazaar (BSD-3, LGPL-clean — VISION §3.4 ship line)
+# into a `me::io::KvazaarHevcEncoder` adapter for hosts whose
+# platform lacks `hevc_videotoolbox` (Linux / Windows) or who
+# explicitly request a deterministic-software HEVC path. OFF
+# default to keep the core link graph free of HEVC encoder bytes
+# when only h264 / passthrough are needed; flipping ON requires
+# the system kvazaar package (`brew install kvazaar` on macOS,
+# `apt install libkvazaar-dev` on Linux).
+option(ME_WITH_KVAZAAR   "Link Kvazaar (BSD-3) as the SW HEVC encoder (M10)" OFF)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
   if(ME_WERROR)
