@@ -6,6 +6,16 @@ project(media_engine
   LANGUAGES C CXX
 )
 
+# Objective-C++ for the CoreML inference backend (Apple-only TU
+# at src/inference/coreml_runtime.mm). enable_language is gated
+# on APPLE so non-Apple configures don't try to detect a missing
+# OBJCXX compiler. The src/ ObjC++ source list is further gated
+# on `ME_WITH_INFERENCE AND APPLE` — enabling the language
+# unconditionally on Apple is harmless when no .mm files compile.
+if(APPLE)
+  enable_language(OBJCXX)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

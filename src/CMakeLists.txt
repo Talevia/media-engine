@@ -364,7 +364,7 @@ add_library(media_engine STATIC
   api/thumbnail.cpp
   api/cache.cpp
   $<$<BOOL:${ME_WITH_INFERENCE}>:${CMAKE_CURRENT_SOURCE_DIR}/api/ml.cpp>
-  $<$<BOOL:${ME_WITH_INFERENCE}>:${CMAKE_CURRENT_SOURCE_DIR}/inference/coreml_runtime.cpp>
+  $<$<AND:$<BOOL:${ME_WITH_INFERENCE}>,$<BOOL:${APPLE}>>:${CMAKE_CURRENT_SOURCE_DIR}/inference/coreml_runtime.mm>
 )
 add_library(media_engine::media_engine ALIAS media_engine)
 
@@ -439,6 +439,17 @@ endif()
 # empty for them too.
 if(ME_WITH_INFERENCE)
   target_compile_definitions(media_engine PUBLIC ME_HAS_INFERENCE=1)
+  if(APPLE)
+    # CoreML backend (`src/inference/coreml_runtime.mm`) is the
+    # macOS / iOS path. ARC for ObjC++ object lifetimes (MLModel,
+    # NSData, etc.). Frameworks: CoreML (MLModel + MLMultiArray +
+    # MLFeatureProvider) and Foundation (NSData / NSURL /
+    # NSFileManager / NSUUID — required for the lazy compile path).
+    target_compile_options(media_engine PRIVATE
+      $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_link_libraries(media_engine PRIVATE
+      "-framework CoreML" "-framework Foundation")
+  endif()
 endif()
 
 # libass link — SubtitleRenderer uses ass_library_init /
