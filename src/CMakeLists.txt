@@ -271,6 +271,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/face_mosaic.cpp
   timeline/effect_loaders/face_sticker.cpp
   timeline/effect_loaders/inverse_tonemap.cpp
+  timeline/effect_loaders/hue_saturation.cpp
   timeline/effect_loaders/lut.cpp
   timeline/effect_loaders/tone_curve.cpp
   timeline/effect_loaders/tonemap.cpp
@@ -319,6 +320,8 @@ add_library(media_engine STATIC
   compose/body_alpha_key_stage.cpp
   compose/tone_curve_kernel.cpp
   compose/tone_curve_stage.cpp
+  compose/hue_saturation_kernel.cpp
+  compose/hue_saturation_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

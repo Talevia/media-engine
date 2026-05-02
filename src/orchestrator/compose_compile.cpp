@@ -140,6 +140,18 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::HueSaturation) {
+            const auto* params = std::get_if<me::HueSaturationEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["hue_shift_deg"].v    = static_cast<double>(params->hue_shift_deg);
+            fp["saturation_scale"].v = static_cast<double>(params->saturation_scale);
+            fp["lightness_scale"].v  = static_cast<double>(params->lightness_scale);
+            auto n = b.add(task::TaskKindId::RenderHueSaturation,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ToneCurve) {
             const auto* params = std::get_if<me::ToneCurveEffectParams>(&fx.params);
             if (!params) continue;

@@ -58,4 +58,7 @@ me::BodyAlphaKeyEffectParams    parse_body_alpha_key_effect_params(
 me::ToneCurveEffectParams       parse_tone_curve_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::HueSaturationEffectParams   parse_hue_saturation_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

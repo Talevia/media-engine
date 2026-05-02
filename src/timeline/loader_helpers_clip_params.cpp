@@ -83,11 +83,15 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
     } else if (kind_str == "tone_curve") {
         spec.kind   = me::EffectKind::ToneCurve;
         spec.params = parse_tone_curve_effect_params(p, params_where);
+    } else if (kind_str == "hue_saturation") {
+        spec.kind   = me::EffectKind::HueSaturation;
+        spec.params = parse_hue_saturation_effect_params(p, params_where);
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
                         "' (supported: color, blur, lut, tonemap, inverse_tonemap, "
-                        "face_sticker, face_mosaic, body_alpha_key, tone_curve)"};
+                        "face_sticker, face_mosaic, body_alpha_key, tone_curve, "
+                        "hue_saturation)"};
     }
     return spec;
 }

@@ -131,6 +131,7 @@ set(_test_suites
   test_mask_resolver_runtime
   test_inference_selfie_segmentation
   test_tone_curve_kernel_pixel
+  test_hue_saturation_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -822,6 +823,11 @@ target_include_directories(test_mask_resolver_runtime PRIVATE
 # pixel regression. Reaches into src/compose for the kernel
 # header.
 target_include_directories(test_tone_curve_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_hue_saturation_kernel_pixel — M12 §155 (2/4)
+# hue/saturation pixel regression.
+target_include_directories(test_hue_saturation_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob
