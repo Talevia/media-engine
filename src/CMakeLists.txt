@@ -285,6 +285,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/tone_curve.cpp
   timeline/effect_loaders/tonemap.cpp
   timeline/effect_loaders/vignette.cpp
+  timeline/effect_loaders/warp.cpp
   timeline/animated_number.cpp
   timeline/animated_color.cpp
   timeline/segmentation.cpp
@@ -352,6 +353,8 @@ add_library(media_engine STATIC
   compose/radial_blur_stage.cpp
   compose/tilt_shift_kernel.cpp
   compose/tilt_shift_stage.cpp
+  compose/warp_kernel.cpp
+  compose/warp_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

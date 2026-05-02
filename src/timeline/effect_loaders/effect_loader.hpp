@@ -91,4 +91,7 @@ me::RadialBlurEffectParams      parse_radial_blur_effect_params(
 me::TiltShiftEffectParams       parse_tilt_shift_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::WarpEffectParams            parse_warp_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

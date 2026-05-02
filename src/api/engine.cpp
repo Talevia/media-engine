@@ -26,6 +26,7 @@
 #include "compose/tilt_shift_stage.hpp"
 #include "compose/tone_curve_stage.hpp"
 #include "compose/vignette_stage.hpp"
+#include "compose/warp_stage.hpp"
 #include "core/engine_impl.hpp"
 #include "io/decode_audio_kernel.hpp"
 #include "io/decode_video_kernel.hpp"
@@ -70,6 +71,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_motion_blur_kind();
         me::compose::register_radial_blur_kind();
         me::compose::register_tilt_shift_kind();
+        me::compose::register_warp_kind();
         me::audio::register_resample_kind();
         me::audio::register_mix_kind();
 #ifdef ME_HAS_SOUNDTOUCH

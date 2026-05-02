@@ -142,6 +142,7 @@ set(_test_suites
   test_motion_blur_kernel_pixel
   test_radial_blur_kernel_pixel
   test_tilt_shift_kernel_pixel
+  test_warp_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -888,6 +889,11 @@ target_include_directories(test_radial_blur_kernel_pixel PRIVATE
 # test_tilt_shift_kernel_pixel — M12 §157 (3/3) depth-of-field
 # band-blur pixel regression.
 target_include_directories(test_tilt_shift_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_warp_kernel_pixel — M12 §158 (1/2) control-point IDW
+# warp pixel regression.
+target_include_directories(test_warp_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

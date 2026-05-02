@@ -199,6 +199,29 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::Warp) {
+            const auto* params = std::get_if<me::WarpEffectParams>(&fx.params);
+            if (!params) continue;
+
+            /* Encode control points as ";"-delimited
+             * "src_x,src_y,dst_x,dst_y" entries for the
+             * String props slot (matches tone_curve
+             * encoding convention). */
+            std::string s;
+            for (std::size_t i = 0; i < params->control_points.size(); ++i) {
+                if (i > 0) s += ';';
+                const auto& cp = params->control_points[i];
+                s += std::to_string(cp.src_x); s += ',';
+                s += std::to_string(cp.src_y); s += ',';
+                s += std::to_string(cp.dst_x); s += ',';
+                s += std::to_string(cp.dst_y);
+            }
+            graph::Properties fp;
+            fp["control_points"].v = std::move(s);
+            auto n = b.add(task::TaskKindId::RenderWarp,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ChromaticAberration) {
             const auto* params = std::get_if<me::ChromaticAberrationEffectParams>(&fx.params);
             if (!params) continue;
