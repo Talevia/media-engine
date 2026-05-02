@@ -220,6 +220,8 @@ Metrics vs previous snapshot:
 
 10. **ABI 不破坏** — 改动 `include/media_engine/*.h`？开过的 enum 值不改、开过的 struct 不往中间插字段（只允许末尾 append）、开过的函数签名不动（需要时加 `me_foo2`）。ABI 破坏性变动 → 必须在 commit body 里说明为什么接受 + 更新 `docs/ARCHITECTURE.md` 的当前实现状态表。
 
+11. **ML 推理边界自查（参 VISION §5.8）** — 本轮涉及 ML 推理新路径吗？典型触发：新 model / 新 inference runtime / 新 detection-driven effect / 改 `me::inference::Runtime` / 改 `me_model_fetcher_t` 或 `me_model_blob_t` ABI / 改 ML asset schema。命中任一 → 重读 `docs/VISION.md:205-216` §5.8 rubric 并逐条核对：(a) 输出是分析结果（坐标 / mask / 标签），不是 AIGC 合成像素 / 音频 / 文本（违反 §3.5 不做列表）；(b) 推理结果作为 typed asset 走 contentHash 缓存（key 含 `model_id` + `model_version` + `quantization` + 输入帧 hash）；(c) 模型权重 lazy load，**不**打进 binary；(d) 模型 license 在白名单（Apache 2.0 / MIT / BSD / CC-BY），non-commercial / research-only 拒载；(e) runtime 在白名单（CoreML / ONNX runtime / TFLite），CUDA / MKL / 闭源 SDK 拒接；(f) 有 CPU FP32 deterministic reference path 用作回归 baseline；(g) 推理路径是 opt-in（`ME_WITH_INFERENCE=ON`），关闭后核心 link graph 大小不变。任意一条不满足 → **换下一条 backlog**（ML 越界比 ABI 破坏成本更高 — 模型权重一旦 ship，license 撤回 / 模型替换都比代码 revert 难得多）。
+
 **命中任何一条不是"想办法绕过"的信号，是"换下一条 backlog"的信号**。
 
 ### 4. 实现
