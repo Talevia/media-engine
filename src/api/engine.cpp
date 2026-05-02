@@ -12,6 +12,7 @@
 #endif
 #include "compose/encode_png_kernel.hpp"
 #include "compose/body_alpha_key_stage.hpp"
+#include "compose/chromatic_aberration_stage.hpp"
 #include "compose/face_mosaic_stage.hpp"
 #include "compose/face_sticker_stage.hpp"
 #include "compose/film_grain_stage.hpp"
@@ -58,6 +59,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_film_grain_kind();
         me::compose::register_glitch_kind();
         me::compose::register_scan_lines_kind();
+        me::compose::register_chromatic_aberration_kind();
         me::audio::register_resample_kind();
         me::audio::register_mix_kind();
 #ifdef ME_HAS_SOUNDTOUCH

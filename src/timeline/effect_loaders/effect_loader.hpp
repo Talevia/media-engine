@@ -73,4 +73,7 @@ me::GlitchEffectParams          parse_glitch_effect_params(
 me::ScanLinesEffectParams       parse_scan_lines_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::ChromaticAberrationEffectParams parse_chromatic_aberration_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

@@ -267,6 +267,7 @@ add_library(media_engine STATIC
   timeline/loader_helpers_clip_params.cpp
   timeline/effect_loaders/blur.cpp
   timeline/effect_loaders/body_alpha_key.cpp
+  timeline/effect_loaders/chromatic_aberration.cpp
   timeline/effect_loaders/color.cpp
   timeline/effect_loaders/face_mosaic.cpp
   timeline/effect_loaders/face_sticker.cpp
@@ -334,6 +335,8 @@ add_library(media_engine STATIC
   compose/glitch_stage.cpp
   compose/scan_lines_kernel.cpp
   compose/scan_lines_stage.cpp
+  compose/chromatic_aberration_kernel.cpp
+  compose/chromatic_aberration_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

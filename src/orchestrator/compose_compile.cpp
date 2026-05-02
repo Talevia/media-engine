@@ -140,6 +140,19 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::ChromaticAberration) {
+            const auto* params = std::get_if<me::ChromaticAberrationEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["red_dx"].v  = static_cast<int64_t>(params->red_dx);
+            fp["red_dy"].v  = static_cast<int64_t>(params->red_dy);
+            fp["blue_dx"].v = static_cast<int64_t>(params->blue_dx);
+            fp["blue_dy"].v = static_cast<int64_t>(params->blue_dy);
+            auto n = b.add(task::TaskKindId::RenderChromaticAberration,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ScanLines) {
             const auto* params = std::get_if<me::ScanLinesEffectParams>(&fx.params);
             if (!params) continue;
