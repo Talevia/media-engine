@@ -34,6 +34,7 @@
 #include "timeline/effect_params/face_mosaic.hpp"
 #include "timeline/effect_params/face_sticker.hpp"
 #include "timeline/effect_params/film_grain.hpp"
+#include "timeline/effect_params/glitch.hpp"
 #include "timeline/effect_params/hue_saturation.hpp"
 #include "timeline/effect_params/inverse_tonemap.hpp"
 #include "timeline/effect_params/lut.hpp"
@@ -253,6 +254,7 @@ enum class EffectKind : uint8_t {
     HueSaturation   = 9,
     Vignette        = 10,
     FilmGrain       = 11,
+    Glitch          = 12,
 };
 
 struct EffectSpec {
@@ -276,7 +278,7 @@ struct EffectSpec {
      * kind enum's underlying value (Color → 0, Blur → 1, Lut → 2,
      * Tonemap → 3, InverseTonemap → 4, FaceSticker → 5, FaceMosaic →
      * 6, BodyAlphaKey → 7, ToneCurve → 8, HueSaturation → 9,
-     * Vignette → 10, FilmGrain → 11) so consumers can
+     * Vignette → 10, FilmGrain → 11, Glitch → 12) so consumers can
      * `std::get_if<ColorEffectParams>(&spec.params)` without
      * re-checking kind. Loader enforces the invariant. */
     std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams,
@@ -284,7 +286,7 @@ struct EffectSpec {
                  FaceStickerEffectParams, FaceMosaicEffectParams,
                  BodyAlphaKeyEffectParams, ToneCurveEffectParams,
                  HueSaturationEffectParams, VignetteEffectParams,
-                 FilmGrainEffectParams>
+                 FilmGrainEffectParams, GlitchEffectParams>
         params{ColorEffectParams{}};
 };
 

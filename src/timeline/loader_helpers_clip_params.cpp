@@ -92,12 +92,15 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
     } else if (kind_str == "film_grain") {
         spec.kind   = me::EffectKind::FilmGrain;
         spec.params = parse_film_grain_effect_params(p, params_where);
+    } else if (kind_str == "glitch") {
+        spec.kind   = me::EffectKind::Glitch;
+        spec.params = parse_glitch_effect_params(p, params_where);
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
                         "' (supported: color, blur, lut, tonemap, inverse_tonemap, "
                         "face_sticker, face_mosaic, body_alpha_key, tone_curve, "
-                        "hue_saturation, vignette, film_grain)"};
+                        "hue_saturation, vignette, film_grain, glitch)"};
     }
     return spec;
 }

@@ -140,6 +140,19 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::Glitch) {
+            const auto* params = std::get_if<me::GlitchEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["seed"].v                 = static_cast<int64_t>(params->seed);
+            fp["intensity"].v            = static_cast<double>(params->intensity);
+            fp["block_size_px"].v        = static_cast<int64_t>(params->block_size_px);
+            fp["channel_shift_max_px"].v = static_cast<int64_t>(params->channel_shift_max_px);
+            auto n = b.add(task::TaskKindId::RenderGlitch,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::FilmGrain) {
             const auto* params = std::get_if<me::FilmGrainEffectParams>(&fx.params);
             if (!params) continue;
