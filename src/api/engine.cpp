@@ -84,6 +84,16 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
 #ifdef ME_HAS_SOUNDTOUCH
         e->scheduler->set_tempo_pool(e->tempo_pool.get());
 #endif
+#ifdef ME_HAS_INFERENCE
+        /* Process-wide inference asset cache. Capacity 64 entries
+         * = roughly two seconds of 30fps detection-driven scrubbing
+         * before LRU evicts; small enough to bound memory at typical
+         * Tensor footprints, large enough to matter for the
+         * scrubbing / re-export workloads M11 §137 calls out.
+         * Tuning belongs in the cache benchmark when it lands;
+         * config knob is deferred until then. */
+        e->asset_cache = std::make_unique<me::inference::AssetCache>(64);
+#endif
     } catch (const std::exception& ex) {
         me::detail::set_error(e, ex.what());
         delete e;

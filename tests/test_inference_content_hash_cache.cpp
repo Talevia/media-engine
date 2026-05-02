@@ -26,6 +26,7 @@
 #ifdef ME_HAS_INFERENCE
 #include "inference/asset_cache.hpp"
 #include "inference/runtime.hpp"
+#include "media_engine/engine.h"
 
 #include <cstdint>
 #include <map>
@@ -256,6 +257,135 @@ TEST_CASE("AssetCache: different model_version → cache miss") {
                           inputs, &outputs, &err) == ME_OK);
     /* Two distinct keys → two runtime invocations. */
     CHECK(runtime.call_count == 2);
+}
+
+namespace {
+struct EngineGuard {
+    me_engine_t* eng = nullptr;
+    EngineGuard() {
+        me_engine_config_t cfg{};
+        REQUIRE(me_engine_create(&cfg, &eng) == ME_OK);
+    }
+    ~EngineGuard() { if (eng) me_engine_destroy(eng); }
+    EngineGuard(const EngineGuard&)            = delete;
+    EngineGuard& operator=(const EngineGuard&) = delete;
+};
+}  // namespace
+
+TEST_CASE("run_cached: engine-attached cache hits on identical (id, ver, quant, inputs)") {
+    EngineGuard g;
+    CountingRuntime runtime;
+
+    std::map<std::string, me::inference::Tensor> inputs;
+    inputs["image"] = tensor_uint8({1, 4}, {10, 20, 30, 40});
+
+    std::map<std::string, me::inference::Tensor> outputs;
+    std::string err;
+
+    REQUIRE(me::inference::run_cached(g.eng, runtime, "m", "v1", "fp32",
+                                       inputs, &outputs, &err) == ME_OK);
+    CHECK(runtime.call_count == 1);
+    CHECK(outputs.at("out").bytes.size() == 4);
+
+    outputs.clear();
+    REQUIRE(me::inference::run_cached(g.eng, runtime, "m", "v1", "fp32",
+                                       inputs, &outputs, &err) == ME_OK);
+    /* Engine cache hit — runtime NOT re-invoked. */
+    CHECK(runtime.call_count == 1);
+    CHECK(outputs.at("out").bytes.size() == 4);
+}
+
+TEST_CASE("run_cached: cache is process-wide across separate Runtime instances on the same engine") {
+    EngineGuard g;
+    CountingRuntime runtime_a, runtime_b;
+
+    std::map<std::string, me::inference::Tensor> inputs;
+    inputs["image"] = tensor_uint8({1}, {7});
+    std::map<std::string, me::inference::Tensor> outputs;
+    std::string err;
+
+    /* First Runtime populates the engine's cache for (m, v1, fp32). */
+    REQUIRE(me::inference::run_cached(g.eng, runtime_a, "m", "v1", "fp32",
+                                       inputs, &outputs, &err) == ME_OK);
+    CHECK(runtime_a.call_count == 1);
+
+    /* Second Runtime, same identity + inputs → engine cache hit;
+     * runtime_b is NEVER invoked. This is the "all effect stages
+     * share one process-wide cache instance" contract that the
+     * deleted backlog bullet called out. */
+    outputs.clear();
+    REQUIRE(me::inference::run_cached(g.eng, runtime_b, "m", "v1", "fp32",
+                                       inputs, &outputs, &err) == ME_OK);
+    CHECK(runtime_b.call_count == 0);
+    CHECK(outputs.at("out").bytes.size() == 1);
+}
+
+TEST_CASE("run_cached: distinct identities don't collide on the engine cache") {
+    EngineGuard g;
+    CountingRuntime runtime;
+
+    std::map<std::string, me::inference::Tensor> inputs;
+    inputs["image"] = tensor_uint8({1}, {0});
+    std::map<std::string, me::inference::Tensor> outputs;
+    std::string err;
+
+    REQUIRE(me::inference::run_cached(g.eng, runtime, "m", "v1", "fp32",
+                                       inputs, &outputs, &err) == ME_OK);
+    REQUIRE(me::inference::run_cached(g.eng, runtime, "m", "v2", "fp32",
+                                       inputs, &outputs, &err) == ME_OK);
+    REQUIRE(me::inference::run_cached(g.eng, runtime, "m", "v1", "fp16",
+                                       inputs, &outputs, &err) == ME_OK);
+    /* Three distinct identities → three runtime invocations. */
+    CHECK(runtime.call_count == 3);
+
+    /* Repeat one → engine cache hit. */
+    REQUIRE(me::inference::run_cached(g.eng, runtime, "m", "v2", "fp32",
+                                       inputs, &outputs, &err) == ME_OK);
+    CHECK(runtime.call_count == 3);
+}
+
+TEST_CASE("run_cached: NULL engine returns ME_E_INVALID_ARG (defensive)") {
+    CountingRuntime runtime;
+    std::map<std::string, me::inference::Tensor> inputs;
+    inputs["image"] = tensor_uint8({1}, {0});
+    std::map<std::string, me::inference::Tensor> outputs;
+    std::string err;
+
+    CHECK(me::inference::run_cached(nullptr, runtime, "m", "v1", "fp32",
+                                     inputs, &outputs, &err) == ME_E_INVALID_ARG);
+    CHECK(runtime.call_count == 0);
+}
+
+TEST_CASE("run_cached: runtime errors are not cached") {
+    EngineGuard g;
+    /* Runtime that always fails — verify failure path doesn't pollute
+     * the cache (next successful call should still work). */
+    struct FailingRuntime final : public me::inference::Runtime {
+        int call_count = 0;
+        me_status_t run(const std::map<std::string, me::inference::Tensor>&,
+                        std::map<std::string, me::inference::Tensor>*,
+                        std::string* err) override {
+            ++call_count;
+            if (err) *err = "synthetic failure";
+            return ME_E_INTERNAL;
+        }
+    };
+    FailingRuntime failing;
+
+    std::map<std::string, me::inference::Tensor> inputs;
+    inputs["image"] = tensor_uint8({1}, {0});
+    std::map<std::string, me::inference::Tensor> outputs;
+    std::string err;
+
+    CHECK(me::inference::run_cached(g.eng, failing, "m", "v1", "fp32",
+                                     inputs, &outputs, &err) == ME_E_INTERNAL);
+    CHECK(failing.call_count == 1);
+
+    /* Second call: cache should NOT have stored the failure → fetcher
+     * is invoked again. */
+    CHECK(me::inference::run_cached(g.eng, failing, "m", "v1", "fp32",
+                                     inputs, &outputs, &err) == ME_E_INTERNAL);
+    CHECK(failing.call_count == 2);
 }
 
 #else  /* !ME_HAS_INFERENCE */

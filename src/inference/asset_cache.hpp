@@ -73,6 +73,10 @@ struct AssetCacheKeyHash {
  * cryptographic hash. */
 std::uint64_t hash_inputs(const std::map<std::string, Tensor>& inputs) noexcept;
 
+/* Forward decl so this header doesn't pull in `core/engine_impl.hpp`
+ * (which is private-only and would propagate transitively to every
+ * effect TU that needs the cache key types). */
+
 class AssetCache {
 public:
     /* `capacity` = max number of (key, outputs) entries; 0 disables
@@ -113,5 +117,45 @@ private:
     std::int64_t                                                                  hits_   = 0;
     std::int64_t                                                                  misses_ = 0;
 };
+
+}  // namespace me::inference
+
+struct me_engine;
+
+namespace me::inference {
+
+/* `run_cached` — production-grade wrapper that consults the engine's
+ * shared `AssetCache` before delegating to `Runtime::run` and stores
+ * the runtime's outputs on miss. Same shape as the test-local helper
+ * in `tests/test_inference_content_hash_cache.cpp`, but keyed off the
+ * engine's process-wide cache (`me_engine::asset_cache`) so all
+ * effect stages share one LRU.
+ *
+ * M11 exit criterion at `docs/MILESTONES.md:137` requires inference
+ * assets to flow through the §3.3 contentHash cache; this is the
+ * single public entry point that effect kernels call to satisfy
+ * that — `Runtime::run` directly bypasses the cache and is reserved
+ * for unit-test scaffolding.
+ *
+ * Behavior:
+ *   - `engine` MUST be non-NULL and inference-built (`ME_HAS_INFERENCE`).
+ *     A NULL engine returns `ME_E_INVALID_ARG`.
+ *   - On hit: `*outputs` is overwritten with a copy of the cached
+ *     map; `Runtime::run` is NOT invoked. Returns `ME_OK`.
+ *   - On miss: `Runtime::run` is invoked; on `ME_OK` the result is
+ *     stored under the computed key and forwarded to `*outputs`.
+ *     Non-OK runtime results bypass the cache entirely (errors are
+ *     never stored).
+ *
+ * The cache key is derived per the M11 contract:
+ * `(model_id, model_version, quantization, hash_inputs(inputs))`. */
+me_status_t run_cached(me_engine*                                       engine,
+                       Runtime&                                          runtime,
+                       const std::string&                                model_id,
+                       const std::string&                                model_version,
+                       const std::string&                                quantization,
+                       const std::map<std::string, Tensor>&              inputs,
+                       std::map<std::string, Tensor>*                    outputs,
+                       std::string*                                      err);
 
 }  // namespace me::inference

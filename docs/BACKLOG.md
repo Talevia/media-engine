@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **inference-asset-cache-wire-effect-stages** — `me::inference::AssetCache` (`src/inference/asset_cache.hpp:76`) machinery + tests pass (104/104 ctest), but `grep -rn 'AssetCache\|infer_cached' src/compose src/orchestrator` returns empty — no production effect / runtime call site invokes the cache. M11 exit criterion at `docs/MILESTONES.md:137` requires inference assets to **flow through** the cache, not just have machinery available. **方向：** wire `AssetCache::get` / `put` into the (yet-to-land) compose-graph stages that invoke `me::inference::Runtime::run`. Pattern from `tests/test_inference_content_hash_cache.cpp`'s `infer_cached` helper: compute key from `(model_id, model_version, quantization, hash_inputs(inputs))`; on hit return cached outputs; on miss delegate to `Runtime::run` + store. Add the cache as a member of the engine impl (`src/core/engine_impl.hpp`) so all effect stages share one process-wide cache instance. Milestone §M11，Rubric §5.1。
 
 ## P1（强烈建议，跨 milestone debt）
 

@@ -29,6 +29,7 @@
 #endif
 
 #ifdef ME_HAS_INFERENCE
+#include "inference/asset_cache.hpp"
 #include "inference/model_loader.hpp"
 #include "media_engine/ml.h"
 #endif
@@ -96,6 +97,17 @@ struct me_engine {
     std::mutex loaded_models_mu;
     std::map<std::tuple<std::string, std::string, std::string>,
              me::inference::LoadedModel> loaded_models;
+
+    /* Process-wide AssetCache shared across all effect kernels
+     * (M11 inference-asset-cache-wire-effect-stages, M11 exit
+     * criterion at docs/MILESTONES.md:137). Effect kernels never
+     * call `me::inference::Runtime::run` directly — they go
+     * through `me::inference::run_cached(engine, runtime, ...)`
+     * which consults this cache before delegating + stores on
+     * miss. Capacity comes from a fixed default at engine_create
+     * time; future config knob can override if profiling motivates
+     * it. */
+    std::unique_ptr<me::inference::AssetCache> asset_cache;
 #endif
 };
 

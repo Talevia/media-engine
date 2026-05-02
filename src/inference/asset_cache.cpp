@@ -10,6 +10,9 @@
  */
 #include "inference/asset_cache.hpp"
 
+#include "core/engine_impl.hpp"
+#include "media_engine/types.h"
+
 #include <cstring>
 #include <utility>
 
@@ -133,6 +136,51 @@ void AssetCache::clear() {
     std::lock_guard<std::mutex> lk(mu_);
     lru_.clear();
     index_.clear();
+}
+
+me_status_t run_cached(me_engine*                                       engine,
+                       Runtime&                                          runtime,
+                       const std::string&                                model_id,
+                       const std::string&                                model_version,
+                       const std::string&                                quantization,
+                       const std::map<std::string, Tensor>&              inputs,
+                       std::map<std::string, Tensor>*                    outputs,
+                       std::string*                                      err) {
+    if (!engine || !outputs) return ME_E_INVALID_ARG;
+
+    AssetCacheKey key{
+        model_id, model_version, quantization,
+        hash_inputs(inputs)};
+
+#ifdef ME_HAS_INFERENCE
+    /* Engine cache may be absent only if the engine was constructed
+     * before the inference path was wired in (impossible in practice
+     * since `me_engine_create` always allocates `asset_cache` under
+     * ME_HAS_INFERENCE). Defensive null-check keeps us from a UB
+     * deref if a future refactor makes the cache lazily-built. */
+    if (engine->asset_cache) {
+        if (auto cached = engine->asset_cache->get(key)) {
+            *outputs = std::move(*cached);
+            return ME_OK;
+        }
+    }
+#endif
+
+    me_status_t s = runtime.run(inputs, outputs, err);
+    if (s != ME_OK) return s;
+
+#ifdef ME_HAS_INFERENCE
+    if (engine->asset_cache) {
+        /* Store a copy — caller mutates *outputs after this returns,
+         * and AssetCache::put consumes by move. Copy is the safe
+         * default; the cache hit path also returns a copy. Future
+         * optimization: store-by-move + cache-side ref-count if profile
+         * shows the copy on the miss path is hot. */
+        std::map<std::string, Tensor> copy = *outputs;
+        engine->asset_cache->put(std::move(key), std::move(copy));
+    }
+#endif
+    return ME_OK;
 }
 
 }  // namespace me::inference
