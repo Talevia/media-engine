@@ -275,6 +275,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/inverse_tonemap.cpp
   timeline/effect_loaders/hue_saturation.cpp
   timeline/effect_loaders/lut.cpp
+  timeline/effect_loaders/scan_lines.cpp
   timeline/effect_loaders/tone_curve.cpp
   timeline/effect_loaders/tonemap.cpp
   timeline/effect_loaders/vignette.cpp
@@ -331,6 +332,8 @@ add_library(media_engine STATIC
   compose/film_grain_stage.cpp
   compose/glitch_kernel.cpp
   compose/glitch_stage.cpp
+  compose/scan_lines_kernel.cpp
+  compose/scan_lines_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

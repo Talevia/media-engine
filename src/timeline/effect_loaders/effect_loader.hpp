@@ -70,4 +70,7 @@ me::FilmGrainEffectParams       parse_film_grain_effect_params(
 me::GlitchEffectParams          parse_glitch_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::ScanLinesEffectParams       parse_scan_lines_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

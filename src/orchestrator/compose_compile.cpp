@@ -140,6 +140,18 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::ScanLines) {
+            const auto* params = std::get_if<me::ScanLinesEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["line_height_px"].v  = static_cast<int64_t>(params->line_height_px);
+            fp["darkness"].v        = static_cast<double>(params->darkness);
+            fp["phase_offset_px"].v = static_cast<int64_t>(params->phase_offset_px);
+            auto n = b.add(task::TaskKindId::RenderScanLines,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::Glitch) {
             const auto* params = std::get_if<me::GlitchEffectParams>(&fx.params);
             if (!params) continue;

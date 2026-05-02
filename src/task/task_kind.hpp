@@ -50,6 +50,7 @@ enum class TaskKindId : uint32_t {
     RenderVignette     = 0x300C,
     RenderFilmGrain    = 0x300D,
     RenderGlitch       = 0x300E,
+    RenderScanLines    = 0x300F,
 
     AudioMix           = 0x4001,
     AudioResample      = 0x4002,

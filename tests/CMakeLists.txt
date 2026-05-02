@@ -135,6 +135,7 @@ set(_test_suites
   test_vignette_kernel_pixel
   test_film_grain_kernel_pixel
   test_glitch_kernel_pixel
+  test_scan_lines_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -846,6 +847,11 @@ target_include_directories(test_film_grain_kernel_pixel PRIVATE
 # test_glitch_kernel_pixel — M12 §156 (1/5) glitch pixel
 # regression.
 target_include_directories(test_glitch_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_scan_lines_kernel_pixel — M12 §156 (2/5) scan-lines
+# pixel regression.
+target_include_directories(test_scan_lines_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob
