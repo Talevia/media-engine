@@ -119,6 +119,7 @@ set(_test_suites
   test_effect_param_ml_asset_ref
   test_face_sticker_compose_stage
   test_mask_resolver
+  test_face_sticker_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -754,6 +755,14 @@ target_include_directories(test_mask_resolver PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_mask_resolver PRIVATE
   FFMPEG::avutil nlohmann_json::nlohmann_json)
+
+# test_face_sticker_kernel_pixel — byte-identical full-frame
+# regression for apply_face_sticker_inplace (M11
+# pixel-regression-test-face-sticker-kernel). Pure C++ over the
+# kernel; reaches into src/ for the kernel header + Bbox typedef
+# + effect-param struct.
+target_include_directories(test_face_sticker_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
 
 # test_face_mosaic_stub mirrors test_face_sticker_stub for the M11
 # ml-effect-face-mosaic-stub bullet — argument-validation +
