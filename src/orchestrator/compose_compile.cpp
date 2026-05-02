@@ -123,6 +123,23 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::BodyAlphaKey) {
+            const auto* params = std::get_if<me::BodyAlphaKeyEffectParams>(&fx.params);
+            if (!params) continue;
+            std::string mask_uri;
+            auto it = tl.assets.find(params->mask.asset_id);
+            if (it != tl.assets.end()) mask_uri = it->second.uri;
+
+            graph::Properties fp;
+            fp["mask_asset_uri"].v    = mask_uri;
+            fp["frame_t_num"].v       = static_cast<int64_t>(time.num);
+            fp["frame_t_den"].v       = static_cast<int64_t>(time.den);
+            fp["feather_radius_px"].v = static_cast<int64_t>(params->feather_radius_px);
+            fp["invert"].v            = static_cast<int64_t>(params->invert ? 1 : 0);
+            auto n = b.add(task::TaskKindId::RenderBodyAlphaKey,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::FaceMosaic) {
             const auto* params = std::get_if<me::FaceMosaicEffectParams>(&fx.params);
             if (!params) continue;
@@ -142,10 +159,10 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             { prev });
             prev = graph::PortRef{n, 0};
         }
-        /* body_alpha_key / color / blur / lut / tonemap /
-         * inverse_tonemap stages land in subsequent cycles;
-         * until they register, the dispatch falls through and
-         * the effect is silently skipped at render. */
+        /* color / blur / lut / tonemap / inverse_tonemap stages
+         * land in subsequent cycles; until they register, the
+         * dispatch falls through and the effect is silently
+         * skipped at render. */
     }
     return prev;
 }

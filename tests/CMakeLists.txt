@@ -123,6 +123,7 @@ set(_test_suites
   test_inference_blazeface
   test_compose_face_sticker_stage
   test_compose_face_mosaic_stage
+  test_compose_body_alpha_key_stage
 )
 
 foreach(_suite ${_test_suites})
@@ -778,6 +779,12 @@ target_include_directories(test_compose_face_sticker_stage PRIVATE
 # test_compose_face_sticker_stage covering the M11
 # face-mosaic-compose-graph-stage-impl wiring.
 target_include_directories(test_compose_face_mosaic_stage PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_body_alpha_key_stage — sibling of
+# test_compose_face_sticker_stage / test_compose_face_mosaic_stage
+# covering the M11 body-alpha-key-compose-graph-stage-impl wiring.
+target_include_directories(test_compose_body_alpha_key_stage PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

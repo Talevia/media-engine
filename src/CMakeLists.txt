@@ -315,6 +315,7 @@ add_library(media_engine STATIC
   compose/face_mosaic_kernel.cpp
   compose/face_mosaic_stage.cpp
   compose/body_alpha_key_kernel.cpp
+  compose/body_alpha_key_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp
