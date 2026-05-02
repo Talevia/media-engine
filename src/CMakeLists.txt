@@ -315,6 +315,7 @@ add_library(media_engine STATIC
   compose/body_alpha_key_kernel.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
+  compose/mask_resolver.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
   io/demux_kernel.cpp

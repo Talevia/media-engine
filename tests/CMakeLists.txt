@@ -118,6 +118,7 @@ set(_test_suites
   test_inference_license_whitelist
   test_effect_param_ml_asset_ref
   test_face_sticker_compose_stage
+  test_mask_resolver
 )
 
 foreach(_suite ${_test_suites})
@@ -744,6 +745,15 @@ target_include_directories(test_face_sticker_compose_stage PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_face_sticker_compose_stage PRIVATE
   FFMPEG::avcodec FFMPEG::avutil FFMPEG::swscale nlohmann_json::nlohmann_json)
+
+# test_mask_resolver — coverage for the body_alpha_key upstream
+# mask resolver (M11 body-alpha-key-mask-resolver-impl). Pure
+# JSON + base64 round-trip; needs libavutil for av_base64_encode
+# (test-side fixture builder) + nlohmann::json for fixture writes.
+target_include_directories(test_mask_resolver PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_mask_resolver PRIVATE
+  FFMPEG::avutil nlohmann_json::nlohmann_json)
 
 # test_face_mosaic_stub mirrors test_face_sticker_stub for the M11
 # ml-effect-face-mosaic-stub bullet — argument-validation +
