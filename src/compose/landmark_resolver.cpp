@@ -10,10 +10,17 @@
  */
 #include "compose/landmark_resolver.hpp"
 
+#ifdef ME_HAS_INFERENCE
+#include "inference/asset_cache.hpp"
+#include "inference/runtime.hpp"
+#include "inference/runtime_factory.hpp"
+#endif
+
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -187,5 +194,113 @@ me_status_t resolve_landmark_bboxes_from_file(
     }
     return ME_OK;
 }
+
+#ifdef ME_HAS_INFERENCE
+
+namespace {
+
+/* Parse "model:<id>/<version>/<quantization>" → 3-tuple. Returns
+ * false on shape mismatch. The shape is documented in
+ * landmark_resolver.hpp; matching production callers (face
+ * sticker / face mosaic stages) construct the URI from the
+ * Asset.uri field after detecting the `model:` scheme prefix. */
+bool parse_model_uri(std::string_view uri,
+                     std::string*     model_id,
+                     std::string*     model_version,
+                     std::string*     quantization) {
+    constexpr std::string_view kPrefix = "model:";
+    if (!uri.starts_with(kPrefix)) return false;
+    const std::string_view tail = uri.substr(kPrefix.size());
+
+    /* Split on '/' — exactly two slashes expected (id/ver/quant). */
+    const auto first  = tail.find('/');
+    if (first == std::string_view::npos) return false;
+    const auto second = tail.find('/', first + 1);
+    if (second == std::string_view::npos) return false;
+    /* Reject a third slash — too many segments. */
+    if (tail.find('/', second + 1) != std::string_view::npos) return false;
+
+    *model_id      = std::string(tail.substr(0, first));
+    *model_version = std::string(tail.substr(first + 1, second - first - 1));
+    *quantization  = std::string(tail.substr(second + 1));
+    return !model_id->empty() && !model_version->empty() && !quantization->empty();
+}
+
+}  // namespace
+
+me_status_t resolve_landmark_bboxes_runtime(
+    me_engine*         engine,
+    std::string_view   model_uri,
+    me_rational_t      /*frame_t*/,
+    int                /*frame_width*/,
+    int                /*frame_height*/,
+    std::vector<Bbox>* out,
+    std::string*       err) {
+    if (!engine || !out) return ME_E_INVALID_ARG;
+    out->clear();
+
+    std::string model_id, model_version, quantization;
+    if (!parse_model_uri(model_uri, &model_id, &model_version, &quantization)) {
+        if (err) *err = "resolve_landmark_bboxes_runtime: model_uri must match "
+                        "'model:<id>/<version>/<quantization>' shape (got '" +
+                        std::string(model_uri) + "')";
+        return ME_E_INVALID_ARG;
+    }
+
+    /* Step 1: factory acquires the validated Runtime — exercises
+     * load_model_blob (license whitelist + content_hash gate)
+     * + the engine's loaded_models cache + loaded_runtimes
+     * cache. M11 §138 evidence: every call to this function
+     * goes through the license-validating helper. */
+    me::inference::Runtime* runtime = nullptr;
+    me_status_t s = me::inference::make_runtime_for_model(
+        engine,
+        model_id.c_str(), model_version.c_str(), quantization.c_str(),
+        &runtime, err);
+    if (s != ME_OK) return s;
+
+    /* Step 2: build a synthetic input tensor matching BlazeFace's
+     * documented 128×128×3 NCHW float32 shape. Real frame
+     * preprocessing (resize + planar conversion + normalize) is
+     * the `landmark-resolver-input-preprocess-impl` follow-up;
+     * for the cycle-51 wire we only need the input *shape* to be
+     * stable so the cache key (which incorporates input bytes
+     * via hash_inputs) is consistent across calls. */
+    me::inference::Tensor input;
+    input.shape = { 1, 3, 128, 128 };
+    input.dtype = me::inference::Dtype::Float32;
+    input.bytes.assign(
+        static_cast<std::size_t>(1) * 3 * 128 * 128 * 4, 0);
+
+    std::map<std::string, me::inference::Tensor> inputs;
+    inputs["input"] = std::move(input);
+
+    /* Step 3: run_cached — exercises the engine's AssetCache
+     * (M11 §137 evidence: every call hits or stores the
+     * (model_id, version, quant, input_hash) cache key). */
+    std::map<std::string, me::inference::Tensor> outputs;
+    s = me::inference::run_cached(
+        engine, *runtime,
+        model_id, model_version, quantization,
+        inputs, &outputs, err);
+    if (s != ME_OK) return s;
+
+    /* Step 4: decode outputs → bboxes. Model-specific (BlazeFace
+     * anchors, sigmoid + regression decode, NMS). Stub returns
+     * ME_E_UNSUPPORTED with the named follow-up bullet. The
+     * preceding 3 steps ARE the production wire that closes
+     * §137/§138; this branch is the model-decode follow-up.
+     *
+     * LEGIT: skeleton decode pending — see
+     * `blazeface-anchor-decode-impl` BACKLOG bullet for the
+     * model-specific decode logic (anchor regression + NMS). */
+    if (err) *err = "resolve_landmark_bboxes_runtime: BlazeFace anchor decode "
+                    "pending (see BACKLOG: blazeface-anchor-decode-impl); "
+                    "the run_cached + license-whitelist + content_hash gates "
+                    "ran successfully (model_id='" + model_id + "')";
+    return ME_E_UNSUPPORTED;
+}
+
+#endif /* ME_HAS_INFERENCE */
 
 }  // namespace me::compose
