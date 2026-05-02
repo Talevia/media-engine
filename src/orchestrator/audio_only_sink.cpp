@@ -4,6 +4,7 @@
 #include "io/demux_context.hpp"
 #include "io/ffmpeg_raii.hpp"
 #include "io/mux_context.hpp"
+#include "orchestrator/codec_resolver.hpp"
 #include "orchestrator/encoder_mux_setup.hpp"
 #include "orchestrator/reencode_audio.hpp"
 #include "orchestrator/reencode_pipeline.hpp"
@@ -23,10 +24,6 @@ extern "C" {
 namespace me::orchestrator {
 
 namespace {
-
-bool streq(const char* a, const char* b) {
-    return a && b && std::strcmp(a, b) == 0;
-}
 
 class AudioOnlySink final : public OutputSink {
 public:
@@ -194,7 +191,8 @@ std::unique_ptr<OutputSink> make_audio_only_sink(
     me::resource::CodecPool*       pool,
     std::string*                   err) {
 
-    if (!streq(spec.audio_codec, "aac")) {
+    const CodecSelection sel = resolve_codec_selection(spec);
+    if (sel.audio_codec != ME_AUDIO_CODEC_AAC) {
         if (err) *err = "audio-only path requires audio_codec=aac; other codecs unsupported";
         return nullptr;
     }

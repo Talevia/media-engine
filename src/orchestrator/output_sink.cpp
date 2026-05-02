@@ -1,6 +1,7 @@
 #include "orchestrator/output_sink.hpp"
 
 #include "io/demux_context.hpp"
+#include "orchestrator/codec_resolver.hpp"
 #include "orchestrator/hevc_sw_sink.hpp"
 #include "orchestrator/muxer_state.hpp"
 #include "orchestrator/reencode_pipeline.hpp"
@@ -14,26 +15,31 @@ namespace me::orchestrator {
 
 namespace {
 
-bool streq(const char* a, std::string_view b) {
-    return a && std::string_view{a} == b;
-}
-
-bool is_passthrough_spec(const me_output_spec_t& s) {
-    return streq(s.video_codec, "passthrough") && streq(s.audio_codec, "passthrough");
+bool is_passthrough_selection(const CodecSelection& sel) {
+    return sel.video_codec == ME_VIDEO_CODEC_PASSTHROUGH
+        && sel.audio_codec == ME_AUDIO_CODEC_PASSTHROUGH;
 }
 
 /* Accept any LGPL-clean re-encode video codec we ship (h264 +
  * hevc as of M10's `encode-hevc-output-sink-wiring` cycle, plus
  * the SW HEVC fallback `hevc-sw` per
  * `encode-hevc-output-sink-runtime-sw-dispatch`) paired with AAC
- * audio. Adding a new video codec here means a new `streq` and a
- * corresponding branch in
+ * audio. Adding a new video codec here means a new enum value in
+ * `me_video_codec_t` (codec_options.h) + a corresponding
+ * `case` here + a matching branch in
  * `me::orchestrator::detail::open_video_encoder`. */
-bool is_video_aac_spec(const me_output_spec_t& s) {
-    if (!streq(s.audio_codec, "aac")) return false;
-    return streq(s.video_codec, "h264")
-        || streq(s.video_codec, "hevc")
-        || streq(s.video_codec, "hevc-sw");
+bool is_video_aac_selection(const CodecSelection& sel) {
+    if (sel.audio_codec != ME_AUDIO_CODEC_AAC) return false;
+    switch (sel.video_codec) {
+    case ME_VIDEO_CODEC_H264:
+    case ME_VIDEO_CODEC_HEVC:
+    case ME_VIDEO_CODEC_HEVC_SW:
+        return true;
+    case ME_VIDEO_CODEC_NONE:
+    case ME_VIDEO_CODEC_PASSTHROUGH:
+        return false;
+    }
+    return false;
 }
 
 /* ==========================================================================
@@ -161,12 +167,14 @@ std::unique_ptr<OutputSink> make_output_sink(
         return nullptr;
     }
 
-    if (is_passthrough_spec(spec)) {
+    const CodecSelection sel = resolve_codec_selection(spec);
+
+    if (is_passthrough_selection(sel)) {
         /* Passthrough doesn't touch AVCodecContext; codec_pool ignored. */
         return std::make_unique<PassthroughSink>(std::move(common), std::move(clip_ranges));
     }
-    /* SW HEVC video-only sink — checked before is_video_aac_spec so
-     * `(hevc-sw, none)` routes here rather than falling into the
+    /* SW HEVC video-only sink — checked before is_video_aac_selection
+     * so `(hevc-sw, none)` routes here rather than falling into the
      * VideoAacSink → reencode_mux path which would return
      * ME_E_UNSUPPORTED at open_video_encoder's preflight. */
     if (is_hevc_sw_video_only_spec(spec)) {
@@ -177,7 +185,7 @@ std::unique_ptr<OutputSink> make_output_sink(
         }
         return make_hevc_sw_sink(std::move(common), std::move(clip_ranges));
     }
-    if (is_video_aac_spec(spec)) {
+    if (is_video_aac_selection(sel)) {
         if (!codec_pool) {
             if (err) *err = "re-encode requires a codec pool (engine->codecs)";
             return nullptr;

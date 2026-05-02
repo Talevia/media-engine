@@ -20,6 +20,7 @@
 #include "io/demux_context.hpp"
 #include "io/ffmpeg_raii.hpp"
 #include "io/mux_context.hpp"
+#include "orchestrator/codec_resolver.hpp"
 
 #ifdef ME_HAS_KVAZAAR
 #include "io/kvazaar_hevc_encoder.hpp"
@@ -51,23 +52,18 @@ using me::io::AvFramePtr;
 using me::io::AvPacketPtr;
 using me::io::SwsContextPtr;
 
-bool nullish_or_eq(const char* a, const char* b) {
-    if (!a) return true;
-    if (a[0] == '\0') return true;
-    return std::string_view{a} == b;
-}
-
 }  // namespace
 
 bool is_hevc_sw_video_only_spec(const me_output_spec_t& spec) {
-    if (!spec.video_codec) return false;
-    if (std::string_view{spec.video_codec} != "hevc-sw") return false;
-    /* Accept NULL / empty / "none" for audio_codec — all three
-     * shapes mean "no audio in the output". The "" case mirrors how
-     * passthrough callers leave the field cleared. */
-    if (!spec.audio_codec) return true;
-    if (spec.audio_codec[0] == '\0') return true;
-    return std::string_view{spec.audio_codec} == "none";
+    /* Routes through the typed-codec resolver (cycle-47 ABI):
+     * `(hevc-sw, none)` means video=HEVC_SW + audio=NONE in the
+     * resolved enum, regardless of whether the host populated
+     * the legacy strings or the typed `codec_options` extension.
+     * The resolver maps NULL / "" / "none" → ME_AUDIO_CODEC_NONE
+     * exactly as the prior string-based check did. */
+    const CodecSelection sel = resolve_codec_selection(spec);
+    return sel.video_codec == ME_VIDEO_CODEC_HEVC_SW
+        && sel.audio_codec == ME_AUDIO_CODEC_NONE;
 }
 
 #ifndef ME_HAS_KVAZAAR

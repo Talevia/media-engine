@@ -18,6 +18,7 @@
 #include "orchestrator/compose_sink.hpp"
 
 #include "gpu/gpu_backend.hpp"
+#include "orchestrator/codec_resolver.hpp"
 #include "orchestrator/compose_sink_impl.hpp"
 #include "timeline/timeline_impl.hpp"
 
@@ -25,14 +26,6 @@
 #include <utility>
 
 namespace me::orchestrator {
-
-namespace {
-
-bool streq(const char* a, const char* b) {
-    return a && b && std::strcmp(a, b) == 0;
-}
-
-}  // namespace
 
 bool is_gpu_compose_usable(const me::gpu::GpuBackend* gpu) noexcept {
     if (!gpu) return false;
@@ -57,7 +50,9 @@ std::unique_ptr<OutputSink> make_compose_sink(
     const me::gpu::GpuBackend*     gpu_backend,
     std::string*                   err) {
 
-    if (!streq(spec.video_codec, "h264") || !streq(spec.audio_codec, "aac")) {
+    const CodecSelection sel = resolve_codec_selection(spec);
+    if (sel.video_codec != ME_VIDEO_CODEC_H264 ||
+        sel.audio_codec != ME_AUDIO_CODEC_AAC) {
         if (err) *err = "compose path (used for multi-track or transitions) "
                          "currently requires video_codec=h264 + audio_codec=aac; "
                          "other codecs (including passthrough) unsupported";

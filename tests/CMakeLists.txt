@@ -125,6 +125,7 @@ set(_test_suites
   test_compose_face_mosaic_stage
   test_compose_body_alpha_key_stage
   test_codec_options_abi
+  test_codec_resolver
 )
 
 foreach(_suite ${_test_suites})
@@ -786,6 +787,11 @@ target_include_directories(test_compose_face_mosaic_stage PRIVATE
 # test_compose_face_sticker_stage / test_compose_face_mosaic_stage
 # covering the M11 body-alpha-key-compose-graph-stage-impl wiring.
 target_include_directories(test_compose_body_alpha_key_stage PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_codec_resolver — pins the cycle-48 typed-codec resolver
+# behavior (debt-typed-codec-options-internal-migration).
+target_include_directories(test_codec_resolver PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob
