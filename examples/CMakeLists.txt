@@ -91,6 +91,7 @@ set(_me_expected_examples
   11_error_diagnosis
   12_cache_invalidate
   13_face_sticker
+  15_body_alpha_key
 )
 # 14_ml_face_landmark gates on ME_WITH_INFERENCE — appended here
 # only when the option is ON so the lock-step canary at the bottom
@@ -112,6 +113,7 @@ add_subdirectory(10_player_pause_seek)
 add_subdirectory(11_error_diagnosis)
 add_subdirectory(12_cache_invalidate)
 add_subdirectory(13_face_sticker)
+add_subdirectory(15_body_alpha_key)
 if(ME_WITH_INFERENCE)
   add_subdirectory(14_ml_face_landmark)
 endif()

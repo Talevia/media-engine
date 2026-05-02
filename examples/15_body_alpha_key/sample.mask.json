@@ -1,0 +1,16 @@
+{
+  "frames": [
+    {
+      "t": {"num": 0, "den": 30},
+      "width": 16,
+      "height": 12,
+      "alphaB64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////"
+    },
+    {
+      "t": {"num": 30, "den": 30},
+      "width": 16,
+      "height": 12,
+      "alphaB64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////"
+    }
+  ]
+}
