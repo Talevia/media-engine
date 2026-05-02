@@ -120,6 +120,7 @@ set(_test_suites
   test_face_sticker_compose_stage
   test_mask_resolver
   test_face_sticker_kernel_pixel
+  test_inference_blazeface
 )
 
 foreach(_suite ${_test_suites})
@@ -763,6 +764,23 @@ target_link_libraries(test_mask_resolver PRIVATE
 # + effect-param struct.
 target_include_directories(test_face_sticker_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
+
+# test_inference_blazeface — env-var-gated host-supplied-blob
+# parity test for BlazeFace (M11 ml-ship-path-model-blazeface).
+# Same ME_HAS_INFERENCE + ME_HAS_ONNX_RUNTIME gating shape as
+# test_inference_onnx_skeleton. Reads model bytes from
+# ME_TEST_BLAZEFACE_ONNX_PATH at runtime; CI without the env var
+# fast-skips. Reaches into src/ for the inference internals +
+# load_model_blob.
+target_include_directories(test_inference_blazeface PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+if(PkgConfig_FOUND)
+  pkg_check_modules(_TEST_BLAZEFACE_ONNX QUIET libonnxruntime)
+  if(_TEST_BLAZEFACE_ONNX_FOUND)
+    target_compile_definitions(test_inference_blazeface PRIVATE
+      ME_HAS_ONNX_RUNTIME=1)
+  endif()
+endif()
 
 # test_face_mosaic_stub mirrors test_face_sticker_stub for the M11
 # ml-effect-face-mosaic-stub bullet — argument-validation +

@@ -91,6 +91,12 @@ set(_me_expected_examples
   11_error_diagnosis
   12_cache_invalidate
 )
+# 14_ml_face_landmark gates on ME_WITH_INFERENCE — appended here
+# only when the option is ON so the lock-step canary at the bottom
+# stays green for OFF builds.
+if(ME_WITH_INFERENCE)
+  list(APPEND _me_expected_examples 14_ml_face_landmark)
+endif()
 
 add_subdirectory(01_passthrough)
 add_subdirectory(02_graph_smoke)
@@ -104,6 +110,9 @@ add_subdirectory(09_text_clip)
 add_subdirectory(10_player_pause_seek)
 add_subdirectory(11_error_diagnosis)
 add_subdirectory(12_cache_invalidate)
+if(ME_WITH_INFERENCE)
+  add_subdirectory(14_ml_face_landmark)
+endif()
 
 # --- Post-subdir self-check: every expected example target exists ---------
 foreach(_expected ${_me_expected_examples})
