@@ -131,19 +131,19 @@
 
 ### Exit criteria
 
-- [ ] CMake `ME_WITH_INFERENCE=ON / OFF` 选项；OFF 时 `lib_size_budget` 不变（核心 link graph 不污染），ON 时进入独立 budget 行
-- [ ] 推理 runtime 接入：CoreML（macOS / iOS）+ ONNX runtime（跨平台，CPU FP32 reference）；TFLite 暂不接（按需后续）；CUDA / MKL / 闭源 SDK 一律不链
-- [ ] 推理 asset 的 timeline schema 类型：`landmark` (Nx2 floats / frame, confidence)、`mask` (alpha sequence)、`keypoints` (skeleton with connectivity)；每类带 `model_id` + `model_version` + `quantization` 必填字段
+- [x] CMake `ME_WITH_INFERENCE=ON / OFF` 选项；OFF 时 `lib_size_budget` 不变（核心 link graph 不污染），ON 时进入独立 budget 行
+- [x] 推理 runtime 接入：CoreML（macOS / iOS）+ ONNX runtime（跨平台，CPU FP32 reference）；TFLite 暂不接（按需后续）；CUDA / MKL / 闭源 SDK 一律不链
+- [x] 推理 asset 的 timeline schema 类型：`landmark` (Nx2 floats / frame, confidence)、`mask` (alpha sequence)、`keypoints` (skeleton with connectivity)；每类带 `model_id` + `model_version` + `quantization` 必填字段
 - [ ] 推理 asset 走 §3.3 contentHash 缓存：key = `(model_id, model_version, quantization, 输入帧 hash)`；同输入跨调用复用，回归测试覆盖
 - [ ] 模型权重 lazy load：host 实现 `me_model_fetcher_t` callback；engine 校验 content_hash + license 白名单（Apache / MIT / BSD / CC-BY），non-commercial / GPL / unknown license 拒载
 - [ ] 至少 2 个 ship-path model 跑通：face landmark（候选 BlazeFace + face_landmarks_v2，TFLite Apache）+ portrait segmentation（候选 SelfieSegmentation，Apache）；CPU FP32 reference 与 CoreML / ONNX runtime HW path 误差 < ε
-- [ ] effect kind 扩展可声明 ML-asset 输入：参数 typed schema 增加 `landmark_asset_ref` / `mask_asset_ref` / `keypoint_asset_ref` 等引用类型
+- [x] effect kind 扩展可声明 ML-asset 输入：参数 typed schema 增加 `landmark_asset_ref` / `mask_asset_ref` / `keypoint_asset_ref` 等引用类型
 - [ ] 第一波 detection-driven effect（≥ 3 个）：
     - `face_sticker` — 贴纸按 landmark 平移 / 缩放 / 旋转吸附面部
     - `face_mosaic` — 跟随 landmark bbox 的局部模糊 / 像素化
     - `body_alpha_key` — portrait segmentation mask 作前景 alpha
 - [ ] 每个 effect 有像素级回归测试 + 至少一个 example（候选：`12_face_sticker`、`13_body_alpha_key`）
-- [ ] §5.7-5 `lib_size_budget` 加 `Release_with_inference` 行，独立预算覆盖推理 runtime + reference 模型（host 注入的 ship 模型不计入）
+- [x] §5.7-5 `lib_size_budget` 加 `Release_with_inference` 行，独立预算覆盖推理 runtime + reference 模型（host 注入的 ship 模型不计入）
 - [ ] §5.8 自查 rubric 在 PR template 或 iterate-gap skill 提示中引用，挡住越界 ML 任务
 
 ## M12 — Effect 库扩展（确定性 GPU shader 类，不依赖 ML）
