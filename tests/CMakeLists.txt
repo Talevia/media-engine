@@ -133,6 +133,7 @@ set(_test_suites
   test_tone_curve_kernel_pixel
   test_hue_saturation_kernel_pixel
   test_vignette_kernel_pixel
+  test_film_grain_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -834,6 +835,11 @@ target_include_directories(test_hue_saturation_kernel_pixel PRIVATE
 # test_vignette_kernel_pixel — M12 §155 (3/4) vignette pixel
 # regression.
 target_include_directories(test_vignette_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_film_grain_kernel_pixel — M12 §155 (4/4) film-grain
+# pixel regression.
+target_include_directories(test_film_grain_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

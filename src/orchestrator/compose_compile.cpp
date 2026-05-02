@@ -140,6 +140,21 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::FilmGrain) {
+            const auto* params = std::get_if<me::FilmGrainEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            /* Cast uint64 → int64. Negative int64 values wrap
+             * to large uint64 in the kernel via two's
+             * complement; PRNG seed semantics are preserved. */
+            fp["seed"].v          = static_cast<int64_t>(params->seed);
+            fp["amount"].v        = static_cast<double>(params->amount);
+            fp["grain_size_px"].v = static_cast<int64_t>(params->grain_size_px);
+            auto n = b.add(task::TaskKindId::RenderFilmGrain,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::Vignette) {
             const auto* params = std::get_if<me::VignetteEffectParams>(&fx.params);
             if (!params) continue;

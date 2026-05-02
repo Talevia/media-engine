@@ -64,4 +64,7 @@ me::HueSaturationEffectParams   parse_hue_saturation_effect_params(
 me::VignetteEffectParams        parse_vignette_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::FilmGrainEffectParams       parse_film_grain_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail
