@@ -113,6 +113,7 @@ set(_test_suites
   test_inference_multiarray_layout
   test_inference_onnx_skeleton
   test_kvazaar_hevc_encoder
+  test_hevc_sw_sink
 )
 
 foreach(_suite ${_test_suites})
@@ -1087,6 +1088,25 @@ if(PkgConfig_FOUND)
   if(_TEST_KVAZAAR_FOUND)
     target_compile_definitions(test_kvazaar_hevc_encoder PRIVATE
       ME_HAS_KVAZAAR=1)
+  endif()
+endif()
+
+# test_hevc_sw_sink — drives HevcSwSink end-to-end with the
+# determinism fixture (640x480 YUV420P, 25 frames). ME_HAS_KVAZAAR
+# gates the integration TEST_CASE; the spec-matcher unit tests run
+# without it. Same kvazaar re-detect pattern + adds avformat/avutil
+# for the fixture-loading path.
+target_include_directories(test_hevc_sw_sink PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_hevc_sw_sink PRIVATE
+  FFMPEG::avformat FFMPEG::avcodec FFMPEG::avutil)
+if(PkgConfig_FOUND)
+  pkg_check_modules(_TEST_HEVC_SW_KVAZAAR QUIET kvazaar)
+  if(_TEST_HEVC_SW_KVAZAAR_FOUND)
+    target_compile_definitions(test_hevc_sw_sink PRIVATE
+      ME_HAS_KVAZAAR=1
+      ME_TEST_FIXTURE_MP4="${_fixture_mp4}")
+    add_dependencies(test_hevc_sw_sink determinism_fixture)
   endif()
 endif()
 

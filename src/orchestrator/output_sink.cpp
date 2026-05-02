@@ -1,6 +1,7 @@
 #include "orchestrator/output_sink.hpp"
 
 #include "io/demux_context.hpp"
+#include "orchestrator/hevc_sw_sink.hpp"
 #include "orchestrator/muxer_state.hpp"
 #include "orchestrator/reencode_pipeline.hpp"
 #include "resource/codec_pool.hpp"
@@ -164,6 +165,18 @@ std::unique_ptr<OutputSink> make_output_sink(
         /* Passthrough doesn't touch AVCodecContext; codec_pool ignored. */
         return std::make_unique<PassthroughSink>(std::move(common), std::move(clip_ranges));
     }
+    /* SW HEVC video-only sink — checked before is_video_aac_spec so
+     * `(hevc-sw, none)` routes here rather than falling into the
+     * VideoAacSink → reencode_mux path which would return
+     * ME_E_UNSUPPORTED at open_video_encoder's preflight. */
+    if (is_hevc_sw_video_only_spec(spec)) {
+        if (clip_ranges.size() != 1) {
+            if (err) *err = "hevc-sw sink: single-segment only "
+                            "(multi-segment is debt-hevc-sw-multi-segment)";
+            return nullptr;
+        }
+        return make_hevc_sw_sink(std::move(common), std::move(clip_ranges));
+    }
     if (is_video_aac_spec(spec)) {
         if (!codec_pool) {
             if (err) *err = "re-encode requires a codec pool (engine->codecs)";
@@ -174,8 +187,9 @@ std::unique_ptr<OutputSink> make_output_sink(
     }
 
     if (err) *err = "phase-1: supported specs are "
-                     "(video=passthrough, audio=passthrough) or "
-                     "(video=h264|hevc|hevc-sw, audio=aac)";
+                     "(video=passthrough, audio=passthrough), "
+                     "(video=h264|hevc, audio=aac), or "
+                     "(video=hevc-sw, audio=none)";
     return nullptr;
 }
 
