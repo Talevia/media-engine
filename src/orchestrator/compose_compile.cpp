@@ -123,11 +123,29 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::FaceMosaic) {
+            const auto* params = std::get_if<me::FaceMosaicEffectParams>(&fx.params);
+            if (!params) continue;
+            std::string landmark_uri;
+            auto it = tl.assets.find(params->landmark.asset_id);
+            if (it != tl.assets.end()) landmark_uri = it->second.uri;
+
+            graph::Properties fp;
+            fp["landmark_asset_uri"].v = landmark_uri;
+            fp["frame_t_num"].v        = static_cast<int64_t>(time.num);
+            fp["frame_t_den"].v        = static_cast<int64_t>(time.den);
+            fp["block_size_px"].v      = static_cast<int64_t>(params->block_size_px);
+            fp["mosaic_kind"].v        = static_cast<int64_t>(
+                params->kind == me::FaceMosaicEffectParams::Kind::Blur ? 1 : 0);
+            auto n = b.add(task::TaskKindId::RenderFaceMosaic,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         }
-        /* face_mosaic / body_alpha_key / color / blur / lut /
-         * tonemap / inverse_tonemap stages land in subsequent
-         * cycles; until they register, the dispatch falls
-         * through and the effect is silently skipped at render. */
+        /* body_alpha_key / color / blur / lut / tonemap /
+         * inverse_tonemap stages land in subsequent cycles;
+         * until they register, the dispatch falls through and
+         * the effect is silently skipped at render. */
     }
     return prev;
 }

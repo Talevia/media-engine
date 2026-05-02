@@ -313,6 +313,7 @@ add_library(media_engine STATIC
   compose/face_sticker_kernel.cpp
   compose/face_sticker_stage.cpp
   compose/face_mosaic_kernel.cpp
+  compose/face_mosaic_stage.cpp
   compose/body_alpha_key_kernel.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp

@@ -43,6 +43,7 @@ enum class TaskKindId : uint32_t {
     RenderAffineBlit   = 0x3005,
     RenderEncodePng    = 0x3006,
     RenderFaceSticker  = 0x3007,
+    RenderFaceMosaic   = 0x3008,
 
     AudioMix           = 0x4001,
     AudioResample      = 0x4002,

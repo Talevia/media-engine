@@ -122,6 +122,7 @@ set(_test_suites
   test_face_sticker_kernel_pixel
   test_inference_blazeface
   test_compose_face_sticker_stage
+  test_compose_face_mosaic_stage
 )
 
 foreach(_suite ${_test_suites})
@@ -771,6 +772,12 @@ target_include_directories(test_face_sticker_kernel_pixel PRIVATE
 # Same hand-built-Timeline pattern as test_compose_multi_track_graph;
 # reaches into src/ for compose_compile + Timeline IR types.
 target_include_directories(test_compose_face_sticker_stage PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_face_mosaic_stage — sibling of
+# test_compose_face_sticker_stage covering the M11
+# face-mosaic-compose-graph-stage-impl wiring.
+target_include_directories(test_compose_face_mosaic_stage PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob
