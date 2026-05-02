@@ -126,6 +126,7 @@ set(_test_suites
   test_compose_body_alpha_key_stage
   test_codec_options_abi
   test_codec_resolver
+  test_inference_runtime_factory
 )
 
 foreach(_suite ${_test_suites})
@@ -792,6 +793,12 @@ target_include_directories(test_compose_body_alpha_key_stage PRIVATE
 # test_codec_resolver — pins the cycle-48 typed-codec resolver
 # behavior (debt-typed-codec-options-internal-migration).
 target_include_directories(test_codec_resolver PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_inference_runtime_factory — pins the cycle-50
+# Runtime factory (inference-runtime-factory-impl). Reaches
+# into src/inference for runtime_factory.hpp + runtime.hpp.
+target_include_directories(test_inference_runtime_factory PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

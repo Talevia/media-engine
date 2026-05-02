@@ -31,6 +31,7 @@
 #ifdef ME_HAS_INFERENCE
 #include "inference/asset_cache.hpp"
 #include "inference/model_loader.hpp"
+#include "inference/runtime.hpp"
 #include "media_engine/ml.h"
 #endif
 
@@ -108,6 +109,24 @@ struct me_engine {
      * time; future config knob can override if profiling motivates
      * it. */
     std::unique_ptr<me::inference::AssetCache> asset_cache;
+
+    /* Engine-owned cache of constructed Runtime instances
+     * (M11 inference-runtime-factory-impl). Keyed on the same
+     * identity tuple as `loaded_models` (model_id, version,
+     * quantization). The runtime.hpp:88 doc commits the engine
+     * to "single Runtime instance per loaded model" — this map
+     * is the storage. `make_runtime_for_model` consults this
+     * cache on entry and stores on miss; effect kernels never
+     * construct Runtime instances directly. Cleared via
+     * `me::inference::clear_loaded_runtimes` (test reset
+     * path). The cached Runtime has a longer lifetime than the
+     * map's `unique_ptr` ownership: callers receive a raw
+     * pointer (borrow), the map owns. Engine destruction tears
+     * down the runtimes after every effect kernel has
+     * finished. */
+    std::mutex loaded_runtimes_mu;
+    std::map<std::tuple<std::string, std::string, std::string>,
+             std::unique_ptr<me::inference::Runtime>> loaded_runtimes;
 #endif
 };
 
