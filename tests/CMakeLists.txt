@@ -115,6 +115,7 @@ set(_test_suites
   test_kvazaar_hevc_encoder
   test_hevc_sw_sink
   test_inference_content_hash_cache
+  test_inference_license_whitelist
 )
 
 foreach(_suite ${_test_suites})
@@ -1070,6 +1071,14 @@ target_include_directories(test_inference_multiarray_layout PRIVATE
 # engine itself. Pure C++ over the cache + a mock runtime — no Apple
 # frameworks, no ONNX runtime.
 target_include_directories(test_inference_content_hash_cache PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_inference_license_whitelist — exercises load_model_blob's
+# license-whitelist + content-hash validation against a mock fetcher
+# (M11 exit criterion at MILESTONES.md:138). Reaches into src/ for
+# inference/model_loader.hpp + resource/content_hash.hpp; needs the
+# real engine create/destroy to test fetcher registration end-to-end.
+target_include_directories(test_inference_license_whitelist PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_onnx_skeleton — exercises me::inference::OnnxRuntime's
