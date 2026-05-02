@@ -104,13 +104,16 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
     } else if (kind_str == "posterize") {
         spec.kind   = me::EffectKind::Posterize;
         spec.params = parse_posterize_effect_params(p, params_where);
+    } else if (kind_str == "ordered_dither") {
+        spec.kind   = me::EffectKind::OrderedDither;
+        spec.params = parse_ordered_dither_effect_params(p, params_where);
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
                         "' (supported: color, blur, lut, tonemap, inverse_tonemap, "
                         "face_sticker, face_mosaic, body_alpha_key, tone_curve, "
                         "hue_saturation, vignette, film_grain, glitch, scan_lines, "
-                        "chromatic_aberration, posterize)"};
+                        "chromatic_aberration, posterize, ordered_dither)"};
     }
     return spec;
 }

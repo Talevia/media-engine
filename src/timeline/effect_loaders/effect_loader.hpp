@@ -79,4 +79,7 @@ me::ChromaticAberrationEffectParams parse_chromatic_aberration_effect_params(
 me::PosterizeEffectParams       parse_posterize_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::OrderedDitherEffectParams   parse_ordered_dither_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

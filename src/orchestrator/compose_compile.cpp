@@ -150,6 +150,17 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::OrderedDither) {
+            const auto* params = std::get_if<me::OrderedDitherEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["matrix_size"].v = static_cast<int64_t>(params->matrix_size);
+            fp["levels"].v      = static_cast<int64_t>(params->levels);
+            auto n = b.add(task::TaskKindId::RenderOrderedDither,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ChromaticAberration) {
             const auto* params = std::get_if<me::ChromaticAberrationEffectParams>(&fx.params);
             if (!params) continue;
