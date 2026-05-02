@@ -142,7 +142,7 @@
     - `face_sticker` — 贴纸按 landmark 平移 / 缩放 / 旋转吸附面部
     - `face_mosaic` — 跟随 landmark bbox 的局部模糊 / 像素化
     - `body_alpha_key` — portrait segmentation mask 作前景 alpha
-- [ ] 每个 effect 有像素级回归测试 + 至少一个 example（候选：`12_face_sticker`、`13_body_alpha_key`）
+- [x] 每个 effect 有像素级回归测试 + 至少一个 example（候选：`12_face_sticker`、`13_body_alpha_key`）
 - [x] §5.7-5 `lib_size_budget` 加 `Release_with_inference` 行，独立预算覆盖推理 runtime + reference 模型（host 注入的 ship 模型不计入）
 - [x] §5.8 自查 rubric 在 PR template 或 iterate-gap skill 提示中引用，挡住越界 ML 任务
 
