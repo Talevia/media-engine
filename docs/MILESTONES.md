@@ -117,7 +117,7 @@
 
 - [x] timeline schema 支持 `colorSpace.{primaries=bt2020, transfer=smpte2084|arib-std-b67, matrix=bt2020nc, range=full|limited}`，schema validation 拒绝非法组合
 - [x] decode 路径覆盖 HEVC Main 10、VP9 Profile 2 (10/12-bit)、AV1 10-bit；每路径有像素级 round-trip 测试
-- [ ] encode 路径：HEVC Main 10 via VideoToolbox（HW HDR），软件 fallback 走 LGPL-clean 编码器（SVT-HEVC Apache 2.0 候选；libx265 GPL 排除）；SW 路径标记非确定性 + 受限输出（1080p 上限 / 失败时显式错）
+- [x] encode 路径：HEVC Main 10 via VideoToolbox（HW HDR），软件 fallback 走 LGPL-clean 编码器（SVT-HEVC Apache 2.0 候选；libx265 GPL 排除）；SW 路径标记非确定性 + 受限输出（1080p 上限 / 失败时显式错）
 - [x] `me_probe` 抽取 HDR metadata：MaxCLL / MaxFALL / MasterDisplay primaries + luminance（合并 BACKLOG `me-probe-hdr-metadata`）
 - [x] OCIO 升级：内置 + 可注入 PQ / HLG / ACES config（合并 BACKLOG `ocio-config-env-override`）
 - [x] SDR ↔ HDR 互转：tonemap (HDR → SDR via Hable / Reinhard / ACES，显式 effect kind)、inverse-tonemap stub（标记非确定性，仅 HDR 输出场景使用）
