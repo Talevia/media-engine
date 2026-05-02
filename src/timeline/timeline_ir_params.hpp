@@ -41,6 +41,7 @@
 #include "timeline/effect_params/lut.hpp"
 #include "timeline/effect_params/motion_blur.hpp"
 #include "timeline/effect_params/ordered_dither.hpp"
+#include "timeline/effect_params/radial_blur.hpp"
 #include "timeline/effect_params/posterize.hpp"
 #include "timeline/effect_params/scan_lines.hpp"
 #include "timeline/effect_params/tone_curve.hpp"
@@ -265,6 +266,7 @@ enum class EffectKind : uint8_t {
     Posterize       = 15,
     OrderedDither   = 16,
     MotionBlur      = 17,
+    RadialBlur      = 18,
 };
 
 struct EffectSpec {
@@ -290,8 +292,9 @@ struct EffectSpec {
      * 6, BodyAlphaKey → 7, ToneCurve → 8, HueSaturation → 9,
      * Vignette → 10, FilmGrain → 11, Glitch → 12,
      * ScanLines → 13, ChromaticAberration → 14, Posterize →
-     * 15, OrderedDither → 16, MotionBlur → 17) so consumers
-     * can `std::get_if<ColorEffectParams>(&spec.params)` without
+     * 15, OrderedDither → 16, MotionBlur → 17,
+     * RadialBlur → 18) so consumers can
+     * `std::get_if<ColorEffectParams>(&spec.params)` without
      * re-checking kind. Loader enforces the invariant. */
     std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams,
                  TonemapEffectParams, InverseTonemapEffectParams,
@@ -303,7 +306,8 @@ struct EffectSpec {
                  ChromaticAberrationEffectParams,
                  PosterizeEffectParams,
                  OrderedDitherEffectParams,
-                 MotionBlurEffectParams>
+                 MotionBlurEffectParams,
+                 RadialBlurEffectParams>
         params{ColorEffectParams{}};
 };
 

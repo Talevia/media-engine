@@ -110,6 +110,9 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
     } else if (kind_str == "motion_blur") {
         spec.kind   = me::EffectKind::MotionBlur;
         spec.params = parse_motion_blur_effect_params(p, params_where);
+    } else if (kind_str == "radial_blur") {
+        spec.kind   = me::EffectKind::RadialBlur;
+        spec.params = parse_radial_blur_effect_params(p, params_where);
     } else {
         throw LoadError{ME_E_UNSUPPORTED,
                         where + ".kind: unknown effect kind '" + kind_str +
@@ -117,7 +120,7 @@ me::EffectSpec parse_effect_spec(const json& j, const std::string& where) {
                         "face_sticker, face_mosaic, body_alpha_key, tone_curve, "
                         "hue_saturation, vignette, film_grain, glitch, scan_lines, "
                         "chromatic_aberration, posterize, ordered_dither, "
-                        "motion_blur)"};
+                        "motion_blur, radial_blur)"};
     }
     return spec;
 }

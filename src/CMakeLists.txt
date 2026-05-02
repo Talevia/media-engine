@@ -279,6 +279,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/motion_blur.cpp
   timeline/effect_loaders/ordered_dither.cpp
   timeline/effect_loaders/posterize.cpp
+  timeline/effect_loaders/radial_blur.cpp
   timeline/effect_loaders/scan_lines.cpp
   timeline/effect_loaders/tone_curve.cpp
   timeline/effect_loaders/tonemap.cpp
@@ -346,6 +347,8 @@ add_library(media_engine STATIC
   compose/ordered_dither_stage.cpp
   compose/motion_blur_kernel.cpp
   compose/motion_blur_stage.cpp
+  compose/radial_blur_kernel.cpp
+  compose/radial_blur_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

@@ -55,6 +55,7 @@ enum class TaskKindId : uint32_t {
     RenderPosterize    = 0x3011,
     RenderOrderedDither= 0x3012,
     RenderMotionBlur   = 0x3013,
+    RenderRadialBlur   = 0x3014,
 
     AudioMix           = 0x4001,
     AudioResample      = 0x4002,

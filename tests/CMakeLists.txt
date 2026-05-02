@@ -140,6 +140,7 @@ set(_test_suites
   test_posterize_kernel_pixel
   test_ordered_dither_kernel_pixel
   test_motion_blur_kernel_pixel
+  test_radial_blur_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -876,6 +877,11 @@ target_include_directories(test_ordered_dither_kernel_pixel PRIVATE
 # test_motion_blur_kernel_pixel — M12 §157 (1/3) linear-direction
 # motion-blur pixel regression.
 target_include_directories(test_motion_blur_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_radial_blur_kernel_pixel — M12 §157 (2/3) zoom-style
+# radial-blur pixel regression.
+target_include_directories(test_radial_blur_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

@@ -173,6 +173,19 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::RadialBlur) {
+            const auto* params = std::get_if<me::RadialBlurEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["center_x"].v  = static_cast<double>(params->center_x);
+            fp["center_y"].v  = static_cast<double>(params->center_y);
+            fp["intensity"].v = static_cast<double>(params->intensity);
+            fp["samples"].v   = static_cast<int64_t>(params->samples);
+            auto n = b.add(task::TaskKindId::RenderRadialBlur,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ChromaticAberration) {
             const auto* params = std::get_if<me::ChromaticAberrationEffectParams>(&fx.params);
             if (!params) continue;
