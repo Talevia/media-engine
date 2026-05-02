@@ -46,13 +46,25 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
         return s;
     };
 
-    if (opts.video_codec != "h264" && opts.video_codec != "hevc"
-        && opts.video_codec != "hevc-sw") {
+    /* Cycle-49 typed-codec migration: branch on
+     * `video_codec_enum` / `audio_codec_enum` (populated by
+     * `make_output_sink` from `resolve_codec_selection`). The
+     * string fields remain the diagnostic source for the
+     * "unsupported codec '<name>'" error message so a host that
+     * misnames a codec sees what it actually wrote, not the
+     * resolver's NONE coercion. */
+    switch (opts.video_codec_enum) {
+    case ME_VIDEO_CODEC_H264:
+    case ME_VIDEO_CODEC_HEVC:
+    case ME_VIDEO_CODEC_HEVC_SW:
+        break;  /* accepted */
+    case ME_VIDEO_CODEC_NONE:
+    case ME_VIDEO_CODEC_PASSTHROUGH:
         return fail(ME_E_UNSUPPORTED,
                     "video_codec=\"" + opts.video_codec +
                     "\" not supported (expected \"h264\", \"hevc\", or \"hevc-sw\")");
     }
-    if (opts.audio_codec != "aac") {
+    if (opts.audio_codec_enum != ME_AUDIO_CODEC_AAC) {
         return fail(ME_E_UNSUPPORTED,
                     "audio_codec=\"" + opts.audio_codec + "\" not supported (expected \"aac\")");
     }

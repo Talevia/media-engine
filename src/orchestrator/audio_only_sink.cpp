@@ -59,6 +59,12 @@ public:
         opts.container         = common_.container;
         opts.video_codec       = "";                /* unused in audio-only */
         opts.audio_codec       = "aac";
+        /* Cycle-49: typed-codec mirrors. audio_only=true makes
+         * setup_h264_aac_encoder_mux skip video encoder setup,
+         * so video_codec_enum is never consumed downstream;
+         * NONE matches the empty string semantic. */
+        opts.video_codec_enum  = ME_VIDEO_CODEC_NONE;
+        opts.audio_codec_enum  = ME_AUDIO_CODEC_AAC;
         opts.audio_bitrate_bps = audio_bitrate_;
         opts.cancel            = common_.cancel;
         opts.on_ratio          = common_.on_ratio;

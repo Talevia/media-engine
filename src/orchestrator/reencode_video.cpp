@@ -22,34 +22,93 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
                                AVRational                    stream_time_base,
                                int64_t                       bitrate_bps,
                                bool                          global_header,
+                               me_video_codec_t              video_codec_enum,
                                const std::string&            video_codec,
                                me::resource::CodecPool::Ptr& out_enc,
                                AVPixelFormat&                out_target_pix,
                                std::string*                  err) {
-    /* Dispatch table — kept tight so the hot path stays branch-free
-     * after first-call dispatch. The two tuples below are ABI-locked:
-     * adding a new HW path means a new tuple, never editing the
-     * existing ones (callers depend on the documented pix_fmt
-     * contract). */
-    const bool is_hevc      = (video_codec == "hevc");
-    const bool is_hevc_sw   = (video_codec == "hevc-sw");
-    const char* const  enc_name = is_hevc ? "hevc_videotoolbox"
-                                          : "h264_videotoolbox";
-    const AVPixelFormat enc_pix  = is_hevc ? AV_PIX_FMT_P010LE
-                                           : AV_PIX_FMT_NV12;
-    /* HEVC default bitrate is higher than h264 because Main10 sources
-     * carry more bits per pixel (10 vs 8) and HDR10 content needs
-     * higher fidelity to avoid banding on bright gradients. 12 Mbps
-     * matches the recommended floor for 1080p30 HDR10 in the
-     * Apple ProRes / VideoToolbox bitrate tables. */
-    const int64_t default_bitrate = is_hevc ? 12'000'000 : 6'000'000;
+    /* Cycle-49 typed-codec dispatch (M7-debt
+     * debt-reencode-pipeline-internal-strcmp-migration). The
+     * caller resolves the spec via `resolve_codec_selection`
+     * and threads the enum here; the legacy string parameter is
+     * preserved for the diagnostic message + the SW-HEVC
+     * branch's unique error wording.
+     *
+     * NONE behaves like the legacy "" string: the H264 path's
+     * default tuple applies. This preserves the pre-cycle-49
+     * fallback semantic where a caller that left video_codec
+     * empty still got a working H264 encoder (audio-only paths
+     * skip this function entirely; the empty-string fallback
+     * was effectively unreachable in production but the
+     * defensive coercion is cheap).
+     *
+     * Dispatch table — kept tight so the hot path stays
+     * branch-free after first-call dispatch. The four cases
+     * below are ABI-locked: adding a new HW path means a new
+     * `case` arm, never editing the existing ones (callers
+     * depend on the documented pix_fmt contract). */
+    const char*   enc_name        = nullptr;
+    AVPixelFormat enc_pix         = AV_PIX_FMT_NONE;
+    int64_t       default_bitrate = 0;
+    bool          is_hevc         = false;
+    bool          is_hevc_sw      = false;
 
-    if (!video_codec.empty() && video_codec != "h264" && !is_hevc && !is_hevc_sw) {
+    /* NONE + non-empty string = unknown codec name (resolver
+     * coerces strings it doesn't know into NONE). Reject with
+     * the original string in the diagnostic — preserves the
+     * legacy `unsupported video_codec '<name>'` error wording. */
+    if (video_codec_enum == ME_VIDEO_CODEC_NONE && !video_codec.empty()) {
         if (err) *err = "open_video_encoder: unsupported video_codec '" +
                         video_codec + "' (expected '' / 'h264' / 'hevc' / 'hevc-sw')";
-        /* LEGIT: codec-name dispatch is closed over the set we ship.
-         * New codec names land via additional `is_<codec>` branches
-         * above; until then UNSUPPORTED is the right shape. */
+        /* LEGIT: codec-enum dispatch is closed over the set we
+         * ship; unknown names land here for explicit rejection. */
+        return ME_E_UNSUPPORTED;
+    }
+
+    switch (video_codec_enum) {
+    case ME_VIDEO_CODEC_H264:
+    case ME_VIDEO_CODEC_NONE:  /* legacy: empty string falls back to H264 */
+        enc_name        = "h264_videotoolbox";
+        enc_pix         = AV_PIX_FMT_NV12;
+        default_bitrate = 6'000'000;
+        break;
+    case ME_VIDEO_CODEC_HEVC:
+        is_hevc         = true;
+        enc_name        = "hevc_videotoolbox";
+        enc_pix         = AV_PIX_FMT_P010LE;
+        /* HEVC default bitrate is higher than h264 because
+         * Main10 sources carry more bits per pixel (10 vs 8)
+         * and HDR10 content needs higher fidelity to avoid
+         * banding on bright gradients. 12 Mbps matches the
+         * recommended floor for 1080p30 HDR10 in the Apple
+         * ProRes / VideoToolbox bitrate tables. */
+        default_bitrate = 12'000'000;
+        break;
+    case ME_VIDEO_CODEC_HEVC_SW:
+        is_hevc_sw      = true;
+        /* SW HEVC's encoder name + pix matter only past the
+         * preflight rejection branch below. The values are
+         * placeholders to keep the post-preflight code paths
+         * compilable; the preflight returns ME_E_UNSUPPORTED
+         * before they're consulted. */
+        enc_name        = "hevc_videotoolbox";
+        enc_pix         = AV_PIX_FMT_P010LE;
+        default_bitrate = 12'000'000;
+        break;
+    case ME_VIDEO_CODEC_PASSTHROUGH:
+        if (err) *err = "open_video_encoder: unsupported video_codec '" +
+                        video_codec + "' (passthrough should not reach the "
+                        "re-encode path; expected '' / 'h264' / 'hevc' / 'hevc-sw')";
+        /* LEGIT: PASSTHROUGH is dispatched at make_output_sink to
+         * a separate sink class; reaching here is a caller bug. */
+        return ME_E_UNSUPPORTED;
+    }
+    if (!enc_name) {
+        if (err) *err = "open_video_encoder: unsupported video_codec '" +
+                        video_codec + "' (expected '' / 'h264' / 'hevc' / 'hevc-sw')";
+        /* LEGIT: codec-enum dispatch is closed over the set we ship.
+         * New codec names land via additional `case` arms above;
+         * until then UNSUPPORTED is the right shape. */
         return ME_E_UNSUPPORTED;
     }
 

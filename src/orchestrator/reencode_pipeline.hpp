@@ -25,6 +25,7 @@
  */
 #pragma once
 
+#include "media_engine/codec_options.h"
 #include "media_engine/types.h"
 #include "timeline/timeline_impl.hpp"   /* me::ColorSpace */
 
@@ -68,6 +69,22 @@ struct ReencodeOptions {
     /* Audio: currently only "aac" is accepted (libavcodec built-in). */
     std::string audio_codec;
     int64_t     audio_bitrate_bps = 0;    /* 0 = encoder default */
+
+    /* Typed-codec mirrors of the strings above (cycle-49
+     * debt-reencode-pipeline-internal-strcmp-migration). The
+     * make_output_sink dispatch populates both fields from
+     * `resolve_codec_selection(spec)`; reencode_mux +
+     * open_video_encoder branch on the enum, the strings remain
+     * the diagnostic source for "unsupported codec '<name>'"
+     * messages. NONE means the caller didn't populate it (older
+     * code paths that haven't been migrated yet) and the strings
+     * remain authoritative — those callers fall back to the
+     * legacy strcmp ladder until they migrate. New callers MUST
+     * set both fields consistently; the resolver returns
+     * exactly one selection per spec so divergence between
+     * string and enum is a caller bug. */
+    me_video_codec_t video_codec_enum = ME_VIDEO_CODEC_NONE;
+    me_audio_codec_t audio_codec_enum = ME_AUDIO_CODEC_NONE;
 
     std::function<void(float)> on_ratio;
     const std::atomic<bool>*   cancel = nullptr;

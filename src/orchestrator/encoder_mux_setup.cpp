@@ -117,6 +117,7 @@ me_status_t setup_h264_aac_encoder_mux(
         me_status_t s = detail::open_video_encoder(*opts.pool, v0dec.get(),
                                                     ifmt0->streams[vsi0]->time_base,
                                                     opts.video_bitrate_bps, global_header,
+                                                    opts.video_codec_enum,
                                                     opts.video_codec,
                                                     venc, out_shared.venc_pix, err);
         if (s != ME_OK) return s;

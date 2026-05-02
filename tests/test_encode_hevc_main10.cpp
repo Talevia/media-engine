@@ -94,6 +94,7 @@ TEST_CASE("open_video_encoder: default '' codec → h264_videotoolbox + NV12") {
         AVRational{1, 30},   /* stream_time_base */
         0,                    /* default bitrate */
         false,                /* global_header */
+        ME_VIDEO_CODEC_NONE,  /* legacy: "" → H264 fallback */
         "",                   /* video_codec — default */
         enc, target_pix, &err);
     REQUIRE_MESSAGE(s == ME_OK, err);
@@ -115,7 +116,7 @@ TEST_CASE("open_video_encoder: 'hevc' → hevc_videotoolbox + P010LE") {
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
         AVRational{1, 30}, 0, false,
-        "hevc",
+        ME_VIDEO_CODEC_HEVC, "hevc",
         enc, target_pix, &err);
     REQUIRE_MESSAGE(s == ME_OK, err);
     REQUIRE(enc != nullptr);
@@ -146,7 +147,7 @@ TEST_CASE("open_video_encoder: 'hevc' propagates HDR color tags to encoder") {
 
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
-        AVRational{1, 30}, 0, false, "hevc",
+        AVRational{1, 30}, 0, false, ME_VIDEO_CODEC_HEVC, "hevc",
         enc, target_pix, &err);
     REQUIRE_MESSAGE(s == ME_OK, err);
     CHECK(enc->color_primaries == AVCOL_PRI_BT2020);
@@ -169,6 +170,7 @@ TEST_CASE("open_video_encoder: unknown codec → ME_E_UNSUPPORTED with named dia
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
         AVRational{1, 30}, 0, false,
+        ME_VIDEO_CODEC_NONE,  /* unknown string → resolver maps to NONE */
         "av1",                /* unsupported by this helper */
         enc, target_pix, &err);
     CHECK(s == ME_E_UNSUPPORTED);
@@ -190,7 +192,7 @@ TEST_CASE("open_video_encoder: explicit bitrate override is respected (h264)") {
         pool, dec.get(),
         AVRational{1, 30},
         2'500'000,            /* explicit 2.5 Mbps */
-        false, "h264",
+        false, ME_VIDEO_CODEC_H264, "h264",
         enc, target_pix, &err);
     REQUIRE_MESSAGE(s == ME_OK, err);
     CHECK(enc->bit_rate == 2'500'000);
@@ -222,7 +224,7 @@ TEST_CASE("open_video_encoder: 'hevc-sw' rejects > 1080p with named diag") {
 
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
-        AVRational{1, 30}, 0, false, "hevc-sw",
+        AVRational{1, 30}, 0, false, ME_VIDEO_CODEC_HEVC_SW, "hevc-sw",
         enc, target_pix, &err);
 #ifdef ME_HAS_KVAZAAR
     CHECK(s == ME_E_UNSUPPORTED);
@@ -251,7 +253,7 @@ TEST_CASE("open_video_encoder: 'hevc-sw' rejects non-multiple-of-8 dims") {
 
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
-        AVRational{1, 30}, 0, false, "hevc-sw",
+        AVRational{1, 30}, 0, false, ME_VIDEO_CODEC_HEVC_SW, "hevc-sw",
         enc, target_pix, &err);
     CHECK(s == ME_E_INVALID_ARG);
     CHECK(err.find("multiples of 8") != std::string::npos);
@@ -278,7 +280,7 @@ TEST_CASE("open_video_encoder: 'hevc-sw' preflight passes with diag pointing at 
 
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
-        AVRational{1, 30}, 0, false, "hevc-sw",
+        AVRational{1, 30}, 0, false, ME_VIDEO_CODEC_HEVC_SW, "hevc-sw",
         enc, target_pix, &err);
     CHECK(s == ME_E_UNSUPPORTED);
     CHECK(err.find("HevcSwSink") != std::string::npos);
@@ -298,7 +300,7 @@ TEST_CASE("open_video_encoder: 'hevc-sw' without ME_HAS_KVAZAAR → ME_WITH_KVAZ
 
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
-        AVRational{1, 30}, 0, false, "hevc-sw",
+        AVRational{1, 30}, 0, false, ME_VIDEO_CODEC_HEVC_SW, "hevc-sw",
         enc, target_pix, &err);
     CHECK(s == ME_E_UNSUPPORTED);
     CHECK(err.find("ME_WITH_KVAZAAR") != std::string::npos);
@@ -321,7 +323,7 @@ TEST_CASE("open_video_encoder: 'hevc' on missing hevc_videotoolbox suggests 'hev
 
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
-        AVRational{1, 30}, 0, false, "hevc",
+        AVRational{1, 30}, 0, false, ME_VIDEO_CODEC_HEVC, "hevc",
         enc, target_pix, &err);
     CHECK(s == ME_E_UNSUPPORTED);
     CHECK(err.find("hevc-sw") != std::string::npos);
@@ -343,7 +345,7 @@ TEST_CASE("open_video_encoder: rejects unknown codec with all four valid names l
 
     const me_status_t s = me::orchestrator::detail::open_video_encoder(
         pool, dec.get(),
-        AVRational{1, 30}, 0, false, "h265",
+        AVRational{1, 30}, 0, false, ME_VIDEO_CODEC_NONE, "h265",
         enc, target_pix, &err);
     CHECK(s == ME_E_UNSUPPORTED);
     CHECK(err.find("h264") != std::string::npos);

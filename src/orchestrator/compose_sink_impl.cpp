@@ -106,6 +106,11 @@ public:
         opts.audio_codec        = "aac";
         opts.video_bitrate_bps  = video_bitrate_;
         opts.audio_bitrate_bps  = audio_bitrate_;
+        /* Cycle-49: typed-codec mirrors. ComposeSink is hardwired
+         * to h264/aac (the make_compose_sink precondition rejects
+         * anything else). */
+        opts.video_codec_enum   = ME_VIDEO_CODEC_H264;
+        opts.audio_codec_enum   = ME_AUDIO_CODEC_AAC;
         opts.cancel             = common_.cancel;
         opts.on_ratio           = common_.on_ratio;
         opts.pool               = pool_;

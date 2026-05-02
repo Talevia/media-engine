@@ -98,7 +98,8 @@ public:
           pool_(pool),
           video_codec_(spec.video_codec ? spec.video_codec : ""),
           video_bitrate_(spec.video_bitrate_bps),
-          audio_bitrate_(spec.audio_bitrate_bps) {}
+          audio_bitrate_(spec.audio_bitrate_bps),
+          selection_(resolve_codec_selection(spec)) {}
 
     me_status_t process(
         std::vector<std::shared_ptr<me::io::DemuxContext>> demuxes,
@@ -118,6 +119,12 @@ public:
         opts.audio_codec         = "aac";
         opts.video_bitrate_bps   = video_bitrate_;
         opts.audio_bitrate_bps   = audio_bitrate_;
+        /* Cycle-49 typed-codec migration: populate the enum
+         * mirrors so reencode_mux + open_video_encoder can
+         * branch on the typed value instead of the strcmp
+         * ladder. */
+        opts.video_codec_enum    = selection_.video_codec;
+        opts.audio_codec_enum    = selection_.audio_codec;
         opts.cancel              = common_.cancel;
         opts.on_ratio            = common_.on_ratio;
         opts.pool                = pool_;
@@ -147,6 +154,7 @@ private:
     std::string                video_codec_;
     int64_t                    video_bitrate_ = 0;
     int64_t                    audio_bitrate_ = 0;
+    CodecSelection             selection_{};
 };
 
 }  // namespace

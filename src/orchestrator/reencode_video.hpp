@@ -9,6 +9,7 @@
 #pragma once
 
 #include "io/ffmpeg_raii.hpp"
+#include "media_engine/codec_options.h"
 #include "media_engine/types.h"
 #include "resource/codec_pool.hpp"
 
@@ -55,16 +56,20 @@ namespace me::orchestrator::detail {
  * `global_header` must be true when the output container has
  * AVFMT_GLOBALHEADER (MP4/MOV) — must be set before avcodec_open2.
  *
- * Unknown / unsupported `video_codec` → ME_E_UNSUPPORTED with diag. */
-me_status_t open_video_encoder(me::resource::CodecPool&     pool,
-                               const AVCodecContext*        dec,
-                               AVRational                   stream_time_base,
-                               int64_t                      bitrate_bps,
-                               bool                         global_header,
-                               const std::string&           video_codec,
+ * Unknown / unsupported `video_codec_enum` → ME_E_UNSUPPORTED.
+ * The `video_codec` string is the diagnostic source for the error
+ * message (the resolver coerces unknown strings to NONE; the
+ * original string preserves what the host actually wrote). */
+me_status_t open_video_encoder(me::resource::CodecPool&      pool,
+                               const AVCodecContext*         dec,
+                               AVRational                    stream_time_base,
+                               int64_t                       bitrate_bps,
+                               bool                          global_header,
+                               me_video_codec_t              video_codec_enum,
+                               const std::string&            video_codec,
                                me::resource::CodecPool::Ptr& out_enc,
-                               AVPixelFormat&               out_target_pix,
-                               std::string*                 err);
+                               AVPixelFormat&                out_target_pix,
+                               std::string*                  err);
 
 /* Encode one decoded video frame (or nullptr for flush). Scales into NV12
  * when `sws` is provided. Drains the encoder and writes produced packets
