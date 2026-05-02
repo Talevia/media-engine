@@ -82,6 +82,56 @@ graph::PortRef build_clip_chain(graph::Graph::Builder& b,
     return graph::PortRef{n_rgba, 0};
 }
 
+/* Append per-clip effect stages (M11 detection-driven effects).
+ * Walks `clip.effects` in document order and chains each
+ * registered effect kernel as a graph node. Unknown / not-yet-
+ * wired effect kinds are silently passed through (no-op insert)
+ * so timeline JSON with mixed effect lists doesn't break the
+ * graph; the effect-kind dispatch table here grows as compose-
+ * graph stages land for each EffectKind variant.
+ *
+ * Returns the terminal RGBA8 port after the last effect node
+ * (or `prev` unchanged if no effects apply). */
+graph::PortRef append_clip_effects(graph::Graph::Builder& b,
+                                    const me::Timeline&    tl,
+                                    const me::Clip&        clip,
+                                    graph::PortRef         prev,
+                                    me_rational_t          time) {
+    for (const auto& fx : clip.effects) {
+        if (!fx.enabled) continue;
+        if (fx.kind == me::EffectKind::FaceSticker) {
+            const auto* params = std::get_if<me::FaceStickerEffectParams>(&fx.params);
+            if (!params) continue;
+            /* Resolve landmark asset id → URI via the timeline's
+             * assets map. The compose stage's resolver expects a
+             * file URI; the timeline JSON gives us asset ids that
+             * indirect through the assets map. */
+            std::string landmark_uri;
+            auto it = tl.assets.find(params->landmark.asset_id);
+            if (it != tl.assets.end()) landmark_uri = it->second.uri;
+
+            graph::Properties fp;
+            fp["sticker_uri"].v        = params->sticker_uri;
+            fp["landmark_asset_uri"].v = landmark_uri;
+            fp["frame_t_num"].v        = static_cast<int64_t>(time.num);
+            fp["frame_t_den"].v        = static_cast<int64_t>(time.den);
+            fp["scale_x"].v            = params->scale_x;
+            fp["scale_y"].v            = params->scale_y;
+            fp["offset_x"].v           = params->offset_x;
+            fp["offset_y"].v           = params->offset_y;
+            auto n = b.add(task::TaskKindId::RenderFaceSticker,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
+        }
+        /* face_mosaic / body_alpha_key / color / blur / lut /
+         * tonemap / inverse_tonemap stages land in subsequent
+         * cycles; until they register, the dispatch falls
+         * through and the effect is silently skipped at render. */
+    }
+    return prev;
+}
+
 }  // namespace
 
 me_status_t compile_compose_graph(const me::Timeline& tl,
@@ -144,6 +194,7 @@ me_status_t compile_compose_graph(const me::Timeline& tl,
                 time.num * clip.time_start.den - clip.time_start.num * time.den,
                 time.den * clip.time_start.den};
             graph::PortRef p = build_clip_chain(b, uri, fs.single.source_time);
+            p = append_clip_effects(b, tl, clip, p, time);
             layers.push_back(LayerInfo{p, /*already_canvas_sized=*/false,
                                         &clip, tl_local});
         } else {
@@ -165,9 +216,12 @@ me_status_t compile_compose_graph(const me::Timeline& tl,
 
             /* Force AffineBlit on both endpoints — cross_dissolve
              * needs same dims; we ensure canvas-sized RGBA8 via a
-             * mandatory AffineBlit pass per endpoint. */
+             * mandatory AffineBlit pass per endpoint. Effects on
+             * either endpoint apply BEFORE the transition mix. */
             graph::PortRef from_rgba = build_clip_chain(b, from_uri, fs.transition_from_source_time);
+            from_rgba = append_clip_effects(b, tl, from_clip, from_rgba, time);
             graph::PortRef to_rgba   = build_clip_chain(b, to_uri,   fs.transition_to_source_time);
+            to_rgba = append_clip_effects(b, tl, to_clip, to_rgba, time);
 
             auto wrap = [&](graph::PortRef src, const me::Clip& cl,
                             me_rational_t tl_local) -> graph::PortRef {

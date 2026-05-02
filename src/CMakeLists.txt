@@ -311,6 +311,7 @@ add_library(media_engine STATIC
   compose/tonemap_kernel.cpp
   compose/inverse_tonemap_kernel.cpp
   compose/face_sticker_kernel.cpp
+  compose/face_sticker_stage.cpp
   compose/face_mosaic_kernel.cpp
   compose/body_alpha_key_kernel.cpp
   compose/sticker_decoder.cpp

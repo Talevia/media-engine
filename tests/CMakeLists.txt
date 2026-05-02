@@ -121,6 +121,7 @@ set(_test_suites
   test_mask_resolver
   test_face_sticker_kernel_pixel
   test_inference_blazeface
+  test_compose_face_sticker_stage
 )
 
 foreach(_suite ${_test_suites})
@@ -763,6 +764,13 @@ target_link_libraries(test_mask_resolver PRIVATE
 # kernel; reaches into src/ for the kernel header + Bbox typedef
 # + effect-param struct.
 target_include_directories(test_face_sticker_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_compose_face_sticker_stage — pins the compose-graph
+# topology change for M11 face-sticker-compose-graph-stage-impl.
+# Same hand-built-Timeline pattern as test_compose_multi_track_graph;
+# reaches into src/ for compose_compile + Timeline IR types.
+target_include_directories(test_compose_face_sticker_stage PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

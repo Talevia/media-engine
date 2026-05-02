@@ -11,6 +11,7 @@
 #include "resource/stateful_pool.hpp"
 #endif
 #include "compose/encode_png_kernel.hpp"
+#include "compose/face_sticker_stage.hpp"
 #include "core/engine_impl.hpp"
 #include "io/decode_audio_kernel.hpp"
 #include "io/decode_video_kernel.hpp"
@@ -40,6 +41,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_compose_cpu_kind();
         me::compose::register_cross_dissolve_kind();
         me::compose::register_encode_png_kind();
+        me::compose::register_face_sticker_kind();
         me::audio::register_resample_kind();
         me::audio::register_mix_kind();
 #ifdef ME_HAS_SOUNDTOUCH
