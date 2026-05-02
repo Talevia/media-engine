@@ -31,7 +31,8 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
      * adding a new HW path means a new tuple, never editing the
      * existing ones (callers depend on the documented pix_fmt
      * contract). */
-    const bool is_hevc = (video_codec == "hevc");
+    const bool is_hevc      = (video_codec == "hevc");
+    const bool is_hevc_sw   = (video_codec == "hevc-sw");
     const char* const  enc_name = is_hevc ? "hevc_videotoolbox"
                                           : "h264_videotoolbox";
     const AVPixelFormat enc_pix  = is_hevc ? AV_PIX_FMT_P010LE
@@ -43,19 +44,83 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
      * Apple ProRes / VideoToolbox bitrate tables. */
     const int64_t default_bitrate = is_hevc ? 12'000'000 : 6'000'000;
 
-    if (!video_codec.empty() && video_codec != "h264" && !is_hevc) {
+    if (!video_codec.empty() && video_codec != "h264" && !is_hevc && !is_hevc_sw) {
         if (err) *err = "open_video_encoder: unsupported video_codec '" +
-                        video_codec + "' (expected '' / 'h264' / 'hevc')";
+                        video_codec + "' (expected '' / 'h264' / 'hevc' / 'hevc-sw')";
         /* LEGIT: codec-name dispatch is closed over the set we ship.
          * New codec names land via additional `is_<codec>` branches
          * above; until then UNSUPPORTED is the right shape. */
         return ME_E_UNSUPPORTED;
     }
 
+    /* SW HEVC fallback dispatch (Kvazaar, BSD-3, LGPL-clean per VISION
+     * §3.4). M10 exit criterion 3 requires a SW path when VideoToolbox
+     * is unavailable (Linux / Windows hosts) or when the caller wants
+     * cross-host bit-identity comparison. The encode-loop itself —
+     * pumping YUV420P planes through `KvazaarHevcEncoder` and emitting
+     * Annex-B chunks via `av_packet_from_data` into the libavformat mux —
+     * is tracked by `encode-hevc-sw-encode-loop-impl` in BACKLOG. This
+     * branch performs the preflight checks (link-time ME_HAS_KVAZAAR,
+     * 1080p ceiling, multiple-of-8 alignment — mirroring
+     * KvazaarHevcEncoder::create's runtime checks) and returns
+     * ME_E_UNSUPPORTED with a diagnostic that names the BACKLOG item
+     * so callers see a stable error point regardless of how far the
+     * pipeline progresses. */
+    if (is_hevc_sw) {
+#ifndef ME_HAS_KVAZAAR
+        if (err) *err = "open_video_encoder: 'hevc-sw' requires ME_WITH_KVAZAAR=ON "
+                        "+ pkg-config kvazaar (brew install kvazaar / "
+                        "apt install libkvazaar-dev); this engine build was "
+                        "compiled without Kvazaar";
+        return ME_E_UNSUPPORTED;
+#else
+        if (dec->width <= 0 || dec->height <= 0) {
+            if (err) *err = "open_video_encoder: 'hevc-sw' requires positive "
+                            "width/height (got " + std::to_string(dec->width) +
+                            "x" + std::to_string(dec->height) + ")";
+            return ME_E_INVALID_ARG;
+        }
+        if (dec->width > 1920 || dec->height > 1080) {
+            if (err) *err = "open_video_encoder: 'hevc-sw' SW HEVC ceiling is "
+                            "1920x1080 (got " + std::to_string(dec->width) +
+                            "x" + std::to_string(dec->height) + "); use "
+                            "video_codec='hevc' for HW VideoToolbox path "
+                            "(see docs/MILESTONES.md M10 §3)";
+            return ME_E_UNSUPPORTED;
+        }
+        if ((dec->width & 7) || (dec->height & 7)) {
+            if (err) *err = "open_video_encoder: 'hevc-sw' width/height must be "
+                            "multiples of 8 (HEVC CTU alignment; got " +
+                            std::to_string(dec->width) + "x" +
+                            std::to_string(dec->height) + ")";
+            return ME_E_INVALID_ARG;
+        }
+        if (err) *err = "open_video_encoder: 'hevc-sw' encode-loop wiring is "
+                        "pending — preflight checks (1080p ceiling + multiple-"
+                        "of-8 alignment + ME_HAS_KVAZAAR link) passed; see "
+                        "BACKLOG bullet 'encode-hevc-sw-encode-loop-impl' for "
+                        "the libavformat mux integration";
+        return ME_E_UNSUPPORTED;
+#endif
+    }
+
     const AVCodec* enc = avcodec_find_encoder_by_name(enc_name);
     if (!enc) {
-        if (err) *err = std::string{"encoder "} + enc_name +
-                        " not available in this FFmpeg build";
+        if (err) {
+            *err = std::string{"encoder "} + enc_name +
+                   " not available in this FFmpeg build";
+            if (is_hevc) {
+                /* HW probe miss on the HEVC path is the explicit cue to
+                 * try the LGPL-clean SW fallback. Spelling out
+                 * `video_codec='hevc-sw'` keeps Linux / Windows hosts
+                 * from chasing the VideoToolbox dependency. */
+                *err += "; on hosts without VideoToolbox try "
+                        "video_codec='hevc-sw' (LGPL-clean Kvazaar SW "
+                        "fallback, requires ME_WITH_KVAZAAR=ON, 1080p "
+                        "ceiling, marked non-deterministic per "
+                        "docs/MILESTONES.md M10 §3)";
+            }
+        }
         /* LEGIT: Linux / Windows hosts lack videotoolbox; reject with
          * a clear diagnostic so callers know the platform gate. */
         return ME_E_UNSUPPORTED;

@@ -22,13 +22,17 @@ bool is_passthrough_spec(const me_output_spec_t& s) {
 }
 
 /* Accept any LGPL-clean re-encode video codec we ship (h264 +
- * hevc as of M10's `encode-hevc-output-sink-wiring` cycle) paired
- * with AAC audio. Adding a new video codec here means a new
- * `streq` and a corresponding branch in
+ * hevc as of M10's `encode-hevc-output-sink-wiring` cycle, plus
+ * the SW HEVC fallback `hevc-sw` per
+ * `encode-hevc-output-sink-runtime-sw-dispatch`) paired with AAC
+ * audio. Adding a new video codec here means a new `streq` and a
+ * corresponding branch in
  * `me::orchestrator::detail::open_video_encoder`. */
 bool is_video_aac_spec(const me_output_spec_t& s) {
     if (!streq(s.audio_codec, "aac")) return false;
-    return streq(s.video_codec, "h264") || streq(s.video_codec, "hevc");
+    return streq(s.video_codec, "h264")
+        || streq(s.video_codec, "hevc")
+        || streq(s.video_codec, "hevc-sw");
 }
 
 /* ==========================================================================
@@ -171,7 +175,7 @@ std::unique_ptr<OutputSink> make_output_sink(
 
     if (err) *err = "phase-1: supported specs are "
                      "(video=passthrough, audio=passthrough) or "
-                     "(video=h264|hevc, audio=aac)";
+                     "(video=h264|hevc|hevc-sw, audio=aac)";
     return nullptr;
 }
 

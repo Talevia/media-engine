@@ -689,6 +689,18 @@ target_link_libraries(test_reencode_pts_remap PRIVATE
 target_include_directories(test_encode_hevc_main10 PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_encode_hevc_main10 PRIVATE
   FFMPEG::avutil FFMPEG::avcodec)
+# M10 SW HEVC fallback dispatch (`hevc-sw` codec name) is gated on
+# ME_HAS_KVAZAAR — same engine-level PRIVATE flag as
+# test_kvazaar_hevc_encoder, so re-detect kvazaar here. With the
+# macro defined, `'hevc-sw' preflight passes` runs end-to-end;
+# without it, the without-ME_HAS_KVAZAAR diag branch runs instead.
+if(PkgConfig_FOUND)
+  pkg_check_modules(_TEST_HEVC_KVAZAAR QUIET kvazaar)
+  if(_TEST_HEVC_KVAZAAR_FOUND)
+    target_compile_definitions(test_encode_hevc_main10 PRIVATE
+      ME_HAS_KVAZAAR=1)
+  endif()
+endif()
 
 # test_tonemap_kernel exercises me::compose::apply_tonemap_inplace.
 # Pure RGBA8 byte math — no libav, no fixtures. Needs src/ on

@@ -46,10 +46,11 @@ me_status_t reencode_mux(const ReencodeOptions& opts,
         return s;
     };
 
-    if (opts.video_codec != "h264" && opts.video_codec != "hevc") {
+    if (opts.video_codec != "h264" && opts.video_codec != "hevc"
+        && opts.video_codec != "hevc-sw") {
         return fail(ME_E_UNSUPPORTED,
                     "video_codec=\"" + opts.video_codec +
-                    "\" not supported (expected \"h264\" or \"hevc\")");
+                    "\" not supported (expected \"h264\", \"hevc\", or \"hevc-sw\")");
     }
     if (opts.audio_codec != "aac") {
         return fail(ME_E_UNSUPPORTED,

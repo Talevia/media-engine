@@ -195,3 +195,155 @@ TEST_CASE("open_video_encoder: explicit bitrate override is respected (h264)") {
     REQUIRE_MESSAGE(s == ME_OK, err);
     CHECK(enc->bit_rate == 2'500'000);
 }
+
+/* M10 SW HEVC fallback dispatch. Five TEST_CASEs exercise the
+ * runtime preflight in `open_video_encoder`'s `is_hevc_sw` branch:
+ *
+ *   - encode-loop-pending diagnostic mentions the BACKLOG bullet so
+ *     callers can find the follow-up work.
+ *   - 1080p ceiling rejection has the dimension in the diag.
+ *   - multiple-of-8 rejection has "multiples of 8".
+ *   - non-positive width/height is INVALID_ARG, not UNSUPPORTED.
+ *   - HW-missing diagnostic on the `is_hevc` path explicitly names
+ *     `'hevc-sw'` so Linux / Windows hosts know the fallback exists.
+ *
+ * The preflight runs without any Kvazaar/VideoToolbox call, so all
+ * cases run on every host (gated only by ME_HAS_KVAZAAR for the
+ * "encode-loop-pending" path; without the macro the diag mentions
+ * ME_WITH_KVAZAAR=ON instead). */
+TEST_CASE("open_video_encoder: 'hevc-sw' rejects > 1080p with named diag") {
+    me::resource::CodecPool pool;
+    auto dec = make_synthetic_dec(1920, 1200);
+
+    me::resource::CodecPool::Ptr enc(nullptr,
+        me::resource::CodecPool::Deleter{nullptr});
+    AVPixelFormat target_pix = AV_PIX_FMT_NONE;
+    std::string err;
+
+    const me_status_t s = me::orchestrator::detail::open_video_encoder(
+        pool, dec.get(),
+        AVRational{1, 30}, 0, false, "hevc-sw",
+        enc, target_pix, &err);
+#ifdef ME_HAS_KVAZAAR
+    CHECK(s == ME_E_UNSUPPORTED);
+    CHECK(err.find("1920x1080") != std::string::npos);
+    CHECK(err.find("hevc-sw") != std::string::npos);
+#else
+    /* Without ME_HAS_KVAZAAR the link-time gate fires before the
+     * dimension check; either rejection point is acceptable as long
+     * as the diag names ME_WITH_KVAZAAR. */
+    CHECK(s == ME_E_UNSUPPORTED);
+    CHECK(err.find("ME_WITH_KVAZAAR") != std::string::npos);
+#endif
+}
+
+TEST_CASE("open_video_encoder: 'hevc-sw' rejects non-multiple-of-8 dims") {
+#ifdef ME_HAS_KVAZAAR
+    me::resource::CodecPool pool;
+    /* 100 isn't a multiple of 8 but is ≤ 1920 — exercises the
+     * alignment branch, not the resolution-cap branch. */
+    auto dec = make_synthetic_dec(100, 64);
+
+    me::resource::CodecPool::Ptr enc(nullptr,
+        me::resource::CodecPool::Deleter{nullptr});
+    AVPixelFormat target_pix = AV_PIX_FMT_NONE;
+    std::string err;
+
+    const me_status_t s = me::orchestrator::detail::open_video_encoder(
+        pool, dec.get(),
+        AVRational{1, 30}, 0, false, "hevc-sw",
+        enc, target_pix, &err);
+    CHECK(s == ME_E_INVALID_ARG);
+    CHECK(err.find("multiples of 8") != std::string::npos);
+#endif
+}
+
+TEST_CASE("open_video_encoder: 'hevc-sw' preflight passes with diag pointing at BACKLOG") {
+#ifdef ME_HAS_KVAZAAR
+    me::resource::CodecPool pool;
+    /* 64x64 is well under the 1080p cap and a clean multiple of 8;
+     * preflight passes all checks. The encode-loop wiring is pending
+     * (tracked by encode-hevc-sw-encode-loop-impl), so the call
+     * returns UNSUPPORTED with that bullet name in the diag — that's
+     * the cycle's documented contract until the encode loop lands. */
+    auto dec = make_synthetic_dec(64, 64);
+
+    me::resource::CodecPool::Ptr enc(nullptr,
+        me::resource::CodecPool::Deleter{nullptr});
+    AVPixelFormat target_pix = AV_PIX_FMT_NONE;
+    std::string err;
+
+    const me_status_t s = me::orchestrator::detail::open_video_encoder(
+        pool, dec.get(),
+        AVRational{1, 30}, 0, false, "hevc-sw",
+        enc, target_pix, &err);
+    CHECK(s == ME_E_UNSUPPORTED);
+    CHECK(err.find("encode-hevc-sw-encode-loop-impl") != std::string::npos);
+    CHECK(err.find("preflight") != std::string::npos);
+#endif
+}
+
+TEST_CASE("open_video_encoder: 'hevc-sw' without ME_HAS_KVAZAAR → ME_WITH_KVAZAAR diag") {
+#ifndef ME_HAS_KVAZAAR
+    me::resource::CodecPool pool;
+    auto dec = make_synthetic_dec(64, 64);
+
+    me::resource::CodecPool::Ptr enc(nullptr,
+        me::resource::CodecPool::Deleter{nullptr});
+    AVPixelFormat target_pix = AV_PIX_FMT_NONE;
+    std::string err;
+
+    const me_status_t s = me::orchestrator::detail::open_video_encoder(
+        pool, dec.get(),
+        AVRational{1, 30}, 0, false, "hevc-sw",
+        enc, target_pix, &err);
+    CHECK(s == ME_E_UNSUPPORTED);
+    CHECK(err.find("ME_WITH_KVAZAAR") != std::string::npos);
+#endif
+}
+
+TEST_CASE("open_video_encoder: 'hevc' on missing hevc_videotoolbox suggests 'hevc-sw'") {
+    /* Runs only on hosts WITHOUT hevc_videotoolbox (Linux / Windows).
+     * On macOS the encoder is registered and this branch is skipped.
+     * The diagnostic must name `'hevc-sw'` so callers can pivot to
+     * the SW fallback opt-in without combing through release notes. */
+    if (have_encoder("hevc_videotoolbox")) return;
+    me::resource::CodecPool pool;
+    auto dec = make_synthetic_dec(640, 480);
+
+    me::resource::CodecPool::Ptr enc(nullptr,
+        me::resource::CodecPool::Deleter{nullptr});
+    AVPixelFormat target_pix = AV_PIX_FMT_NONE;
+    std::string err;
+
+    const me_status_t s = me::orchestrator::detail::open_video_encoder(
+        pool, dec.get(),
+        AVRational{1, 30}, 0, false, "hevc",
+        enc, target_pix, &err);
+    CHECK(s == ME_E_UNSUPPORTED);
+    CHECK(err.find("hevc-sw") != std::string::npos);
+    CHECK(err.find("Kvazaar") != std::string::npos);
+}
+
+TEST_CASE("open_video_encoder: rejects unknown codec with all four valid names listed") {
+    /* The diag must enumerate the supported codec names so callers
+     * passing a typo (e.g. `"h265"` for HEVC) see the right options
+     * without hunting through docs. The set is closed:
+     * '' / 'h264' / 'hevc' / 'hevc-sw'. */
+    me::resource::CodecPool pool;
+    auto dec = make_synthetic_dec(640, 480);
+
+    me::resource::CodecPool::Ptr enc(nullptr,
+        me::resource::CodecPool::Deleter{nullptr});
+    AVPixelFormat target_pix = AV_PIX_FMT_NONE;
+    std::string err;
+
+    const me_status_t s = me::orchestrator::detail::open_video_encoder(
+        pool, dec.get(),
+        AVRational{1, 30}, 0, false, "h265",
+        enc, target_pix, &err);
+    CHECK(s == ME_E_UNSUPPORTED);
+    CHECK(err.find("h264") != std::string::npos);
+    CHECK(err.find("hevc") != std::string::npos);
+    CHECK(err.find("hevc-sw") != std::string::npos);
+}

@@ -30,7 +30,18 @@ namespace me::orchestrator::detail {
  *     ship path; predates the M10 HEVC work).
  *   - `"hevc"`        → `hevc_videotoolbox` + P010 (10-bit, M10 HDR ship
  *     path per `encode-hevc-main10-hw`). Accepts SDR sources too —
- *     libswscale upsamples 8→10 in the existing convert path.
+ *     libswscale upsamples 8→10 in the existing convert path. When
+ *     `hevc_videotoolbox` is missing (Linux / Windows hosts), the
+ *     UNSUPPORTED diagnostic explicitly names `"hevc-sw"` so callers
+ *     know the LGPL-clean SW fallback opt-in.
+ *   - `"hevc-sw"`     → preflight for the Kvazaar SW HEVC fallback
+ *     (M10 §3 LGPL-clean, BSD-3 Kvazaar). Validates ME_HAS_KVAZAAR +
+ *     1080p ceiling + multiple-of-8 alignment to mirror
+ *     `KvazaarHevcEncoder::create`'s checks. The encode-loop wiring
+ *     (Annex-B chunks → AVPacket → mux) is tracked by BACKLOG bullet
+ *     `encode-hevc-sw-encode-loop-impl`; this preflight returns
+ *     ME_E_UNSUPPORTED with that bullet name in the diagnostic so
+ *     callers see a stable error point.
  *
  * Color tags (range / primaries / TRC / matrix) propagate from the
  * decoder so HDR sources tagged BT.2020 + PQ surface as HDR10
