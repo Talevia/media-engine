@@ -92,6 +92,16 @@ me_status_t load_model_blob(me_engine*          engine,
  * `license` is in the whitelist. */
 bool license_is_whitelisted(me_model_license_t license) noexcept;
 
+/* Drop the engine's cache of validated model blobs (M11
+ * inference-load-model-blob-wire-effect-stages). After this, the
+ * next `load_model_blob` for any (model_id, version, quantization)
+ * tuple goes back through the host fetcher + license / hash
+ * validation. Primarily useful for tests that need to
+ * re-validate the SAME model identity with different fetcher
+ * responses; production code shouldn't need this since the
+ * cache key matches model identity exactly. */
+void clear_loaded_models(me_engine* engine);
+
 }  // namespace me::inference
 
 #endif /* ME_HAS_INFERENCE */

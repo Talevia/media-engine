@@ -162,16 +162,27 @@ TEST_CASE("load_model_blob: MIT/BSD/CC_BY all accepted") {
     EngineGuard g;
     REQUIRE(me_engine_set_model_fetcher(g.eng, test_fetcher, nullptr) == ME_OK);
 
-    for (auto lic : {ME_MODEL_LICENSE_MIT,
-                       ME_MODEL_LICENSE_BSD,
-                       ME_MODEL_LICENSE_CC_BY}) {
+    /* Use distinct model_ids per iter so each goes through the
+     * full fetcher → validation path. With the engine-level
+     * loaded_models cache (cycle landing this), repeated calls
+     * for the same identity hit the cache and bypass the fetcher
+     * — which would short-circuit this license-axis test. The
+     * cache hit path is verified by the dedicated TEST_CASE
+     * "engine cache returns previously-validated bytes without
+     * re-fetching" below. */
+    const std::pair<const char*, me_model_license_t> cases[] = {
+        {"m_mit",   ME_MODEL_LICENSE_MIT},
+        {"m_bsd",   ME_MODEL_LICENSE_BSD},
+        {"m_ccby",  ME_MODEL_LICENSE_CC_BY},
+    };
+    for (auto [id, lic] : cases) {
         reset_fetcher();
         g_fetcher.bytes         = {0xAA};
         g_fetcher.license       = lic;
         g_fetcher.expose_hash   = false;  /* skip hash check */
 
         me::inference::LoadedModel out;
-        REQUIRE(me::inference::load_model_blob(g.eng, "m", "v1", "fp32", &out) == ME_OK);
+        REQUIRE(me::inference::load_model_blob(g.eng, id, "v1", "fp32", &out) == ME_OK);
         CHECK(out.license == lic);
         CHECK(out.bytes.size() == 1);
     }
@@ -240,6 +251,73 @@ TEST_CASE("load_model_blob: APACHE2 + empty bytes → ME_E_INVALID_ARG") {
           == ME_E_INVALID_ARG);
     const char* err = me_engine_last_error(g.eng);
     CHECK(std::string{err}.find("bytes/size is empty") != std::string::npos);
+}
+
+TEST_CASE("load_model_blob: engine cache returns previously-validated bytes without re-fetching") {
+    reset_fetcher();
+    g_fetcher.bytes       = {0x42};
+    g_fetcher.license     = ME_MODEL_LICENSE_APACHE2;
+    g_fetcher.expose_hash = false;
+
+    EngineGuard g;
+    REQUIRE(me_engine_set_model_fetcher(g.eng, test_fetcher, nullptr) == ME_OK);
+
+    me::inference::LoadedModel out1;
+    REQUIRE(me::inference::load_model_blob(g.eng, "cache_test", "v1", "fp32", &out1) == ME_OK);
+    CHECK(g_fetcher.invocations == 1);
+
+    /* Second call for the same identity → cache hit; fetcher
+     * MUST NOT be invoked again. The bullet's M11 §138 wording is
+     * "subsequent invocations don't re-fetch" — this test pins
+     * that contract. */
+    me::inference::LoadedModel out2;
+    REQUIRE(me::inference::load_model_blob(g.eng, "cache_test", "v1", "fp32", &out2) == ME_OK);
+    CHECK(g_fetcher.invocations == 1);
+    CHECK(out2.bytes   == out1.bytes);
+    CHECK(out2.license == out1.license);
+}
+
+TEST_CASE("load_model_blob: clear_loaded_models forces re-fetch on next load") {
+    reset_fetcher();
+    g_fetcher.bytes       = {0x55};
+    g_fetcher.license     = ME_MODEL_LICENSE_APACHE2;
+    g_fetcher.expose_hash = false;
+
+    EngineGuard g;
+    REQUIRE(me_engine_set_model_fetcher(g.eng, test_fetcher, nullptr) == ME_OK);
+
+    me::inference::LoadedModel out;
+    REQUIRE(me::inference::load_model_blob(g.eng, "clear_test", "v1", "fp32", &out) == ME_OK);
+    CHECK(g_fetcher.invocations == 1);
+
+    me::inference::clear_loaded_models(g.eng);
+
+    /* Post-clear: same identity now misses cache → fetcher called
+     * again. Validates the test-reset path the function
+     * documents. */
+    REQUIRE(me::inference::load_model_blob(g.eng, "clear_test", "v1", "fp32", &out) == ME_OK);
+    CHECK(g_fetcher.invocations == 2);
+}
+
+TEST_CASE("load_model_blob: cache key is (id, version, quantization) — distinct tuples don't collide") {
+    reset_fetcher();
+    g_fetcher.bytes       = {0x99};
+    g_fetcher.license     = ME_MODEL_LICENSE_APACHE2;
+    g_fetcher.expose_hash = false;
+
+    EngineGuard g;
+    REQUIRE(me_engine_set_model_fetcher(g.eng, test_fetcher, nullptr) == ME_OK);
+
+    me::inference::LoadedModel out;
+    REQUIRE(me::inference::load_model_blob(g.eng, "k", "v1", "fp32", &out) == ME_OK);
+    REQUIRE(me::inference::load_model_blob(g.eng, "k", "v2", "fp32", &out) == ME_OK);  /* different version */
+    REQUIRE(me::inference::load_model_blob(g.eng, "k", "v1", "fp16", &out) == ME_OK);  /* different quant */
+    /* Three distinct identities → fetcher invoked 3 times. */
+    CHECK(g_fetcher.invocations == 3);
+
+    /* Repeat any of the three → cache hit, no new invocations. */
+    REQUIRE(me::inference::load_model_blob(g.eng, "k", "v2", "fp32", &out) == ME_OK);
+    CHECK(g_fetcher.invocations == 3);
 }
 
 TEST_CASE("load_model_blob: empty quantization is accepted (some models lack the variant)") {

@@ -29,12 +29,15 @@
 #endif
 
 #ifdef ME_HAS_INFERENCE
+#include "inference/model_loader.hpp"
 #include "media_engine/ml.h"
 #endif
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 
 struct me_engine {
@@ -79,6 +82,20 @@ struct me_engine {
     std::mutex          model_fetcher_mu;
     me_model_fetcher_t  model_fetcher_cb   = nullptr;
     void*               model_fetcher_user = nullptr;
+
+    /* Engine-level cache of validated model blobs (M11
+     * inference-load-model-blob-wire-effect-stages). Keyed on
+     * (model_id, version, quantization); value is the
+     * `me::inference::LoadedModel` returned by
+     * `load_model_blob` after license-whitelist + content_hash
+     * validation. `load_model_blob` consults this cache on entry
+     * and stores after successful validation, so subsequent
+     * loads of the same model identity skip the host fetcher
+     * round-trip. Cleared via
+     * `me::inference::clear_loaded_models` (test reset path). */
+    std::mutex loaded_models_mu;
+    std::map<std::tuple<std::string, std::string, std::string>,
+             me::inference::LoadedModel> loaded_models;
 #endif
 };
 

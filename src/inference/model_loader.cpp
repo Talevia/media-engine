@@ -74,6 +74,23 @@ me_status_t load_model_blob(me_engine*        engine,
      * string for the fetcher's NUL-terminated arg. */
     const char* quant_arg = (quantization && quantization[0]) ? quantization : "";
 
+    /* Engine cache lookup — if this exact identity already passed
+     * validation, return the stored LoadedModel directly without
+     * round-tripping through the host fetcher. Cache is keyed on
+     * (id, version, quant); cache value is the full validated blob
+     * (bytes + license + content_hash). */
+    {
+        std::lock_guard<std::mutex> lk(engine->loaded_models_mu);
+        auto it = engine->loaded_models.find(
+            std::make_tuple(std::string{model_id},
+                             std::string{model_version},
+                             std::string{quant_arg}));
+        if (it != engine->loaded_models.end()) {
+            *out = it->second;  /* deep copy — caller mutates freely */
+            return ME_OK;
+        }
+    }
+
     /* Snapshot the fetcher under the lock so the actual call runs
      * without holding the engine's mutex. */
     me_model_fetcher_t cb = nullptr;
@@ -166,7 +183,23 @@ me_status_t load_model_blob(me_engine*        engine,
     out->bytes.assign(blob.bytes, blob.bytes + blob.size);
     out->license      = blob.license;
     out->content_hash = std::move(declared_hash);
+
+    /* Cache the validated blob under the engine. Subsequent calls
+     * for the same identity skip the fetcher round-trip + revalidation. */
+    {
+        std::lock_guard<std::mutex> lk(engine->loaded_models_mu);
+        engine->loaded_models[std::make_tuple(
+            std::string{model_id},
+            std::string{model_version},
+            std::string{quant_arg})] = *out;
+    }
     return ME_OK;
+}
+
+void clear_loaded_models(me_engine* engine) {
+    if (!engine) return;
+    std::lock_guard<std::mutex> lk(engine->loaded_models_mu);
+    engine->loaded_models.clear();
 }
 
 }  // namespace me::inference
