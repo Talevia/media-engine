@@ -276,6 +276,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/inverse_tonemap.cpp
   timeline/effect_loaders/hue_saturation.cpp
   timeline/effect_loaders/lut.cpp
+  timeline/effect_loaders/posterize.cpp
   timeline/effect_loaders/scan_lines.cpp
   timeline/effect_loaders/tone_curve.cpp
   timeline/effect_loaders/tonemap.cpp
@@ -337,6 +338,8 @@ add_library(media_engine STATIC
   compose/scan_lines_stage.cpp
   compose/chromatic_aberration_kernel.cpp
   compose/chromatic_aberration_stage.cpp
+  compose/posterize_kernel.cpp
+  compose/posterize_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

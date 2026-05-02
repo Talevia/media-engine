@@ -140,6 +140,16 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::Posterize) {
+            const auto* params = std::get_if<me::PosterizeEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["levels"].v = static_cast<int64_t>(params->levels);
+            auto n = b.add(task::TaskKindId::RenderPosterize,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ChromaticAberration) {
             const auto* params = std::get_if<me::ChromaticAberrationEffectParams>(&fx.params);
             if (!params) continue;

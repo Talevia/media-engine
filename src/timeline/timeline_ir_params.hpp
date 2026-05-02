@@ -39,6 +39,7 @@
 #include "timeline/effect_params/hue_saturation.hpp"
 #include "timeline/effect_params/inverse_tonemap.hpp"
 #include "timeline/effect_params/lut.hpp"
+#include "timeline/effect_params/posterize.hpp"
 #include "timeline/effect_params/scan_lines.hpp"
 #include "timeline/effect_params/tone_curve.hpp"
 #include "timeline/effect_params/tonemap.hpp"
@@ -259,6 +260,7 @@ enum class EffectKind : uint8_t {
     Glitch          = 12,
     ScanLines       = 13,
     ChromaticAberration = 14,
+    Posterize       = 15,
 };
 
 struct EffectSpec {
@@ -283,10 +285,10 @@ struct EffectSpec {
      * Tonemap → 3, InverseTonemap → 4, FaceSticker → 5, FaceMosaic →
      * 6, BodyAlphaKey → 7, ToneCurve → 8, HueSaturation → 9,
      * Vignette → 10, FilmGrain → 11, Glitch → 12,
-     * ScanLines → 13, ChromaticAberration → 14) so consumers
-     * can `std::get_if<ColorEffectParams>(&spec.params)`
-     * without re-checking kind. Loader enforces the
-     * invariant. */
+     * ScanLines → 13, ChromaticAberration → 14, Posterize →
+     * 15) so consumers can
+     * `std::get_if<ColorEffectParams>(&spec.params)` without
+     * re-checking kind. Loader enforces the invariant. */
     std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams,
                  TonemapEffectParams, InverseTonemapEffectParams,
                  FaceStickerEffectParams, FaceMosaicEffectParams,
@@ -294,7 +296,8 @@ struct EffectSpec {
                  HueSaturationEffectParams, VignetteEffectParams,
                  FilmGrainEffectParams, GlitchEffectParams,
                  ScanLinesEffectParams,
-                 ChromaticAberrationEffectParams>
+                 ChromaticAberrationEffectParams,
+                 PosterizeEffectParams>
         params{ColorEffectParams{}};
 };
 

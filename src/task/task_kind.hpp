@@ -52,6 +52,7 @@ enum class TaskKindId : uint32_t {
     RenderGlitch       = 0x300E,
     RenderScanLines    = 0x300F,
     RenderChromaticAberration = 0x3010,
+    RenderPosterize    = 0x3011,
 
     AudioMix           = 0x4001,
     AudioResample      = 0x4002,
