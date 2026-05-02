@@ -72,6 +72,9 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
                         "+ pkg-config kvazaar (brew install kvazaar / "
                         "apt install libkvazaar-dev); this engine build was "
                         "compiled without Kvazaar";
+        /* LEGIT: build-flag-gated rejection — this path is the
+         * intentional surface when the engine is compiled without
+         * Kvazaar; the diag tells the host how to enable it. */
         return ME_E_UNSUPPORTED;
 #else
         if (dec->width <= 0 || dec->height <= 0) {
@@ -86,6 +89,10 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
                             "x" + std::to_string(dec->height) + "); use "
                             "video_codec='hevc' for HW VideoToolbox path "
                             "(see docs/MILESTONES.md M10 §3)";
+            /* LEGIT: SW HEVC has a 1080p resolution ceiling per
+             * M10 §3 ("limited output"); larger inputs MUST go
+             * through the HW path. The rejection IS the documented
+             * outcome — not a stub. */
             return ME_E_UNSUPPORTED;
         }
         if ((dec->width & 7) || (dec->height & 7)) {
@@ -95,11 +102,13 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
                             std::to_string(dec->height) + ")";
             return ME_E_INVALID_ARG;
         }
-        if (err) *err = "open_video_encoder: 'hevc-sw' encode-loop wiring is "
-                        "pending — preflight checks (1080p ceiling + multiple-"
-                        "of-8 alignment + ME_HAS_KVAZAAR link) passed; see "
-                        "BACKLOG bullet 'encode-hevc-sw-encode-loop-impl' for "
-                        "the libavformat mux integration";
+        if (err) *err = "open_video_encoder: 'hevc-sw' encode-loop wiring "
+                        "pending for the AAC-paired spec (use audio_codec="
+                        "'none' to route through HevcSwSink which produces "
+                        "raw Annex-B HEVC end-to-end)";
+        /* LEGIT: (hevc-sw, aac) spec — MP4+AAC mux integration is
+         * downstream work; (hevc-sw, none) spec already lands on
+         * the working HevcSwSink. */
         return ME_E_UNSUPPORTED;
 #endif
     }

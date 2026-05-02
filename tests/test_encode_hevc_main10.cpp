@@ -258,14 +258,17 @@ TEST_CASE("open_video_encoder: 'hevc-sw' rejects non-multiple-of-8 dims") {
 #endif
 }
 
-TEST_CASE("open_video_encoder: 'hevc-sw' preflight passes with diag pointing at BACKLOG") {
+TEST_CASE("open_video_encoder: 'hevc-sw' preflight passes with diag pointing at HevcSwSink") {
 #ifdef ME_HAS_KVAZAAR
     me::resource::CodecPool pool;
     /* 64x64 is well under the 1080p cap and a clean multiple of 8;
-     * preflight passes all checks. The encode-loop wiring is pending
-     * (tracked by encode-hevc-sw-encode-loop-impl), so the call
-     * returns UNSUPPORTED with that bullet name in the diag — that's
-     * the cycle's documented contract until the encode loop lands. */
+     * preflight passes all checks. The (hevc-sw, aac) MP4-mux path
+     * is downstream work — the diag tells callers to route through
+     * the working `(hevc-sw, none)` HevcSwSink instead. The cycle
+     * that annotated stub markers (debt-stub-annotate-unaccounted)
+     * tightened the diag to drop the "preflight" + bullet-name
+     * verbiage in favor of an actionable hint pointing at the
+     * sibling sink. */
     auto dec = make_synthetic_dec(64, 64);
 
     me::resource::CodecPool::Ptr enc(nullptr,
@@ -278,8 +281,8 @@ TEST_CASE("open_video_encoder: 'hevc-sw' preflight passes with diag pointing at 
         AVRational{1, 30}, 0, false, "hevc-sw",
         enc, target_pix, &err);
     CHECK(s == ME_E_UNSUPPORTED);
-    CHECK(err.find("encode-hevc-sw-encode-loop-impl") != std::string::npos);
-    CHECK(err.find("preflight") != std::string::npos);
+    CHECK(err.find("HevcSwSink") != std::string::npos);
+    CHECK(err.find("audio_codec='none'") != std::string::npos);
 #endif
 }
 

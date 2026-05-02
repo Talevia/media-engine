@@ -81,6 +81,10 @@ public:
         if (err) *err = "hevc-sw sink: engine built without ME_WITH_KVAZAAR=ON; "
                         "rebuild with -DME_WITH_KVAZAAR=ON + brew install kvazaar "
                         "(or apt install libkvazaar-dev)";
+        /* LEGIT: build-flag-gated stub class — only compiled when
+         * ME_HAS_KVAZAAR is undefined. The rejection IS the
+         * documented behavior for OFF builds; the real impl
+         * (the `#else` branch above) handles ON builds. */
         return ME_E_UNSUPPORTED;
     }
 };

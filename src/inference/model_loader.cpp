@@ -133,6 +133,9 @@ me_status_t load_model_blob(me_engine*        engine,
             std::string{"load_model_blob: model_id='"} + model_id +
             "' rejected — license '" + license_name(blob.license) +
             "' not in whitelist {APACHE2, MIT, BSD, CC_BY} (VISION §3.4)");
+        /* LEGIT: license-whitelist rejection is the documented gate
+         * (M11 exit criterion at docs/MILESTONES.md:138) — not a
+         * stub, this IS the desired runtime behavior. */
         return ME_E_UNSUPPORTED;
     }
 
@@ -150,6 +153,9 @@ me_status_t load_model_blob(me_engine*        engine,
                 std::string{"load_model_blob: model_id='"} + model_id +
                 "' content_hash mismatch — declared '" + declared_hash +
                 "' vs. computed '" + computed + "'");
+            /* LEGIT: content_hash integrity check is the documented
+             * gate (M11 exit criterion at docs/MILESTONES.md:138) —
+             * the rejection IS the desired behavior on hash drift. */
             return ME_E_UNSUPPORTED;
         }
     }
