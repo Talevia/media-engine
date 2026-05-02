@@ -55,4 +55,7 @@ me::FaceMosaicEffectParams      parse_face_mosaic_effect_params(
 me::BodyAlphaKeyEffectParams    parse_body_alpha_key_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::ToneCurveEffectParams       parse_tone_curve_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

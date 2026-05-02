@@ -140,6 +140,33 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::ToneCurve) {
+            const auto* params = std::get_if<me::ToneCurveEffectParams>(&fx.params);
+            if (!params) continue;
+
+            /* Encode each per-channel control-point list as
+             * "x0,y0;x1,y1;..." for the graph::Properties
+             * scalar-string slot. Empty channel curve →
+             * empty string → kernel treats as identity. */
+            auto encode = [](const std::vector<me::ToneCurvePoint>& pts) {
+                std::string s;
+                for (std::size_t i = 0; i < pts.size(); ++i) {
+                    if (i > 0) s += ';';
+                    s += std::to_string(static_cast<int>(pts[i].x));
+                    s += ',';
+                    s += std::to_string(static_cast<int>(pts[i].y));
+                }
+                return s;
+            };
+
+            graph::Properties fp;
+            fp["tone_curve_r_points"].v = encode(params->r);
+            fp["tone_curve_g_points"].v = encode(params->g);
+            fp["tone_curve_b_points"].v = encode(params->b);
+            auto n = b.add(task::TaskKindId::RenderToneCurve,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::FaceMosaic) {
             const auto* params = std::get_if<me::FaceMosaicEffectParams>(&fx.params);
             if (!params) continue;

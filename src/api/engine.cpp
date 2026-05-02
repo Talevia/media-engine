@@ -14,6 +14,7 @@
 #include "compose/body_alpha_key_stage.hpp"
 #include "compose/face_mosaic_stage.hpp"
 #include "compose/face_sticker_stage.hpp"
+#include "compose/tone_curve_stage.hpp"
 #include "core/engine_impl.hpp"
 #include "io/decode_audio_kernel.hpp"
 #include "io/decode_video_kernel.hpp"
@@ -46,6 +47,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_face_sticker_kind();
         me::compose::register_face_mosaic_kind();
         me::compose::register_body_alpha_key_kind();
+        me::compose::register_tone_curve_kind();
         me::audio::register_resample_kind();
         me::audio::register_mix_kind();
 #ifdef ME_HAS_SOUNDTOUCH

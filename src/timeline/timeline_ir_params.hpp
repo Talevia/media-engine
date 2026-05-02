@@ -35,6 +35,7 @@
 #include "timeline/effect_params/face_sticker.hpp"
 #include "timeline/effect_params/inverse_tonemap.hpp"
 #include "timeline/effect_params/lut.hpp"
+#include "timeline/effect_params/tone_curve.hpp"
 #include "timeline/effect_params/tonemap.hpp"
 
 #include <cstdint>
@@ -245,6 +246,7 @@ enum class EffectKind : uint8_t {
     FaceSticker     = 5,
     FaceMosaic      = 6,
     BodyAlphaKey    = 7,
+    ToneCurve       = 8,
 };
 
 struct EffectSpec {
@@ -267,13 +269,13 @@ struct EffectSpec {
     /* Typed params by EffectKind. The variant's index must match the
      * kind enum's underlying value (Color → 0, Blur → 1, Lut → 2,
      * Tonemap → 3, InverseTonemap → 4, FaceSticker → 5, FaceMosaic →
-     * 6, BodyAlphaKey → 7) so consumers can
+     * 6, BodyAlphaKey → 7, ToneCurve → 8) so consumers can
      * `std::get_if<ColorEffectParams>(&spec.params)` without
      * re-checking kind. Loader enforces the invariant. */
     std::variant<ColorEffectParams, BlurEffectParams, LutEffectParams,
                  TonemapEffectParams, InverseTonemapEffectParams,
                  FaceStickerEffectParams, FaceMosaicEffectParams,
-                 BodyAlphaKeyEffectParams>
+                 BodyAlphaKeyEffectParams, ToneCurveEffectParams>
         params{ColorEffectParams{}};
 };
 
