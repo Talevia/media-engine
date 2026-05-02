@@ -82,4 +82,7 @@ me::PosterizeEffectParams       parse_posterize_effect_params(
 me::OrderedDitherEffectParams   parse_ordered_dither_effect_params(
     const nlohmann::json& params_json, const std::string& where);
 
+me::MotionBlurEffectParams      parse_motion_blur_effect_params(
+    const nlohmann::json& params_json, const std::string& where);
+
 }  // namespace me::timeline_loader_detail

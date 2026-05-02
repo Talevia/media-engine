@@ -161,6 +161,18 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::MotionBlur) {
+            const auto* params = std::get_if<me::MotionBlurEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["dx_px"].v   = static_cast<int64_t>(params->dx_px);
+            fp["dy_px"].v   = static_cast<int64_t>(params->dy_px);
+            fp["samples"].v = static_cast<int64_t>(params->samples);
+            auto n = b.add(task::TaskKindId::RenderMotionBlur,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ChromaticAberration) {
             const auto* params = std::get_if<me::ChromaticAberrationEffectParams>(&fx.params);
             if (!params) continue;
