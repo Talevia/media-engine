@@ -46,7 +46,7 @@ std::vector<std::uint8_t> make_checkerboard(int w, int h) {
 
 me::FaceMosaicEffectParams pixelate_params(int block_size = 4) {
     me::FaceMosaicEffectParams p;
-    p.landmark_asset_id = "ml1";
+    p.landmark.asset_id = "ml1";
     p.block_size_px     = block_size;
     p.kind              = me::FaceMosaicEffectParams::Kind::Pixelate;
     return p;
@@ -54,7 +54,7 @@ me::FaceMosaicEffectParams pixelate_params(int block_size = 4) {
 
 me::FaceMosaicEffectParams blur_params(int block_size = 4) {
     me::FaceMosaicEffectParams p;
-    p.landmark_asset_id = "ml1";
+    p.landmark.asset_id = "ml1";
     p.block_size_px     = block_size;
     p.kind              = me::FaceMosaicEffectParams::Kind::Blur;
     return p;
@@ -312,7 +312,7 @@ TEST_CASE("face_mosaic JSON: full param set parses into IR") {
     CHECK(effects[0].kind == me::EffectKind::FaceMosaic);
     const auto* fp = std::get_if<me::FaceMosaicEffectParams>(&effects[0].params);
     REQUIRE(fp != nullptr);
-    CHECK(fp->landmark_asset_id == "ml1");
+    CHECK(fp->landmark.asset_id == "ml1");
     CHECK(fp->block_size_px == 24);
     CHECK(fp->kind == me::FaceMosaicEffectParams::Kind::Blur);
     me_timeline_destroy(tl);

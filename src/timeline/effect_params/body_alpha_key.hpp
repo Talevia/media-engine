@@ -8,7 +8,7 @@
  * the subject onto a different layer.
  *
  * Different from face_sticker / face_mosaic: consumes a
- * `mask_asset_id` (AssetKind::Mask, cycle 28's IR work)
+ * `mask` ref (AssetKind::Mask, cycle 28's IR work)
  * referencing a per-frame alpha sequence rather than landmarks.
  * Mask interpretation: 8-bit alpha per pixel; 0 = background
  * (output transparent), 255 = foreground (output opaque).
@@ -21,14 +21,20 @@
  * deterministic; VISION §3.1 byte-identity holds. */
 #pragma once
 
+#include "timeline/effect_params/asset_ref.hpp"
+
 #include <string>
 
 namespace me {
 
 struct BodyAlphaKeyEffectParams {
-    /* References an Asset.id with kind == AssetKind::Mask.
-     * Compose-time consumer resolves + rejects on miss. */
-    std::string mask_asset_id;
+    /* References an Asset.id with kind == AssetKind::Mask, plus
+     * an optional frame-time offset (cycle 31
+     * `effect-kind-ml-asset-input-schema`). Loader accepts the
+     * legacy `"maskAssetId": "<id>"` flat string shape and the
+     * typed `"maskAssetRef": {"assetId": "...", ...}` object
+     * shape. Compose-time consumer resolves + rejects on miss. */
+    MaskAssetRef mask;
 
     /* Soften the mask edge by box-blurring the alpha for this
      * many pixels of radius. 0 = sharp edge (no feathering);

@@ -34,7 +34,7 @@ namespace me::compose {
  * width && mask_height == height`); a future cycle can add
  * resampling for differently-sized masks if needed.
  *
- * `params.mask_asset_id` is documentation-only at the kernel
+ * `params.mask.asset_id` is documentation-only at the kernel
  * level (the upstream resolver consumes it). The kernel uses
  * `params.feather_radius_px` (≥ 0) and `params.invert`.
  *

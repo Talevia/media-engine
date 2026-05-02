@@ -36,7 +36,7 @@ namespace me::compose {
  * confidence frames). Bboxes outside the image are clamped to
  * the image extent before processing.
  *
- * `params.landmark_asset_id` is documentation-only at the
+ * `params.landmark.asset_id` is documentation-only at the
  * kernel level (the upstream resolver consumes it). The kernel
  * uses `params.block_size_px` (must be > 0) and `params.kind`.
  *

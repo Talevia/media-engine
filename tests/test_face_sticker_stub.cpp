@@ -59,7 +59,7 @@ std::vector<std::uint8_t> make_sticker(int w, int h, std::uint8_t r,
 
 me::FaceStickerEffectParams identity_params() {
     me::FaceStickerEffectParams p;
-    p.landmark_asset_id = "ml1";
+    p.landmark.asset_id = "ml1";
     p.sticker_uri       = "file:///tmp/star.png";
     /* scale 1.0 + offset 0 → sticker fills the bbox exactly */
     return p;
@@ -277,7 +277,7 @@ TEST_CASE("face_sticker JSON: required + optional fields parse into IR") {
     CHECK(effects[0].kind == me::EffectKind::FaceSticker);
     const auto* fp = std::get_if<me::FaceStickerEffectParams>(&effects[0].params);
     REQUIRE(fp != nullptr);
-    CHECK(fp->landmark_asset_id == "ml1");
+    CHECK(fp->landmark.asset_id == "ml1");
     CHECK(fp->sticker_uri       == "file:///tmp/star.png");
     CHECK(fp->scale_x == 1.5);
     CHECK(fp->scale_y == 2.0);

@@ -36,6 +36,23 @@ bool rational_eq(me_rational_t a, me_rational_t b) {
     return a.num * b.den == b.num * a.den;
 }
 
+void parse_asset_ref_object(const json&            obj,
+                             const std::string&     where,
+                             std::string&           out_asset_id,
+                             me_rational_t&         out_time_offset,
+                             bool&                  out_has_time_offset) {
+    require(obj.contains("assetId") && obj["assetId"].is_string(),
+            ME_E_PARSE,
+            where + ".assetId: required string field");
+    out_asset_id = obj.at("assetId").get<std::string>();
+    if (obj.contains("timeOffset")) {
+        out_time_offset      = as_rational(obj.at("timeOffset"), where + ".timeOffset");
+        out_has_time_offset  = true;
+    } else {
+        out_has_time_offset  = false;
+    }
+}
+
 /* String → enum tables for me::ColorSpace. Keep in lock-step with
  * TIMELINE_SCHEMA.md §Color and me::ColorSpace in
  * timeline_ir_params.hpp. Unknown string → ME_E_PARSE. */

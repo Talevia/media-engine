@@ -116,6 +116,7 @@ set(_test_suites
   test_hevc_sw_sink
   test_inference_content_hash_cache
   test_inference_license_whitelist
+  test_effect_param_ml_asset_ref
 )
 
 foreach(_suite ${_test_suites})
@@ -724,6 +725,13 @@ target_include_directories(test_inverse_tonemap_stub PRIVATE ${CMAKE_SOURCE_DIR}
 # types; uses the schema-fixtures harness for the JSON cases (same
 # pattern as test_timeline_schema_ml_asset).
 target_include_directories(test_face_sticker_stub PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# test_effect_param_ml_asset_ref — coverage for the typed
+# LandmarkAssetRef / MaskAssetRef schema (M11 exit criterion at
+# MILESTONES.md:140). Loads JSON via the schema-fixtures harness;
+# reaches into src/ for the effect_params/asset_ref.hpp header.
+target_include_directories(test_effect_param_ml_asset_ref PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
 
 # test_face_mosaic_stub mirrors test_face_sticker_stub for the M11
 # ml-effect-face-mosaic-stub bullet — argument-validation +

@@ -45,7 +45,7 @@ namespace me::compose {
  *   - `sticker_rgba == nullptr` or `sticker_w / sticker_h <= 0`
  *     → ME_OK, frame untouched.
  *
- * `params.landmark_asset_id` and `params.sticker_uri` are
+ * `params.landmark.asset_id` and `params.sticker_uri` are
  * documentation-only at the kernel level — they tell the
  * upstream resolver where to fetch landmark/sticker data; the
  * kernel itself only consumes `params.scale_x/y` and

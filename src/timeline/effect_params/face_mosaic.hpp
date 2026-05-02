@@ -14,6 +14,8 @@
  * box-filter blur) so VISION §3.1 byte-identity holds. */
 #pragma once
 
+#include "timeline/effect_params/asset_ref.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -25,9 +27,13 @@ struct FaceMosaicEffectParams {
         Blur     = 1,   /* box filter at radius `block_size_px / 2`. */
     };
 
-    /* References an Asset.id with kind == AssetKind::Landmark.
-     * Compose-time consumer resolves + rejects on miss. */
-    std::string landmark_asset_id;
+    /* References an Asset.id with kind == AssetKind::Landmark, plus
+     * an optional frame-time offset (cycle 31
+     * `effect-kind-ml-asset-input-schema`). Loader accepts the
+     * legacy `"landmarkAssetId": "<id>"` and the typed
+     * `"landmarkAssetRef": {...}` shapes. Compose-time consumer
+     * resolves + rejects on miss. */
+    LandmarkAssetRef landmark;
 
     /* Block size in pixels. Both algorithms use this as the unit
      * size — Pixelate = mean of `block_size_px × block_size_px`

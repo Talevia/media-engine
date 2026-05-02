@@ -41,7 +41,7 @@ std::vector<std::uint8_t> make_mask(int w, int h, std::uint8_t v) {
 
 me::BodyAlphaKeyEffectParams plain_params() {
     me::BodyAlphaKeyEffectParams p;
-    p.mask_asset_id     = "mask1";
+    p.mask.asset_id     = "mask1";
     p.feather_radius_px = 0;
     p.invert            = false;
     return p;
@@ -281,7 +281,7 @@ TEST_CASE("body_alpha_key JSON: full param set parses into IR") {
     CHECK(effects[0].kind == me::EffectKind::BodyAlphaKey);
     const auto* bp = std::get_if<me::BodyAlphaKeyEffectParams>(&effects[0].params);
     REQUIRE(bp != nullptr);
-    CHECK(bp->mask_asset_id == "mask1");
+    CHECK(bp->mask.asset_id == "mask1");
     CHECK(bp->feather_radius_px == 8);
     CHECK(bp->invert == true);
     me_timeline_destroy(tl);

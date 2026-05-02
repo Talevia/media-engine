@@ -3,7 +3,7 @@
  *
  * M11 face-sticker effect — deferred impl. Consumes a Landmark asset
  * (Asset.kind == AssetKind::Landmark from cycle 28's IR work) by
- * `landmark_asset_id` reference plus a sticker image URI; positions
+ * `landmark` ref plus a sticker image URI; positions
  * the sticker at face landmarks with optional scale/offset.
  *
  * Why deferred. The actual kernel needs an inference runtime that
@@ -25,15 +25,21 @@
  * alignment). */
 #pragma once
 
+#include "timeline/effect_params/asset_ref.hpp"
+
 #include <string>
 
 namespace me {
 
 struct FaceStickerEffectParams {
-    /* References an Asset.id with kind == AssetKind::Landmark.
-     * Loader does not validate the cross-reference at parse time —
-     * compose-time consumer resolves + rejects on miss. */
-    std::string landmark_asset_id;
+    /* References an Asset.id with kind == AssetKind::Landmark, plus
+     * an optional frame-time offset for prediction-style effects
+     * (cycle 31 `effect-kind-ml-asset-input-schema`). Loader accepts
+     * the legacy `"landmarkAssetId": "<id>"` flat string shape and
+     * the typed `"landmarkAssetRef": {"assetId": "...", ...}` object
+     * shape; both populate `landmark.asset_id`. Compose-time consumer
+     * resolves the asset + rejects on miss. */
+    LandmarkAssetRef landmark;
 
     /* Sticker image URI (PNG / WebP with alpha). Loaded lazily by
      * the impl; format detection via libavformat's probe at first

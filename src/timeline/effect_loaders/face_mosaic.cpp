@@ -1,7 +1,9 @@
 /* `EffectKind::FaceMosaic` JSON loader — M11 ml-effect-face-
- * mosaic-stub. `landmarkAssetId` required; `blockSizePx` ∈
- * (0, 1024] (default 16); `kind` ∈ {pixelate, blur} (default
- * pixelate). */
+ * mosaic-stub. Schema (cycle 31
+ * `effect-kind-ml-asset-input-schema`): either `landmarkAssetId`
+ * (legacy flat string) or `landmarkAssetRef` (typed object) —
+ * exactly one required. `blockSizePx` ∈ (0, 1024] (default 16);
+ * `kind` ∈ {pixelate, blur} (default pixelate). */
 #include "timeline/effect_loaders/effect_loader.hpp"
 
 #include "timeline/loader_helpers.hpp"
@@ -15,11 +17,19 @@ using json = nlohmann::json;
 me::FaceMosaicEffectParams parse_face_mosaic_effect_params(
     const json& p, const std::string& where) {
     me::FaceMosaicEffectParams fmp;
-    require(p.contains("landmarkAssetId") && p["landmarkAssetId"].is_string(),
-            ME_E_PARSE,
-            where + ".landmarkAssetId: required string field "
-            "(references an Asset.id with kind=landmark)");
-    fmp.landmark_asset_id = p.at("landmarkAssetId").get<std::string>();
+    if (p.contains("landmarkAssetRef") && p["landmarkAssetRef"].is_object()) {
+        parse_asset_ref_object(p.at("landmarkAssetRef"),
+                                where + ".landmarkAssetRef",
+                                fmp.landmark.asset_id,
+                                fmp.landmark.time_offset,
+                                fmp.landmark.has_time_offset);
+    } else {
+        require(p.contains("landmarkAssetId") && p["landmarkAssetId"].is_string(),
+                ME_E_PARSE,
+                where + ".landmarkAssetId: required string field "
+                "(or .landmarkAssetRef object with assetId)");
+        fmp.landmark.asset_id = p.at("landmarkAssetId").get<std::string>();
+    }
     if (p.contains("blockSizePx")) {
         require(p["blockSizePx"].is_number_integer(), ME_E_PARSE,
                 where + ".blockSizePx: expected integer");

@@ -40,6 +40,22 @@ me_rational_t as_rational(const nlohmann::json& j, std::string_view field);
 void          require(bool cond, me_status_t s, std::string msg);
 bool          rational_eq(me_rational_t a, me_rational_t b);
 
+/* Parse a typed `*AssetRef` JSON object form
+ * (`{"assetId": "...", "timeOffset": {"num": ..., "den": ...} }`)
+ * into the three destination fields. Used by face_sticker /
+ * face_mosaic (LandmarkAssetRef) and body_alpha_key
+ * (MaskAssetRef) loaders; the underlying struct shape is
+ * identical so a single helper is shared rather than duplicated
+ * per loader. `where` is the caller's diagnostic prefix
+ * (e.g. "...effects[2].params.landmarkAssetRef"). `assetId`
+ * required; `timeOffset` optional (when absent,
+ * out_has_time_offset stays false). */
+void parse_asset_ref_object(const nlohmann::json&  obj,
+                             const std::string&     where,
+                             std::string&           out_asset_id,
+                             me_rational_t&         out_time_offset,
+                             bool&                  out_has_time_offset);
+
 me::ColorSpace::Primaries to_primaries(const std::string& s);
 me::ColorSpace::Transfer  to_transfer (const std::string& s);
 me::ColorSpace::Matrix    to_matrix   (const std::string& s);
