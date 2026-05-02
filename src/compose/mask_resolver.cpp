@@ -11,6 +11,12 @@
  */
 #include "compose/mask_resolver.hpp"
 
+#ifdef ME_HAS_INFERENCE
+#include "inference/asset_cache.hpp"
+#include "inference/runtime.hpp"
+#include "inference/runtime_factory.hpp"
+#endif
+
 extern "C" {
 #include <libavutil/base64.h>
 }
@@ -19,6 +25,7 @@ extern "C" {
 
 #include <cstdint>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -199,5 +206,110 @@ me_status_t resolve_mask_alpha_from_file(
     *out_alpha  = std::move(alpha_buf);
     return ME_OK;
 }
+
+#ifdef ME_HAS_INFERENCE
+
+namespace {
+
+/* Parse "model:<id>/<version>/<quantization>" → 3-tuple. Same
+ * shape as the landmark resolver's parser; sibling stages use
+ * the same URI form for both `landmark` and `mask` asset
+ * runtime mode. */
+bool parse_model_uri(std::string_view uri,
+                     std::string*     model_id,
+                     std::string*     model_version,
+                     std::string*     quantization) {
+    constexpr std::string_view kPrefix = "model:";
+    if (!uri.starts_with(kPrefix)) return false;
+    const std::string_view tail = uri.substr(kPrefix.size());
+
+    const auto first  = tail.find('/');
+    if (first == std::string_view::npos) return false;
+    const auto second = tail.find('/', first + 1);
+    if (second == std::string_view::npos) return false;
+    if (tail.find('/', second + 1) != std::string_view::npos) return false;
+
+    *model_id      = std::string(tail.substr(0, first));
+    *model_version = std::string(tail.substr(first + 1, second - first - 1));
+    *quantization  = std::string(tail.substr(second + 1));
+    return !model_id->empty() && !model_version->empty() && !quantization->empty();
+}
+
+}  // namespace
+
+me_status_t resolve_mask_alpha_runtime(
+    me_engine*                 engine,
+    std::string_view           model_uri,
+    me_rational_t              /*frame_t*/,
+    int                        /*frame_width*/,
+    int                        /*frame_height*/,
+    int*                       out_mask_width,
+    int*                       out_mask_height,
+    std::vector<std::uint8_t>* out_alpha,
+    std::string*               err) {
+    if (!engine || !out_mask_width || !out_mask_height || !out_alpha) {
+        return ME_E_INVALID_ARG;
+    }
+    *out_mask_width  = 0;
+    *out_mask_height = 0;
+    out_alpha->clear();
+
+    std::string model_id, model_version, quantization;
+    if (!parse_model_uri(model_uri, &model_id, &model_version, &quantization)) {
+        if (err) *err = "resolve_mask_alpha_runtime: model_uri must match "
+                        "'model:<id>/<version>/<quantization>' shape (got '" +
+                        std::string(model_uri) + "')";
+        return ME_E_INVALID_ARG;
+    }
+
+    /* Step 1: factory acquires the validated Runtime — same
+     * gates as the landmark sibling: load_model_blob (license
+     * whitelist + content_hash) + engine cache. */
+    me::inference::Runtime* runtime = nullptr;
+    me_status_t s = me::inference::make_runtime_for_model(
+        engine,
+        model_id.c_str(), model_version.c_str(), quantization.c_str(),
+        &runtime, err);
+    if (s != ME_OK) return s;
+
+    /* Step 2: build a synthetic input tensor matching
+     * SelfieSegmentation's documented 256×256×3 NCHW float32
+     * shape. Real frame preprocessing (resize + planar +
+     * normalize) is the
+     * `mask-resolver-runtime-input-preprocess-impl` follow-up. */
+    me::inference::Tensor input;
+    input.shape = { 1, 3, 256, 256 };
+    input.dtype = me::inference::Dtype::Float32;
+    input.bytes.assign(
+        static_cast<std::size_t>(1) * 3 * 256 * 256 * 4, 0);
+
+    std::map<std::string, me::inference::Tensor> inputs;
+    inputs["input"] = std::move(input);
+
+    /* Step 3: run_cached — exercises the engine's AssetCache
+     * (M11 §137) with the per-model identity + input hash. */
+    std::map<std::string, me::inference::Tensor> outputs;
+    s = me::inference::run_cached(
+        engine, *runtime,
+        model_id, model_version, quantization,
+        inputs, &outputs, err);
+    if (s != ME_OK) return s;
+
+    /* Step 4: decode outputs → alpha plane. Model-specific
+     * (SelfieSegmentation: sigmoid the logit channel,
+     * quantize to uint8, upscale to frame dims). Stub returns
+     * ME_E_UNSUPPORTED with the named follow-up bullet.
+     *
+     * LEGIT: skeleton decode pending — see
+     * `selfie-segmentation-mask-decode-impl` BACKLOG bullet. */
+    if (err) *err = "resolve_mask_alpha_runtime: SelfieSegmentation mask "
+                    "decode pending (see BACKLOG: selfie-segmentation-"
+                    "mask-decode-impl); the run_cached + license-whitelist + "
+                    "content_hash gates ran successfully (model_id='" +
+                    model_id + "')";
+    return ME_E_UNSUPPORTED;
+}
+
+#endif /* ME_HAS_INFERENCE */
 
 }  // namespace me::compose

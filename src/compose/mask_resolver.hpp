@@ -52,6 +52,8 @@
 #include <string_view>
 #include <vector>
 
+struct me_engine;
+
 namespace me::compose {
 
 /* Resolve the alpha mask at `time` from the JSON fixture at
@@ -80,5 +82,55 @@ me_status_t resolve_mask_alpha_from_file(
     int*                       out_height,
     std::vector<std::uint8_t>* out_alpha,
     std::string*               err);
+
+#ifdef ME_HAS_INFERENCE
+
+/* Runtime-mode mask resolver — sibling of
+ * `resolve_landmark_bboxes_runtime`, drives a portrait-
+ * segmentation Runtime through `make_runtime_for_model` +
+ * `run_cached`. M11 `mask-resolver-runtime-mode-impl`
+ * (cycle 52). Production caller of run_cached for
+ * body_alpha_key's segmentation path; once paired with
+ * `selfie-segmentation-ship-path-test` (P1) it covers M11
+ * §139's second ship-path model end-to-end.
+ *
+ * URI shape: `model:<id>/<version>/<quantization>` (e.g.
+ * `model:selfie_seg/v3/int8`). Same parser as the landmark
+ * sibling. Any other URI shape → ME_E_INVALID_ARG.
+ *
+ * Skeleton decode. The output-tensor → alpha-plane decode is
+ * model-specific (SelfieSegmentation produces a 1×H×W float
+ * mask in [0, 1] that needs a sigmoid + uint8 quantize +
+ * upscale to frame dims). The decode lives in
+ * `selfie-segmentation-mask-decode-impl` follow-up. This
+ * skeleton:
+ *
+ *   1. Parses the URI into the model identity tuple.
+ *   2. Calls `make_runtime_for_model` (license whitelist +
+ *      content_hash gates).
+ *   3. Builds a synthetic 256×256×3 NCHW float32 input tensor
+ *      (SelfieSegmentation's typical shape) — real frame
+ *      preprocessing is a follow-up.
+ *   4. Calls `run_cached` (engine AssetCache cache key
+ *      includes the input bytes).
+ *   5. Returns ME_E_UNSUPPORTED on the decode step with diag
+ *      naming the follow-up bullet.
+ *
+ * The first 4 steps ARE the production wire. Returns:
+ *   - ME_E_UNSUPPORTED  — decode step (documented stub).
+ *   - ME_E_INVALID_ARG  — engine NULL, URI malformed.
+ *   - propagated factory / run_cached errors. */
+me_status_t resolve_mask_alpha_runtime(
+    me_engine*                 engine,
+    std::string_view           model_uri,
+    me_rational_t              frame_t,
+    int                        frame_width,
+    int                        frame_height,
+    int*                       out_mask_width,
+    int*                       out_mask_height,
+    std::vector<std::uint8_t>* out_alpha,
+    std::string*               err);
+
+#endif /* ME_HAS_INFERENCE */
 
 }  // namespace me::compose
