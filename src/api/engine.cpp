@@ -23,6 +23,7 @@
 #include "compose/posterize_stage.hpp"
 #include "compose/radial_blur_stage.hpp"
 #include "compose/scan_lines_stage.hpp"
+#include "compose/tilt_shift_stage.hpp"
 #include "compose/tone_curve_stage.hpp"
 #include "compose/vignette_stage.hpp"
 #include "core/engine_impl.hpp"
@@ -68,6 +69,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_ordered_dither_kind();
         me::compose::register_motion_blur_kind();
         me::compose::register_radial_blur_kind();
+        me::compose::register_tilt_shift_kind();
         me::audio::register_resample_kind();
         me::audio::register_mix_kind();
 #ifdef ME_HAS_SOUNDTOUCH

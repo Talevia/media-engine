@@ -281,6 +281,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/posterize.cpp
   timeline/effect_loaders/radial_blur.cpp
   timeline/effect_loaders/scan_lines.cpp
+  timeline/effect_loaders/tilt_shift.cpp
   timeline/effect_loaders/tone_curve.cpp
   timeline/effect_loaders/tonemap.cpp
   timeline/effect_loaders/vignette.cpp
@@ -349,6 +350,8 @@ add_library(media_engine STATIC
   compose/motion_blur_stage.cpp
   compose/radial_blur_kernel.cpp
   compose/radial_blur_stage.cpp
+  compose/tilt_shift_kernel.cpp
+  compose/tilt_shift_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

@@ -186,6 +186,19 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::TiltShift) {
+            const auto* params = std::get_if<me::TiltShiftEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["focal_y_min"].v     = static_cast<double>(params->focal_y_min);
+            fp["focal_y_max"].v     = static_cast<double>(params->focal_y_max);
+            fp["edge_softness"].v   = static_cast<double>(params->edge_softness);
+            fp["max_blur_radius"].v = static_cast<int64_t>(params->max_blur_radius);
+            auto n = b.add(task::TaskKindId::RenderTiltShift,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::ChromaticAberration) {
             const auto* params = std::get_if<me::ChromaticAberrationEffectParams>(&fx.params);
             if (!params) continue;
