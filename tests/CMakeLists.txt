@@ -114,6 +114,7 @@ set(_test_suites
   test_inference_onnx_skeleton
   test_kvazaar_hevc_encoder
   test_hevc_sw_sink
+  test_inference_content_hash_cache
 )
 
 foreach(_suite ${_test_suites})
@@ -1060,6 +1061,15 @@ target_include_directories(test_inference_coreml_skeleton PRIVATE
 # strided→contiguous walk used by coreml_runtime.mm. Same src/-as-
 # include pattern; no Apple frameworks needed.
 target_include_directories(test_inference_multiarray_layout PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_inference_content_hash_cache — exercises me::inference::AssetCache
+# (M11 exit criterion at MILESTONES.md:137, contentHash inference cache).
+# ME_HAS_INFERENCE compile-def propagates from media_engine's PUBLIC
+# target_compile_definitions, so the suite sees the same on/off as the
+# engine itself. Pure C++ over the cache + a mock runtime — no Apple
+# frameworks, no ONNX runtime.
+target_include_directories(test_inference_content_hash_cache PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_onnx_skeleton — exercises me::inference::OnnxRuntime's
