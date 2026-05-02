@@ -138,7 +138,7 @@
 - [ ] 模型权重 lazy load：host 实现 `me_model_fetcher_t` callback；engine 校验 content_hash + license 白名单（Apache / MIT / BSD / CC-BY），non-commercial / GPL / unknown license 拒载
 - [ ] 至少 2 个 ship-path model 跑通：face landmark（候选 BlazeFace + face_landmarks_v2，TFLite Apache）+ portrait segmentation（候选 SelfieSegmentation，Apache）；CPU FP32 reference 与 CoreML / ONNX runtime HW path 误差 < ε
 - [x] effect kind 扩展可声明 ML-asset 输入：参数 typed schema 增加 `landmark_asset_ref` / `mask_asset_ref` / `keypoint_asset_ref` 等引用类型
-- [ ] 第一波 detection-driven effect（≥ 3 个）：
+- [x] 第一波 detection-driven effect（≥ 3 个）：
     - `face_sticker` — 贴纸按 landmark 平移 / 缩放 / 旋转吸附面部
     - `face_mosaic` — 跟随 landmark bbox 的局部模糊 / 像素化
     - `body_alpha_key` — portrait segmentation mask 作前景 alpha
