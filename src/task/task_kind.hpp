@@ -47,6 +47,7 @@ enum class TaskKindId : uint32_t {
     RenderBodyAlphaKey = 0x3009,
     RenderToneCurve    = 0x300A,
     RenderHueSaturation= 0x300B,
+    RenderVignette     = 0x300C,
 
     AudioMix           = 0x4001,
     AudioResample      = 0x4002,

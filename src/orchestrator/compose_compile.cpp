@@ -140,6 +140,20 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::Vignette) {
+            const auto* params = std::get_if<me::VignetteEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["radius"].v    = static_cast<double>(params->radius);
+            fp["softness"].v  = static_cast<double>(params->softness);
+            fp["intensity"].v = static_cast<double>(params->intensity);
+            fp["center_x"].v  = static_cast<double>(params->center_x);
+            fp["center_y"].v  = static_cast<double>(params->center_y);
+            auto n = b.add(task::TaskKindId::RenderVignette,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::HueSaturation) {
             const auto* params = std::get_if<me::HueSaturationEffectParams>(&fx.params);
             if (!params) continue;

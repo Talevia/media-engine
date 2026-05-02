@@ -275,6 +275,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/lut.cpp
   timeline/effect_loaders/tone_curve.cpp
   timeline/effect_loaders/tonemap.cpp
+  timeline/effect_loaders/vignette.cpp
   timeline/animated_number.cpp
   timeline/animated_color.cpp
   timeline/segmentation.cpp
@@ -322,6 +323,8 @@ add_library(media_engine STATIC
   compose/tone_curve_stage.cpp
   compose/hue_saturation_kernel.cpp
   compose/hue_saturation_stage.cpp
+  compose/vignette_kernel.cpp
+  compose/vignette_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

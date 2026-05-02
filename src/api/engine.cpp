@@ -16,6 +16,7 @@
 #include "compose/face_sticker_stage.hpp"
 #include "compose/hue_saturation_stage.hpp"
 #include "compose/tone_curve_stage.hpp"
+#include "compose/vignette_stage.hpp"
 #include "core/engine_impl.hpp"
 #include "io/decode_audio_kernel.hpp"
 #include "io/decode_video_kernel.hpp"
@@ -50,6 +51,7 @@ extern "C" me_status_t me_engine_create(const me_engine_config_t* config, me_eng
         me::compose::register_body_alpha_key_kind();
         me::compose::register_tone_curve_kind();
         me::compose::register_hue_saturation_kind();
+        me::compose::register_vignette_kind();
         me::audio::register_resample_kind();
         me::audio::register_mix_kind();
 #ifdef ME_HAS_SOUNDTOUCH

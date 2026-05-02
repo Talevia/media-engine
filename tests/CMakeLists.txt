@@ -132,6 +132,7 @@ set(_test_suites
   test_inference_selfie_segmentation
   test_tone_curve_kernel_pixel
   test_hue_saturation_kernel_pixel
+  test_vignette_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -828,6 +829,11 @@ target_include_directories(test_tone_curve_kernel_pixel PRIVATE
 # test_hue_saturation_kernel_pixel — M12 §155 (2/4)
 # hue/saturation pixel regression.
 target_include_directories(test_hue_saturation_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_vignette_kernel_pixel — M12 §155 (3/4) vignette pixel
+# regression.
+target_include_directories(test_vignette_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob
