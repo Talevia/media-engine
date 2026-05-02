@@ -152,7 +152,7 @@
 
 ### Exit criteria
 
-- [ ] 颜色：tone curve、hue / saturation、vignette、film grain（带 deterministic seed 入参）
+- [x] 颜色：tone curve、hue / saturation、vignette、film grain（带 deterministic seed 入参）
 - [ ] 风格化：glitch、scan lines、chromatic aberration、posterize、ordered dither
 - [ ] 模糊变体：motion blur（按 transform 速度 derive，或参数指定向量）、radial blur、tilt-shift
 - [ ] 几何：warp（control points + animated property）、displacement (texture-driven)
