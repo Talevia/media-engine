@@ -117,6 +117,7 @@ set(_test_suites
   test_inference_content_hash_cache
   test_inference_license_whitelist
   test_effect_param_ml_asset_ref
+  test_face_sticker_compose_stage
 )
 
 foreach(_suite ${_test_suites})
@@ -732,6 +733,17 @@ target_include_directories(test_face_sticker_stub PRIVATE ${CMAKE_SOURCE_DIR}/sr
 # reaches into src/ for the effect_params/asset_ref.hpp header.
 target_include_directories(test_effect_param_ml_asset_ref PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
+
+# test_face_sticker_compose_stage — end-to-end coverage for the
+# face_sticker upstream resolvers (sticker_decoder +
+# landmark_resolver, M11 face-sticker-compose-stage-wiring).
+# Encodes a tiny PNG via libavcodec at runtime so there's no
+# checked-in binary fixture. Needs FFmpeg avcodec/avutil/swscale
+# for the encoder + nlohmann::json for the JSON fixture write.
+target_include_directories(test_face_sticker_compose_stage PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_face_sticker_compose_stage PRIVATE
+  FFMPEG::avcodec FFMPEG::avutil FFMPEG::swscale nlohmann_json::nlohmann_json)
 
 # test_face_mosaic_stub mirrors test_face_sticker_stub for the M11
 # ml-effect-face-mosaic-stub bullet — argument-validation +
