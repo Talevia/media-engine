@@ -16,6 +16,7 @@
 #ifndef MEDIA_ENGINE_RENDER_H
 #define MEDIA_ENGINE_RENDER_H
 
+#include "codec_options.h"
 #include "types.h"
 
 #ifdef __cplusplus
@@ -29,7 +30,13 @@ typedef struct me_output_spec {
     const char* container;         /* "mp4","mov","mkv" — required */
 
     /* Codec names. "passthrough" means stream-copy when inputs are compatible.
-     * Engine validates against its codec registry; unknown names => ME_E_UNSUPPORTED. */
+     * Engine validates against its codec registry; unknown names => ME_E_UNSUPPORTED.
+     *
+     * If `codec_options` is non-NULL AND its video_codec/audio_codec
+     * enum is non-NONE, the typed enum takes precedence over these
+     * strings — see codec_options.h precedence rules. NULL
+     * `codec_options` (the legacy / zero-init default) keeps these
+     * strings as the canonical codec selection. */
     const char* video_codec;       /* e.g., "h264","hevc","prores","passthrough" */
     const char* audio_codec;       /* e.g., "aac","pcm_s16le","passthrough" */
 
@@ -41,6 +48,15 @@ typedef struct me_output_spec {
     int           width;
     int           height;
     me_rational_t frame_rate;
+
+    /* Append-only ABI evolution per §3a.10 (cycle 47, M7-debt
+     * me-output-spec-typed-codec-enum). When non-NULL the typed
+     * codec enum + per-codec opts (see codec_options.h) take
+     * precedence over the string codec fields above. NULL (the
+     * zero-init default) preserves legacy string-dispatch
+     * behavior — every existing host that zero-inits the struct
+     * is unaffected. */
+    const me_codec_options_t* codec_options;
 } me_output_spec_t;
 
 typedef enum me_progress_kind {

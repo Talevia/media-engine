@@ -124,6 +124,7 @@ set(_test_suites
   test_compose_face_sticker_stage
   test_compose_face_mosaic_stage
   test_compose_body_alpha_key_stage
+  test_codec_options_abi
 )
 
 foreach(_suite ${_test_suites})

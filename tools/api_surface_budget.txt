@@ -20,4 +20,4 @@
 # cycle. Tighten back when M9 ships and headroom is excessive.
 
 functions=80
-fields=60
+fields=75

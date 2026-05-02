@@ -129,7 +129,7 @@ explicit `STUB:` marker in source (see `tools/check_stubs.sh`).
 
 | Path | Status | Notes |
 |---|---|---|
-| Public C API headers (7) | **Shipped** | ABI stable; no ABI-breaking change landed since M1 started. |
+| Public C API headers (8) | **Shipped** | ABI stable; one append-only struct evolution since M1 started — `me_output_spec_t.codec_options` (M7-debt cycle 47, `me-output-spec-typed-codec-enum`); zero-init hosts unaffected. New header `media_engine/codec_options.h` introduces `me_video_codec_t` / `me_audio_codec_t` enums + per-codec `me_h264_opts_t` / `me_hevc_opts_t` / `me_hevc_sw_opts_t` / `me_aac_opts_t`. The string codec fields remain canonical; typed `codec_options` is opt-in and takes precedence when non-NULL. |
 | `me_probe` | **Shipped** | libavformat-backed; fills container / duration / stream metadata. |
 | `me_thumbnail_png` (asset-level) | **Shipped** | seek → decode → sws_scale RGB24 → libavcodec PNG. |
 | `me_render_start` passthrough | **Shipped** | Multi-clip single-track concat with DTS-continuity stitching; graph-driven demux per clip. |
