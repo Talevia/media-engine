@@ -129,6 +129,7 @@ set(_test_suites
   test_inference_runtime_factory
   test_landmark_resolver_runtime
   test_mask_resolver_runtime
+  test_inference_selfie_segmentation
 )
 
 foreach(_suite ${_test_suites})
@@ -829,6 +830,21 @@ if(PkgConfig_FOUND)
   pkg_check_modules(_TEST_BLAZEFACE_ONNX QUIET libonnxruntime)
   if(_TEST_BLAZEFACE_ONNX_FOUND)
     target_compile_definitions(test_inference_blazeface PRIVATE
+      ME_HAS_ONNX_RUNTIME=1)
+  endif()
+endif()
+
+# test_inference_selfie_segmentation — env-var-gated sibling of
+# test_inference_blazeface, covering M11 §139's second
+# ship-path model (Google SelfieSegmentation, Apache 2.0).
+# Reads model bytes from ME_TEST_SELFIE_SEG_ONNX_PATH; CI
+# without the env var fast-skips.
+target_include_directories(test_inference_selfie_segmentation PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+if(PkgConfig_FOUND)
+  pkg_check_modules(_TEST_SELFIE_SEG_ONNX QUIET libonnxruntime)
+  if(_TEST_SELFIE_SEG_ONNX_FOUND)
+    target_compile_definitions(test_inference_selfie_segmentation PRIVATE
       ME_HAS_ONNX_RUNTIME=1)
   endif()
 endif()
