@@ -156,7 +156,7 @@
 - [x] 风格化：glitch、scan lines、chromatic aberration、posterize、ordered dither
 - [x] 模糊变体：motion blur（按 transform 速度 derive，或参数指定向量）、radial blur、tilt-shift
 - [x] 几何：warp（control points + animated property）、displacement (texture-driven)
-- [ ] 全部进入 EffectChain 合并路径（M3 §EffectChain 骨架已就位），≥ 3 effect 单 pass 案例
+- [x] 全部进入 EffectChain 合并路径（M3 §EffectChain 骨架已就位），≥ 3 effect 单 pass 案例
 - [ ] 每个 effect kind 至少 1 个像素级回归测试 + 1 个 timeline JSON 示例
 - [ ] 不新增第三方依赖（CMakeLists 不动 FetchContent / find_package）
 - [ ] §5.7-5 lib_size_budget 在 effect 数量翻倍后保持在预算内（不行就 commit body 显式 bump，但优先用 shader uber-shader 复用挤空间）
