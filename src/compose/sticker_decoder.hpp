@@ -17,9 +17,13 @@
  * URI scheme:
  *   - `file:///path/to/sticker.png` — strip the `file://` prefix
  *     and treat the rest as a filesystem path.
+ *   - `http://...` / `https://...` — passes through to
+ *     libavformat's HTTP protocol handler (LGPL-clean per
+ *     VISION §3.4). Caller-side timeouts / retries are
+ *     libavformat's defaults.
  *   - `/absolute/path/to/sticker.png` — path-as-uri shorthand.
- *   - Other schemes (http / https / asset / ...) are not yet
- *     supported and return ME_E_UNSUPPORTED with a named diag.
+ *   - Other schemes (asset:// / s3:// / custom resolvers ...)
+ *     return ME_E_UNSUPPORTED with a named diag.
  *
  * Determinism. PNG / WebP decoding is deterministic per
  * VISION §3.1; the sticker bytes produce the same RGBA8 output

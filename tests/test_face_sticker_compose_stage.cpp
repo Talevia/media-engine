@@ -142,12 +142,40 @@ TEST_CASE("decode_sticker_to_rgba8: empty URI rejected") {
 }
 
 TEST_CASE("decode_sticker_to_rgba8: unsupported scheme rejected") {
+    /* http(s):// passes through to libavformat's HTTP handler
+     * (LGPL-clean, supported as of the m13-http-source-bootstrap
+     * cycle). Schemes like asset:// / s3:// / custom resolvers
+     * remain rejected with the named diag. */
     me::compose::StickerImage out;
     std::string err;
-    CHECK(me::compose::decode_sticker_to_rgba8("https://example.com/a.png",
+    CHECK(me::compose::decode_sticker_to_rgba8("asset:///pkg/sticker.png",
                                                   &out, &err)
           == ME_E_UNSUPPORTED);
     CHECK(err.find("scheme not supported") != std::string::npos);
+}
+
+TEST_CASE("decode_sticker_to_rgba8: http(s) scheme accepted (passes to libavformat)") {
+    /* The URI scheme guard accepts http:// + https://; unreachable
+     * URLs surface as ME_E_IO from avformat_open_input rather than
+     * ME_E_UNSUPPORTED at the scheme-check stage. We use a blackhole
+     * port (TEST-NET-1 RFC 5737) so we don't depend on DNS state +
+     * the failure is fast. */
+    me::compose::StickerImage out;
+    std::string err;
+    /* 192.0.2.0/24 is RFC 5737 reserved for documentation — IANA
+     * promises it never resolves. The actual error code from
+     * libavformat depends on the platform's network stack
+     * (connection refused / unreachable / timeout); the scheme
+     * guard's contract is just that it's NOT ME_E_UNSUPPORTED
+     * with the "scheme not supported" diag. */
+    const me_status_t s = me::compose::decode_sticker_to_rgba8(
+        "http://192.0.2.1/sticker.png", &out, &err);
+    CHECK(s != ME_E_UNSUPPORTED);
+    if (s == ME_E_UNSUPPORTED) {
+        /* Diagnostic: surface the err string so a regression
+         * (scheme guard accidentally re-rejects http) is debuggable. */
+        MESSAGE("err was: " << err);
+    }
 }
 
 TEST_CASE("resolve_landmark_bboxes_from_file: closest-frame selection") {

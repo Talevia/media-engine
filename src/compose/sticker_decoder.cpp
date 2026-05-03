@@ -65,14 +65,22 @@ me_status_t decode_sticker_to_rgba8(std::string_view uri,
     if (!out) return fail(ME_E_INVALID_ARG, "out is null");
     if (uri.empty()) return fail(ME_E_INVALID_ARG, "uri is empty");
 
-    /* Reject schemes we don't yet support — http / https / asset
-     * resolvers etc. Pre-cycle all callers use file:// URIs from
-     * timeline JSON; this guard is the named rejection point so
-     * future schemes get an explicit "not supported" rather than
-     * a libavformat surprise. */
+    /* Accepted schemes:
+     *   - file://    — local filesystem (most common)
+     *   - http://    — passes through to libavformat's HTTP protocol
+     *   - https://   — same, with TLS
+     *   - bare paths (absolute / relative) — host convention
+     *
+     * libavformat's HTTP support is LGPL-clean (per VISION §3.4
+     * dependency table); the engine just hands the URI to
+     * avformat_open_input which dispatches to the appropriate
+     * protocol handler. Other schemes (asset:// / s3:// / custom
+     * resolvers) are rejected with a named error. */
     auto is_supported_scheme = [](std::string_view u) {
-        if (u.starts_with("file://")) return true;
-        if (u.starts_with("/"))       return true;   /* path-as-uri */
+        if (u.starts_with("file://"))   return true;
+        if (u.starts_with("http://"))   return true;
+        if (u.starts_with("https://"))  return true;
+        if (u.starts_with("/"))         return true;   /* path-as-uri */
         if (u.starts_with("./") || u.starts_with("../")) return true;
         /* Single-segment relative paths (no scheme, no leading /)
          * are accepted too — matches host conventions for
@@ -83,9 +91,11 @@ me_status_t decode_sticker_to_rgba8(std::string_view uri,
     if (!is_supported_scheme(uri)) {
         return fail(ME_E_UNSUPPORTED,
                     "uri scheme not supported (got '" + std::string(uri) +
-                    "', expected file:// or path)");
+                    "', expected file:// / http(s):// / path)");
     }
 
+    /* For file:// strip the prefix; http(s):// stays intact so
+     * avformat dispatches to its HTTP protocol handler. */
     const std::string path = strip_file_scheme(uri);
 
     /* --- Open the still-image file via libavformat ---------- */
