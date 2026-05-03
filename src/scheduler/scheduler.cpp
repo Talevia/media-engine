@@ -104,6 +104,7 @@ void run_node(graph::NodeId       id,
     ctx.gpu        = eval.ctx().gpu;
     ctx.cancel     = &eval.cancel_flag();
     ctx.cache      = eval.ctx().cache;
+    ctx.engine     = eval.ctx().engine;
     ctx.tempo_pool = tempo_pool;
 
     eval.set_state(id, NodeState::Running);

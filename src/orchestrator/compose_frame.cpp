@@ -51,6 +51,7 @@ me_status_t compose_frame_at(me_engine*                                  engine,
     ctx.frames = engine->frames.get();
     ctx.codecs = engine->codecs.get();
     ctx.time   = time;
+    ctx.engine = engine;
 
     try {
         auto fut = engine->scheduler->evaluate_port<

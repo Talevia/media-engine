@@ -217,6 +217,7 @@ me_status_t Exporter::export_to(const me_output_spec_t& spec,
         }
 
         graph::EvalContext ctx;
+        ctx.engine = eng;
         me_status_t final_status = ME_OK;
         std::string work_err;
 

@@ -193,6 +193,7 @@ extern "C" me_status_t me_render_frame(
     ctx.frames = engine->frames.get();
     ctx.codecs = engine->codecs.get();
     ctx.time   = time;
+    ctx.engine = engine;
     try {
         auto fut = engine->scheduler->evaluate_port<
                        std::shared_ptr<me::graph::RgbaFrameData>>(graph, terminal, ctx);

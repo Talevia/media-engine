@@ -186,6 +186,7 @@ void Player::audio_producer_loop() {
         ctx.frames = engine_->frames.get();
         ctx.codecs = engine_->codecs.get();
         ctx.time   = cursor;
+        ctx.engine = engine_;
 
         std::shared_ptr<AVFrame> frame;
         try {

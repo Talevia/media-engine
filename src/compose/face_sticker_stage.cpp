@@ -68,7 +68,7 @@ std::string read_string_prop(const graph::Properties& props,
     return {};
 }
 
-me_status_t face_sticker_kernel(task::TaskContext&,
+me_status_t face_sticker_kernel(task::TaskContext&                  ctx,
                                  const graph::Properties&           props,
                                  std::span<const graph::InputValue> inputs,
                                  std::span<graph::OutputSlot>       outs) {
@@ -108,12 +108,37 @@ me_status_t face_sticker_kernel(task::TaskContext&,
         }
     }
 
-    /* --- Resolve landmark bboxes ------------------------------ */
+    /* --- Resolve landmark bboxes ------------------------------
+     * Two URI shapes:
+     *   - "model:<id>/<ver>/<quant>" → runtime ML inference via
+     *     resolve_landmark_bboxes_runtime (gated by ME_HAS_INFERENCE
+     *     + a non-NULL ctx.engine; falls back to empty bboxes on
+     *     ME_E_UNSUPPORTED so kernels stay rendering when the
+     *     runtime backend isn't compiled in).
+     *   - anything else → file-based JSON fixture path. */
     std::vector<Bbox> bboxes;
     if (!landmark_uri.empty()) {
-        const me_status_t s = resolve_landmark_bboxes_from_file(
-            landmark_uri, frame_t, &bboxes, &err);
-        if (s != ME_OK) return s;
+        const bool is_model_uri = landmark_uri.rfind("model:", 0) == 0;
+        if (is_model_uri) {
+#ifdef ME_HAS_INFERENCE
+            if (ctx.engine) {
+                const me_status_t s = resolve_landmark_bboxes_runtime(
+                    ctx.engine, landmark_uri, frame_t,
+                    in.width, in.height,
+                    in.rgba.data(), in.stride,
+                    &bboxes, &err);
+                if (s == ME_E_UNSUPPORTED) {
+                    bboxes.clear();  /* no runtime backend → empty */
+                } else if (s != ME_OK) {
+                    return s;
+                }
+            }
+#endif
+        } else {
+            const me_status_t s = resolve_landmark_bboxes_from_file(
+                landmark_uri, frame_t, &bboxes, &err);
+            if (s != ME_OK) return s;
+        }
     }
 
     /* --- Allocate output, copy input bytes, in-place blend ---- */

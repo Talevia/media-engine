@@ -62,7 +62,7 @@ std::string read_string_prop(const graph::Properties& props,
     return {};
 }
 
-me_status_t face_mosaic_kernel(task::TaskContext&,
+me_status_t face_mosaic_kernel(task::TaskContext&                  ctx,
                                 const graph::Properties&           props,
                                 std::span<const graph::InputValue> inputs,
                                 std::span<graph::OutputSlot>       outs) {
@@ -84,13 +84,35 @@ me_status_t face_mosaic_kernel(task::TaskContext&,
     const std::int64_t block_size   = read_int64_prop(props, "block_size_px", 16);
     const std::int64_t mosaic_kind  = read_int64_prop(props, "mosaic_kind",   0);
 
-    /* --- Resolve landmark bboxes ------------------------------ */
+    /* --- Resolve landmark bboxes ------------------------------
+     * "model:..." URIs route through the runtime ML resolver
+     * (gated by ME_HAS_INFERENCE + ctx.engine); other URIs use
+     * the file-based JSON fixture path. See face_sticker_stage
+     * for the same dispatch shape. */
     std::vector<Bbox> bboxes;
     std::string       err;
     if (!landmark_uri.empty()) {
-        const me_status_t s = resolve_landmark_bboxes_from_file(
-            landmark_uri, frame_t, &bboxes, &err);
-        if (s != ME_OK) return s;
+        const bool is_model_uri = landmark_uri.rfind("model:", 0) == 0;
+        if (is_model_uri) {
+#ifdef ME_HAS_INFERENCE
+            if (ctx.engine) {
+                const me_status_t s = resolve_landmark_bboxes_runtime(
+                    ctx.engine, landmark_uri, frame_t,
+                    in.width, in.height,
+                    in.rgba.data(), in.stride,
+                    &bboxes, &err);
+                if (s == ME_E_UNSUPPORTED) {
+                    bboxes.clear();
+                } else if (s != ME_OK) {
+                    return s;
+                }
+            }
+#endif
+        } else {
+            const me_status_t s = resolve_landmark_bboxes_from_file(
+                landmark_uri, frame_t, &bboxes, &err);
+            if (s != ME_OK) return s;
+        }
     }
 
     /* --- Allocate output, copy input bytes, in-place mosaic --- */

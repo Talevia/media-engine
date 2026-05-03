@@ -10,6 +10,8 @@
 
 #include "media_engine/types.h"
 
+struct me_engine;
+
 namespace me::resource { class FramePool; class CodecPool; class GpuContext; }
 namespace me::sched    { class OutputCache; }
 
@@ -23,6 +25,13 @@ struct EvalContext {
     /* Scheduler injects its OutputCache here at build_and_run time; callers
      * passing an EvalContext don't need to set this (left null = no cache). */
     sched::OutputCache*      cache  = nullptr;
+    /* Optional engine pointer for kernels that need to call
+     * runtime-mode helpers (e.g. ML inference resolvers under
+     * src/inference/, which dispatch through engine state for
+     * model loading + caching). Null in test contexts that
+     * don't need it; production callers (compose_frame_at,
+     * api/render, api/thumbnail) populate it. */
+    ::me_engine*             engine = nullptr;
 };
 
 }  // namespace me::graph

@@ -102,6 +102,7 @@ extern "C" me_status_t me_thumbnail_png(
         ctx.frames = engine->frames.get();
         ctx.codecs = engine->codecs.get();
         ctx.time   = t;
+        ctx.engine = engine;
 
         std::shared_ptr<me::graph::RgbaFrameData> rgba;
         try {

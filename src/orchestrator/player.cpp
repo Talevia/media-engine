@@ -192,6 +192,7 @@ void Player::producer_loop() {
                 ctx.frames = engine_->frames.get();
                 ctx.codecs = engine_->codecs.get();
                 ctx.time   = cursor;
+                ctx.engine = engine_;
                 fut = engine_->scheduler->evaluate_port<
                            std::shared_ptr<me::graph::RgbaFrameData>>(g, term, ctx);
             }

@@ -11,6 +11,8 @@
 
 #include <atomic>
 
+struct me_engine;
+
 namespace me::resource {
     class FramePool;
     class CodecPool;
@@ -29,6 +31,12 @@ struct TaskContext {
     resource::GpuContext*    gpu    = nullptr; /* null if CPU kernel */
     const std::atomic<bool>* cancel = nullptr; /* per-EvalInstance cancel flag */
     sched::OutputCache*      cache  = nullptr; /* injected by scheduler; null when caller passes ctx without scheduler ownership */
+    /* Optional engine pointer threaded from EvalContext.engine.
+     * Kernels that dispatch into runtime-mode helpers (e.g. the
+     * ML inference resolvers in src/compose/landmark_resolver
+     * + mask_resolver) read this. Null in test contexts that
+     * don't need it. */
+    ::me_engine*             engine = nullptr;
 
     /* Stateful resource pool for SoundTouch instances. Kernels (e.g.
      * AudioTimestretch) borrow per-track instances keyed by an

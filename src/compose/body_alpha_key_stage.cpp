@@ -70,7 +70,7 @@ std::string read_string_prop(const graph::Properties& props,
     return {};
 }
 
-me_status_t body_alpha_key_kernel(task::TaskContext&,
+me_status_t body_alpha_key_kernel(task::TaskContext&                  ctx,
                                    const graph::Properties&           props,
                                    std::span<const graph::InputValue> inputs,
                                    std::span<graph::OutputSlot>       outs) {
@@ -92,14 +92,38 @@ me_status_t body_alpha_key_kernel(task::TaskContext&,
     const std::int64_t feather_px  = read_int64_prop(props, "feather_radius_px", 0);
     const std::int64_t invert_flag = read_int64_prop(props, "invert", 0);
 
-    /* --- Resolve mask alpha plane ----------------------------- */
+    /* --- Resolve mask alpha plane -----------------------------
+     * "model:..." URIs route through the runtime ML resolver
+     * (gated by ME_HAS_INFERENCE + ctx.engine); other URIs use
+     * the file-based JSON+base64 fixture path. Same dispatch
+     * shape as face_sticker_stage / face_mosaic_stage. */
     int                       mask_w = 0, mask_h = 0;
     std::vector<std::uint8_t> mask_bytes;
     std::string               err;
     if (!mask_uri.empty()) {
-        const me_status_t s = resolve_mask_alpha_from_file(
-            mask_uri, frame_t, &mask_w, &mask_h, &mask_bytes, &err);
-        if (s != ME_OK) return s;
+        const bool is_model_uri = mask_uri.rfind("model:", 0) == 0;
+        if (is_model_uri) {
+#ifdef ME_HAS_INFERENCE
+            if (ctx.engine) {
+                const me_status_t s = resolve_mask_alpha_runtime(
+                    ctx.engine, mask_uri, frame_t,
+                    in.width, in.height,
+                    in.rgba.data(), in.stride,
+                    &mask_w, &mask_h, &mask_bytes, &err);
+                if (s == ME_E_UNSUPPORTED) {
+                    mask_w = 0;
+                    mask_h = 0;
+                    mask_bytes.clear();
+                } else if (s != ME_OK) {
+                    return s;
+                }
+            }
+#endif
+        } else {
+            const me_status_t s = resolve_mask_alpha_from_file(
+                mask_uri, frame_t, &mask_w, &mask_h, &mask_bytes, &err);
+            if (s != ME_OK) return s;
+        }
     }
 
     /* --- Allocate output, copy input bytes -------------------- */
