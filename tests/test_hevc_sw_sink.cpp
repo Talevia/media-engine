@@ -4,9 +4,10 @@
  * cycle (`encode-hevc-output-sink-runtime-sw-dispatch`).
  *
  * Spec-match unit tests (always run):
- *   - is_hevc_sw_video_only_spec accepts (hevc-sw, none/empty/null)
- *   - is_hevc_sw_video_only_spec rejects (hevc-sw, aac) — that combo
- *     is owned by VideoAacSink which UNSUPPORTEDs at preflight.
+ *   - The inlined (HEVC_SW, NONE) shape match in make_output_sink
+ *     accepts (hevc-sw, none/empty/null) via resolve_codec_selection.
+ *   - rejects (hevc-sw, aac) — that combo is owned by VideoAacSink
+ *     which UNSUPPORTEDs at preflight.
  *   - rejects (h264, *) and (passthrough, *).
  *
  * Integration test (gated on ME_HAS_KVAZAAR):
@@ -23,6 +24,7 @@
 #include <doctest/doctest.h>
 
 #include "media_engine/types.h"
+#include "orchestrator/codec_resolver.hpp"
 #include "orchestrator/hevc_sw_sink.hpp"
 
 #include <cstdio>
@@ -50,42 +52,58 @@ me_output_spec_t make_spec(const char* video, const char* audio) {
 
 }  // namespace
 
-TEST_CASE("is_hevc_sw_video_only_spec: matches (hevc-sw, none)") {
+namespace {
+
+/* Re-implements the inlined (HEVC_SW, NONE) shape match from
+ * make_output_sink (src/orchestrator/output_sink.cpp). The check
+ * is two enum comparisons against the resolver result; this
+ * helper exists so the test cases below read like the prior
+ * `is_hevc_sw_video_only_spec` tests but exercise the actual
+ * dispatch shape. */
+bool is_hevc_sw_video_only_selection(const me_output_spec_t& spec) {
+    const auto sel = me::orchestrator::resolve_codec_selection(spec);
+    return sel.video_codec == ME_VIDEO_CODEC_HEVC_SW
+        && sel.audio_codec == ME_AUDIO_CODEC_NONE;
+}
+
+}  // namespace
+
+TEST_CASE("hevc-sw dispatch: matches (hevc-sw, none)") {
     auto s = make_spec("hevc-sw", "none");
-    CHECK(me::orchestrator::is_hevc_sw_video_only_spec(s));
+    CHECK(is_hevc_sw_video_only_selection(s));
 }
 
-TEST_CASE("is_hevc_sw_video_only_spec: matches (hevc-sw, NULL)") {
+TEST_CASE("hevc-sw dispatch: matches (hevc-sw, NULL)") {
     auto s = make_spec("hevc-sw", nullptr);
-    CHECK(me::orchestrator::is_hevc_sw_video_only_spec(s));
+    CHECK(is_hevc_sw_video_only_selection(s));
 }
 
-TEST_CASE("is_hevc_sw_video_only_spec: matches (hevc-sw, empty)") {
+TEST_CASE("hevc-sw dispatch: matches (hevc-sw, empty)") {
     auto s = make_spec("hevc-sw", "");
-    CHECK(me::orchestrator::is_hevc_sw_video_only_spec(s));
+    CHECK(is_hevc_sw_video_only_selection(s));
 }
 
-TEST_CASE("is_hevc_sw_video_only_spec: rejects (hevc-sw, aac)") {
+TEST_CASE("hevc-sw dispatch: rejects (hevc-sw, aac)") {
     /* (hevc-sw, aac) is the VideoAacSink shape — that path goes to
      * `open_video_encoder`'s preflight which returns ME_E_UNSUPPORTED.
      * The HevcSwSink only owns the no-audio combo. */
     auto s = make_spec("hevc-sw", "aac");
-    CHECK_FALSE(me::orchestrator::is_hevc_sw_video_only_spec(s));
+    CHECK_FALSE(is_hevc_sw_video_only_selection(s));
 }
 
-TEST_CASE("is_hevc_sw_video_only_spec: rejects (h264, none)") {
+TEST_CASE("hevc-sw dispatch: rejects (h264, none)") {
     auto s = make_spec("h264", "none");
-    CHECK_FALSE(me::orchestrator::is_hevc_sw_video_only_spec(s));
+    CHECK_FALSE(is_hevc_sw_video_only_selection(s));
 }
 
-TEST_CASE("is_hevc_sw_video_only_spec: rejects (NULL, NULL)") {
+TEST_CASE("hevc-sw dispatch: rejects (NULL, NULL)") {
     auto s = make_spec(nullptr, nullptr);
-    CHECK_FALSE(me::orchestrator::is_hevc_sw_video_only_spec(s));
+    CHECK_FALSE(is_hevc_sw_video_only_selection(s));
 }
 
-TEST_CASE("is_hevc_sw_video_only_spec: rejects (passthrough, passthrough)") {
+TEST_CASE("hevc-sw dispatch: rejects (passthrough, passthrough)") {
     auto s = make_spec("passthrough", "passthrough");
-    CHECK_FALSE(me::orchestrator::is_hevc_sw_video_only_spec(s));
+    CHECK_FALSE(is_hevc_sw_video_only_selection(s));
 }
 
 #ifdef ME_HAS_KVAZAAR

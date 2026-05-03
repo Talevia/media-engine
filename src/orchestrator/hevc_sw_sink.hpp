@@ -20,8 +20,11 @@
  *     doesn't expose.
  *   - 1920x1080 ceiling, multiple-of-8 alignment (enforced by
  *     `KvazaarHevcEncoder::create`).
- *   - Video-only. Audio is rejected at spec match by
- *     `is_hevc_sw_video_only_spec`.
+ *   - Video-only. Audio is rejected at spec match in
+ *     `make_output_sink`'s dispatch (it tests
+ *     `sel.video_codec == ME_VIDEO_CODEC_HEVC_SW &&
+ *     sel.audio_codec == ME_AUDIO_CODEC_NONE` against the
+ *     `resolve_codec_selection` result).
  *   - Container: raw Annex-B HEVC ("hevc"). The output file extension
  *     is the caller's responsibility — `.hevc` / `.h265` are
  *     conventional.
@@ -34,14 +37,6 @@
 #include "orchestrator/output_sink.hpp"
 
 namespace me::orchestrator {
-
-/* True iff `spec` matches the (hevc-sw, no-audio) shape this sink
- * accepts: `video_codec == "hevc-sw"` and `audio_codec` is either
- * NULL, empty string, or `"none"`. The output_sink factory consults
- * this before falling through to `is_video_aac_spec` (which would
- * route hevc-sw + aac to the VideoAacSink that returns
- * ME_E_UNSUPPORTED via open_video_encoder's preflight). */
-bool is_hevc_sw_video_only_spec(const me_output_spec_t& spec);
 
 /* Build the sink. Caller owns the returned pointer; lifetime is
  * tied to the Exporter's worker thread. `clip_ranges` must contain

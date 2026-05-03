@@ -185,7 +185,8 @@ std::unique_ptr<OutputSink> make_output_sink(
      * so `(hevc-sw, none)` routes here rather than falling into the
      * VideoAacSink → reencode_mux path which would return
      * ME_E_UNSUPPORTED at open_video_encoder's preflight. */
-    if (is_hevc_sw_video_only_spec(spec)) {
+    if (sel.video_codec == ME_VIDEO_CODEC_HEVC_SW &&
+        sel.audio_codec == ME_AUDIO_CODEC_NONE) {
         if (clip_ranges.size() != 1) {
             if (err) *err = "hevc-sw sink: single-segment only "
                             "(multi-segment is debt-hevc-sw-multi-segment)";

@@ -4,9 +4,9 @@
  * match the strings the legacy path accepted, or migrating an
  * existing sink to the resolver would silently change behavior.
  * The reference list is `src/orchestrator/output_sink.cpp`'s
- * `is_passthrough_spec` / `is_video_aac_spec` plus
- * `hevc_sw_sink.cpp`'s `is_hevc_sw_video_only_spec`. Any string
- * additions there require matching additions here.
+ * `is_passthrough_spec` / `is_video_aac_spec` plus the inlined
+ * `(HEVC_SW, NONE)` shape match in `make_output_sink`. Any
+ * string additions there require matching additions here.
  */
 #include "orchestrator/codec_resolver.hpp"
 
