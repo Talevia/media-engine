@@ -119,6 +119,17 @@ option(ME_WITH_INFERENCE "Enable ML inference runtime (M11)"            OFF)
 # `apt install libkvazaar-dev` on Linux).
 option(ME_WITH_KVAZAAR   "Link Kvazaar (BSD-3) as the SW HEVC encoder (M10)" OFF)
 
+# M13 OpenFX host integration. ON wires
+# `FetchContent_Declare(openfx)` for the OFX 1.4 SDK headers
+# (BSD-licensed) and exposes `ME_HAS_OFX` to TUs that include
+# `<ofxCore.h>` / `<ofxImageEffect.h>`. OFF default — OFX
+# support opts in. Engine-side host suite implementation
+# (PluginCache, ImageEffectSuite, etc.) lives behind this gate
+# in `src/openfx/` (planned per docs/OPENFX.md). The SDK
+# itself is BSD; per-plugin licenses VARY (host enforces a
+# whitelist at load, mirroring the M11 ML model pattern).
+option(ME_WITH_OFX       "Fetch OpenFX 1.4 SDK headers (M13 host plugin support)" OFF)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
   if(ME_WERROR)

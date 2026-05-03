@@ -30,6 +30,37 @@ set(TF_BUILD_HIP        OFF CACHE INTERNAL "")
 set(TF_BUILD_PROFILER   OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(taskflow)
 
+# M13 OpenFX SDK headers — BSD-licensed C-API headers used by
+# the host suite implementation (planned src/openfx/, see
+# docs/OPENFX.md). Fetched only when ME_WITH_OFX=ON. The
+# repo's `include/` is the only directory we consume; the
+# rest of the OFX project (sample plugins, build scripts) is
+# downloaded but not built. ME_HAS_OFX is exported as a
+# compile definition for TUs that need conditional inclusion.
+if(ME_WITH_OFX)
+  # OFX_Release_1.5.1 is the latest 1.x tag. The 1.5 spec is a
+  # superset of 1.4 (back-compat), so plugins built against
+  # 1.4 still work; we get the same `<ofxCore.h>` +
+  # `<ofxImageEffect.h>` entry points.
+  #
+  # `SOURCE_SUBDIR include` points FetchContent at the repo's
+  # `include/` subdir which has no CMakeLists.txt — bypassing
+  # the OFX repo's top-level CMake which tries to find Conan-
+  # provided `opengl_system` for sample-plugin builds we don't
+  # need. We only consume headers.
+  FetchContent_Declare(
+    openfx
+    GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openfx.git
+    GIT_TAG        OFX_Release_1.5.1
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  include
+  )
+  FetchContent_MakeAvailable(openfx)
+  add_library(openfx_headers INTERFACE)
+  target_include_directories(openfx_headers
+    INTERFACE "${openfx_SOURCE_DIR}/include")
+endif()
+
 find_package(FFMPEG REQUIRED)
 
 # libass — M5 subtitle rendering via pkg-config find_package.
@@ -364,6 +395,7 @@ add_library(media_engine STATIC
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp
   compose/selfie_segmentation_decode.cpp
+  openfx/openfx_headers_smoke.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
   io/demux_kernel.cpp
@@ -464,6 +496,19 @@ endif()
 if(ME_WITH_GPU)
   target_link_libraries(media_engine PRIVATE bgfx bx bimg)
   target_compile_definitions(media_engine PRIVATE ME_HAS_GPU=1)
+endif()
+
+# M13 OpenFX SDK headers gate. ME_HAS_OFX=1 is the source-level
+# switch that lets src/openfx/ TUs (planned per docs/OPENFX.md)
+# include `<ofxCore.h>` etc. Headers-only INTERFACE link is
+# sufficient for now — the actual host suite implementation
+# lands in follow-up bullets (m13-openfx-plugin-cache-impl,
+# m13-openfx-image-effect-suite-impl). Without those TUs the
+# OFX headers are downloaded but not consumed; this cycle's
+# scope is "sdk vendor + gate" only.
+if(ME_WITH_OFX)
+  target_link_libraries(media_engine PRIVATE openfx_headers)
+  target_compile_definitions(media_engine PRIVATE ME_HAS_OFX=1)
 endif()
 
 # SoundTouch link — `me::audio::TempoStretcher` wraps SoundTouch's
