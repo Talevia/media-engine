@@ -403,6 +403,7 @@ add_library(media_engine STATIC
   orchestrator/exporter.cpp
   orchestrator/compose_frame.cpp
   orchestrator/compose_compile.cpp
+  orchestrator/compose_compile_effect_dispatch.cpp
   orchestrator/audio_graph.cpp
   orchestrator/playback_clock.cpp
   orchestrator/video_frame_ring.cpp
