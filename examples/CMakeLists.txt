@@ -12,9 +12,9 @@
 #     [LANG cpp]                      # default: C (main.c); cpp picks main.cpp
 #     [INTERNAL]                      # reach into ${CMAKE_SOURCE_DIR}/src/
 #     [EXTRA_LIBS target1 target2 …]  # extra PRIVATE link targets
-#     [COPY_RESOURCE <filename>])     # POST_BUILD copy next to the binary
+#     [COPY_RESOURCE <file> [<file> …]]) # POST_BUILD copies next to the binary
 function(me_add_example name)
-  cmake_parse_arguments(ARG "INTERNAL" "LANG;COPY_RESOURCE" "EXTRA_LIBS" ${ARGN})
+  cmake_parse_arguments(ARG "INTERNAL" "LANG" "EXTRA_LIBS;COPY_RESOURCE" ${ARGN})
 
   # --- Argument validation ------------------------------------------------
   # Typo-tightened: before this block a caller writing
@@ -37,11 +37,13 @@ function(me_add_example name)
       "me_add_example(${name}): LANG='${ARG_LANG}' not supported. "
       "Use 'LANG cpp' or omit (defaults to C).")
   endif()
-  if(ARG_COPY_RESOURCE AND NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_COPY_RESOURCE})
-    message(FATAL_ERROR
-      "me_add_example(${name}): COPY_RESOURCE='${ARG_COPY_RESOURCE}' does not exist "
-      "at ${CMAKE_CURRENT_SOURCE_DIR}/")
-  endif()
+  foreach(_res IN LISTS ARG_COPY_RESOURCE)
+    if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${_res})
+      message(FATAL_ERROR
+        "me_add_example(${name}): COPY_RESOURCE='${_res}' does not exist "
+        "at ${CMAKE_CURRENT_SOURCE_DIR}/")
+    endif()
+  endforeach()
 
   set(_src "main.c")
   if(ARG_LANG STREQUAL "cpp")
@@ -63,12 +65,12 @@ function(me_add_example name)
     target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/src)
   endif()
 
-  if(ARG_COPY_RESOURCE)
+  foreach(_res IN LISTS ARG_COPY_RESOURCE)
     add_custom_command(TARGET ${name} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_COPY_RESOURCE}
-              $<TARGET_FILE_DIR:${name}>/${ARG_COPY_RESOURCE})
-  endif()
+              ${CMAKE_CURRENT_SOURCE_DIR}/${_res}
+              $<TARGET_FILE_DIR:${name}>/${_res})
+  endforeach()
 endfunction()
 
 # Expected example targets, kept in lock-step with the add_subdirectory
