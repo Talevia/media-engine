@@ -1,0 +1,1 @@
+me_add_example(18_m12_stylized_quintet COPY_RESOURCE sample.timeline.json)

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "frameRate":  { "num": 30, "den": 1 },
+  "resolution": { "width": 1920, "height": 1080 },
+  "colorSpace": { "primaries": "bt709", "transfer": "bt709", "matrix": "bt709", "range": "limited" },
+  "assets": [
+    {
+      "id": "a1",
+      "kind": "video",
+      "uri": "file:///tmp/input.mp4"
+    }
+  ],
+  "compositions": [
+    {
+      "id": "main",
+      "tracks": [
+        {
+          "id": "v0",
+          "kind": "video",
+          "clips": [
+            {
+              "type": "video",
+              "id": "c1",
+              "assetId": "a1",
+              "timeRange":   { "start": {"num":0,"den":30}, "duration": {"num":60,"den":30} },
+              "sourceRange": { "start": {"num":0,"den":30}, "duration": {"num":60,"den":30} },
+              "effects": [
+                {
+                  "kind": "glitch",
+                  "params": {
+                    "seed":                 42,
+                    "intensity":            0.4,
+                    "block_size_px":        24,
+                    "channel_shift_max_px": 6
+                  }
+                },
+                {
+                  "kind": "scan_lines",
+                  "params": {
+                    "line_height_px":  3,
+                    "darkness":        0.35,
+                    "phase_offset_px": 0
+                  }
+                },
+                {
+                  "kind": "chromatic_aberration",
+                  "params": {
+                    "red_dx":   2,
+                    "red_dy":   0,
+                    "blue_dx": -2,
+                    "blue_dy":  0
+                  }
+                },
+                {
+                  "kind": "posterize",
+                  "params": {
+                    "levels": 8
+                  }
+                },
+                {
+                  "kind": "ordered_dither",
+                  "params": {
+                    "matrix_size": 4,
+                    "levels":      32
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "output": { "compositionId": "main" }
+}
