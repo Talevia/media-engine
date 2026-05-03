@@ -124,6 +124,7 @@ set(_test_suites
   test_inference_blazeface
   test_blazeface_e2e
   test_selfie_segmentation_e2e
+  test_openfx_plugin_cache
   test_compose_face_sticker_stage
   test_compose_face_mosaic_stage
   test_compose_body_alpha_key_stage
@@ -957,6 +958,15 @@ if(PkgConfig_FOUND)
       ME_HAS_ONNX_RUNTIME=1)
   endif()
 endif()
+
+# test_openfx_plugin_cache — coverage for the OpenFX
+# PluginCache (discovery + dlopen + allowlist filtering).
+# Default cases run without OFX SDK headers (stub returns
+# ME_E_UNSUPPORTED). With -DME_WITH_OFX=ON, the real impl
+# is exercised + the env-gated real-plugin-load test
+# becomes useful.
+target_include_directories(test_openfx_plugin_cache PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
 
 # test_blazeface_e2e — full chain (preprocess + run_cached +
 # decode) end-to-end test gated on

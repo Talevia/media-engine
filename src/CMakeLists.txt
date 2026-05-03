@@ -396,6 +396,7 @@ add_library(media_engine STATIC
   compose/mask_resolver.cpp
   compose/selfie_segmentation_decode.cpp
   openfx/openfx_headers_smoke.cpp
+  openfx/plugin_cache.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
   io/demux_kernel.cpp
