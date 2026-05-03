@@ -123,6 +123,7 @@ set(_test_suites
   test_face_sticker_kernel_pixel
   test_inference_blazeface
   test_blazeface_e2e
+  test_selfie_segmentation_e2e
   test_compose_face_sticker_stage
   test_compose_face_mosaic_stage
   test_compose_body_alpha_key_stage
@@ -964,6 +965,12 @@ endif()
 # fast-skips. Reaches into src/ for compose/landmark_resolver +
 # compose/sticker_decoder.
 target_include_directories(test_blazeface_e2e PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_selfie_segmentation_e2e — sibling of test_blazeface_e2e
+# for the SelfieSegmentation portrait pipeline. Env-gated on
+# ME_TEST_SELFIE_SEG_ONNX_PATH + ME_TEST_SELFIE_SEG_PORTRAIT_PATH.
+target_include_directories(test_selfie_segmentation_e2e PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_selfie_segmentation — env-var-gated sibling of
