@@ -14,7 +14,6 @@
 
 ## P0（必做，阻塞当前 milestone）
 
-- **m12-blur-variants-timeline-json-example** — M12 §160 timeline-example coverage. `grep -l '"kind":\s*"\(motion_blur\|radial_blur\|tilt_shift\)"' examples/*/sample.timeline.json` returns empty. Pixel tests cover all three (`tests/test_motion_blur_kernel_pixel.cpp` + 2 siblings); JSON examples missing. **方向：** new `examples/19_m12_blur_variants/sample.timeline.json` exercising motion_blur + radial_blur + tilt_shift on three short sub-clips so the JSON shows each effect's params block in isolation. Milestone §M12，Rubric §5.1。
 - **m12-geometric-pair-timeline-json-example** — M12 §160 timeline-example coverage. `grep -l '"kind":\s*"\(warp\|displacement\)"' examples/*/sample.timeline.json` returns empty. Pixel tests cover both (`tests/test_warp_kernel_pixel.cpp` + `test_displacement_kernel_pixel.cpp`); JSON examples missing. **方向：** new `examples/20_m12_geometric_pair/sample.timeline.json` exercising warp (with a small 2-control-point list) + displacement (with a fixture displacement texture under `examples/20_m12_geometric_pair/displacement.png`). Milestone §M12，Rubric §5.1。
 
 ## P1（强烈建议，跨 milestone debt）

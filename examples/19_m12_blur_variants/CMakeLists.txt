@@ -1,0 +1,1 @@
+me_add_example(19_m12_blur_variants COPY_RESOURCE sample.timeline.json)
