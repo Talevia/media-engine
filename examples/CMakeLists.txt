@@ -96,6 +96,7 @@ set(_me_expected_examples
   17_m12_color_quartet
   18_m12_stylized_quintet
   19_m12_blur_variants
+  20_m12_geometric_pair
 )
 # 14_ml_face_landmark gates on ME_WITH_INFERENCE — appended here
 # only when the option is ON so the lock-step canary at the bottom
@@ -122,6 +123,7 @@ add_subdirectory(16_face_mosaic)
 add_subdirectory(17_m12_color_quartet)
 add_subdirectory(18_m12_stylized_quintet)
 add_subdirectory(19_m12_blur_variants)
+add_subdirectory(20_m12_geometric_pair)
 if(ME_WITH_INFERENCE)
   add_subdirectory(14_ml_face_landmark)
 endif()
