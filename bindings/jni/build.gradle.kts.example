@@ -1,0 +1,90 @@
+/*
+ * build.gradle.kts.example — minimal Android Gradle Module
+ * for media-engine's JNI wrapper.
+ *
+ * Suffixed `.example` to signal this is a template, not a
+ * live build script. Copy to `bindings/jni/build.gradle.kts`
+ * (or to your host app's module dir) and adjust for your
+ * project's package name + JNI source layout.
+ *
+ * Build invocation (from the project root, after copying):
+ *   ./gradlew :bindings-jni:assembleRelease
+ *
+ * What this template does:
+ *   1. Configures the Android Gradle Plugin's externalNativeBuild
+ *      to drive media-engine's CMake build via the wrapper at
+ *      `cmake/android.toolchain.cmake`.
+ *   2. Sets ABI filters to `arm64-v8a` + `x86_64` (matching the
+ *      modern Android device + emulator targets).
+ *   3. Targets minSdk 26 / compileSdk 34 — adjust per host app.
+ *
+ * What this template DOES NOT do:
+ *   - Stage FFmpeg .so files. The host is responsible for
+ *     bundling LGPL-built FFmpeg shared libraries via
+ *     android.sourceSets.main.jniLibs.srcDirs (see comment
+ *     below). The dev-box homebrew FFmpeg is GPL-built and
+ *     CANNOT be shipped in an Android APK without re-licensing
+ *     the engine to GPL — which violates VISION §3.4.
+ *   - Sign the APK. Add a signingConfigs block per host
+ *     conventions.
+ *   - Run instrumented tests. The emulator smoke test is the
+ *     `m13-android-emulator-smoke` follow-up bullet.
+ */
+
+plugins {
+    id("com.android.library") version "8.7.0"
+    kotlin("android") version "2.0.21"
+}
+
+android {
+    namespace = "io.media_engine"
+    compileSdk = 34
+
+    defaultConfig {
+        minSdk = 26
+        ndk {
+            abiFilters += setOf("arm64-v8a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DCMAKE_TOOLCHAIN_FILE=${rootDir}/cmake/android.toolchain.cmake",
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DME_BUILD_TESTS=OFF",
+                    // Adjust ME_WITH_INFERENCE / ME_WITH_KVAZAAR per host
+                    // strategy (none of the M11 / M10 SW paths have
+                    // Android adapters today; both default OFF here).
+                    "-DME_WITH_INFERENCE=OFF",
+                    "-DME_WITH_KVAZAAR=OFF",
+                )
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("${rootDir}/CMakeLists.txt")
+            version = "3.24.0+"
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            // jniLibs.srcDirs += file("/path/to/lgpl-ffmpeg/<ABI>/")
+            // for each ABI you target. See docs/INTEGRATION.md
+            // for the LGPL FFmpeg staging requirement.
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    // Kotlin stdlib pulled in by the kotlin("android") plugin
+}
