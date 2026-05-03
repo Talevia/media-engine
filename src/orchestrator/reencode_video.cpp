@@ -1,6 +1,7 @@
 #include "orchestrator/reencode_video.hpp"
 
 #include "io/av_err.hpp"
+#include "orchestrator/codec_descriptor_table.hpp"
 
 extern "C" {
 #include <libavutil/mathematics.h>
@@ -34,24 +35,11 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
      * preserved for the diagnostic message + the SW-HEVC
      * branch's unique error wording.
      *
-     * NONE behaves like the legacy "" string: the H264 path's
-     * default tuple applies. This preserves the pre-cycle-49
-     * fallback semantic where a caller that left video_codec
-     * empty still got a working H264 encoder (audio-only paths
-     * skip this function entirely; the empty-string fallback
-     * was effectively unreachable in production but the
-     * defensive coercion is cheap).
-     *
-     * Dispatch table — kept tight so the hot path stays
-     * branch-free after first-call dispatch. The four cases
-     * below are ABI-locked: adding a new HW path means a new
-     * `case` arm, never editing the existing ones (callers
-     * depend on the documented pix_fmt contract). */
-    const char*   enc_name        = nullptr;
-    AVPixelFormat enc_pix         = AV_PIX_FMT_NONE;
-    int64_t       default_bitrate = 0;
-    bool          is_hevc         = false;
-    bool          is_hevc_sw      = false;
+     * Dispatch consults the unified codec_descriptor_table
+     * (debt-codec-dispatch-table-unification): one source of
+     * truth maps the enum to (encoder name, pix_fmt, default
+     * bitrate). Adding a new codec is one descriptor entry, not
+     * separate edits in codec_resolver.cpp + here. */
 
     /* NONE + non-empty string = unknown codec name (resolver
      * coerces strings it doesn't know into NONE). Reject with
@@ -65,37 +53,19 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
         return ME_E_UNSUPPORTED;
     }
 
-    switch (video_codec_enum) {
-    case ME_VIDEO_CODEC_H264:
-    case ME_VIDEO_CODEC_NONE:  /* legacy: empty string falls back to H264 */
-        enc_name        = "h264_videotoolbox";
-        enc_pix         = AV_PIX_FMT_NV12;
-        default_bitrate = 6'000'000;
-        break;
-    case ME_VIDEO_CODEC_HEVC:
-        is_hevc         = true;
-        enc_name        = "hevc_videotoolbox";
-        enc_pix         = AV_PIX_FMT_P010LE;
-        /* HEVC default bitrate is higher than h264 because
-         * Main10 sources carry more bits per pixel (10 vs 8)
-         * and HDR10 content needs higher fidelity to avoid
-         * banding on bright gradients. 12 Mbps matches the
-         * recommended floor for 1080p30 HDR10 in the Apple
-         * ProRes / VideoToolbox bitrate tables. */
-        default_bitrate = 12'000'000;
-        break;
-    case ME_VIDEO_CODEC_HEVC_SW:
-        is_hevc_sw      = true;
-        /* SW HEVC's encoder name + pix matter only past the
-         * preflight rejection branch below. The values are
-         * placeholders to keep the post-preflight code paths
-         * compilable; the preflight returns ME_E_UNSUPPORTED
-         * before they're consulted. */
-        enc_name        = "hevc_videotoolbox";
-        enc_pix         = AV_PIX_FMT_P010LE;
-        default_bitrate = 12'000'000;
-        break;
-    case ME_VIDEO_CODEC_PASSTHROUGH:
+    /* Legacy: NONE (empty input string) falls back to H264 — the
+     * pre-cycle-49 default. Audio-only paths skip this function
+     * entirely so the fallback was effectively unreachable in
+     * production, but the defensive coercion stays cheap. */
+    me_video_codec_t effective_enum = video_codec_enum;
+    if (effective_enum == ME_VIDEO_CODEC_NONE) {
+        effective_enum = ME_VIDEO_CODEC_H264;
+    }
+
+    /* PASSTHROUGH should be dispatched at make_output_sink to
+     * the PassthroughSink; reaching this re-encode path with
+     * PASSTHROUGH is a caller bug. */
+    if (effective_enum == ME_VIDEO_CODEC_PASSTHROUGH) {
         if (err) *err = "open_video_encoder: unsupported video_codec '" +
                         video_codec + "' (passthrough should not reach the "
                         "re-encode path; expected '' / 'h264' / 'hevc' / 'hevc-sw')";
@@ -103,14 +73,22 @@ me_status_t open_video_encoder(me::resource::CodecPool&      pool,
          * a separate sink class; reaching here is a caller bug. */
         return ME_E_UNSUPPORTED;
     }
-    if (!enc_name) {
+
+    const VideoCodecDescriptor* desc = lookup_video_codec_by_enum(effective_enum);
+    if (!desc || !desc->avcodec_encoder_name) {
         if (err) *err = "open_video_encoder: unsupported video_codec '" +
                         video_codec + "' (expected '' / 'h264' / 'hevc' / 'hevc-sw')";
-        /* LEGIT: codec-enum dispatch is closed over the set we ship.
-         * New codec names land via additional `case` arms above;
-         * until then UNSUPPORTED is the right shape. */
+        /* LEGIT: codec-enum dispatch is closed over the set we
+         * ship. Future codec additions land via new descriptor
+         * entries; until then UNSUPPORTED is the right shape. */
         return ME_E_UNSUPPORTED;
     }
+
+    const char*   enc_name        = desc->avcodec_encoder_name;
+    AVPixelFormat enc_pix         = desc->pix_fmt;
+    int64_t       default_bitrate = desc->default_bitrate_bps;
+    const bool    is_hevc         = (effective_enum == ME_VIDEO_CODEC_HEVC);
+    const bool    is_hevc_sw      = (effective_enum == ME_VIDEO_CODEC_HEVC_SW);
 
     /* SW HEVC fallback dispatch (Kvazaar, BSD-3, LGPL-clean per VISION
      * §3.4). M10 exit criterion 3 requires a SW path when VideoToolbox

@@ -10,22 +10,13 @@
  */
 #include "orchestrator/codec_resolver.hpp"
 
+#include "orchestrator/codec_descriptor_table.hpp"
+
 #include <string_view>
 
 namespace me::orchestrator {
 
 namespace {
-
-me_video_codec_t parse_video_codec_string(const char* s) noexcept {
-    if (!s || s[0] == '\0') return ME_VIDEO_CODEC_NONE;
-    const std::string_view sv{s};
-    if (sv == "none")        return ME_VIDEO_CODEC_NONE;
-    if (sv == "passthrough") return ME_VIDEO_CODEC_PASSTHROUGH;
-    if (sv == "h264")        return ME_VIDEO_CODEC_H264;
-    if (sv == "hevc")        return ME_VIDEO_CODEC_HEVC;
-    if (sv == "hevc-sw")     return ME_VIDEO_CODEC_HEVC_SW;
-    return ME_VIDEO_CODEC_NONE;
-}
 
 me_audio_codec_t parse_audio_codec_string(const char* s) noexcept {
     if (!s || s[0] == '\0') return ME_AUDIO_CODEC_NONE;
@@ -47,7 +38,7 @@ CodecSelection resolve_codec_selection(const me_output_spec_t& spec) {
         spec.codec_options->video_codec != ME_VIDEO_CODEC_NONE) {
         out.video_codec = spec.codec_options->video_codec;
     } else {
-        out.video_codec = parse_video_codec_string(spec.video_codec);
+        out.video_codec = lookup_video_codec_by_string(spec.video_codec);
     }
 
     /* Phase 2: same for audio. */

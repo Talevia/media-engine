@@ -385,6 +385,7 @@ add_library(media_engine STATIC
   orchestrator/reencode_segment_helpers.cpp
   orchestrator/reencode_pipeline.cpp
   orchestrator/codec_resolver.cpp
+  orchestrator/codec_descriptor_table.cpp
   orchestrator/output_sink.cpp
   orchestrator/hevc_sw_sink.cpp
   orchestrator/compose_sink.cpp
