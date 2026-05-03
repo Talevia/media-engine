@@ -10,6 +10,8 @@
  */
 #include "compose/landmark_resolver.hpp"
 
+#include "compose/blazeface_preprocess.hpp"
+
 #ifdef ME_HAS_INFERENCE
 #include "inference/asset_cache.hpp"
 #include "inference/runtime.hpp"
@@ -229,15 +231,27 @@ bool parse_model_uri(std::string_view uri,
 }  // namespace
 
 me_status_t resolve_landmark_bboxes_runtime(
-    me_engine*         engine,
-    std::string_view   model_uri,
-    me_rational_t      /*frame_t*/,
-    int                /*frame_width*/,
-    int                /*frame_height*/,
-    std::vector<Bbox>* out,
-    std::string*       err) {
+    me_engine*           engine,
+    std::string_view     model_uri,
+    me_rational_t        /*frame_t*/,
+    int                  frame_width,
+    int                  frame_height,
+    const std::uint8_t*  frame_rgba,
+    std::size_t          frame_stride_bytes,
+    std::vector<Bbox>*   out,
+    std::string*         err) {
     if (!engine || !out) return ME_E_INVALID_ARG;
     out->clear();
+
+    /* Reject obviously malformed (rgba, dims, stride) tuples
+     * upfront so the preprocessor's diagnostic doesn't have to
+     * fire. NULL rgba is allowed (synthetic-tensor fallback). */
+    if (frame_rgba) {
+        if (frame_width <= 0 || frame_height <= 0) return ME_E_INVALID_ARG;
+        if (frame_stride_bytes < static_cast<std::size_t>(frame_width) * 4) {
+            return ME_E_INVALID_ARG;
+        }
+    }
 
     std::string model_id, model_version, quantization;
     if (!parse_model_uri(model_uri, &model_id, &model_version, &quantization)) {
@@ -259,18 +273,24 @@ me_status_t resolve_landmark_bboxes_runtime(
         &runtime, err);
     if (s != ME_OK) return s;
 
-    /* Step 2: build a synthetic input tensor matching BlazeFace's
-     * documented 128×128×3 NCHW float32 shape. Real frame
-     * preprocessing (resize + planar conversion + normalize) is
-     * the `landmark-resolver-input-preprocess-impl` follow-up;
-     * for the cycle-51 wire we only need the input *shape* to be
-     * stable so the cache key (which incorporates input bytes
-     * via hash_inputs) is consistent across calls. */
+    /* Step 2: frame preprocessing. When `frame_rgba` is non-NULL,
+     * resize + planar-convert + [-1, 1] normalize via
+     * `prepare_blazeface_input`. NULL frame_rgba falls back to a
+     * synthetic zero-filled tensor of the documented shape so
+     * test callers without real pixels still drive the wire. */
     me::inference::Tensor input;
-    input.shape = { 1, 3, 128, 128 };
-    input.dtype = me::inference::Dtype::Float32;
-    input.bytes.assign(
-        static_cast<std::size_t>(1) * 3 * 128 * 128 * 4, 0);
+    if (frame_rgba) {
+        const me_status_t pp = prepare_blazeface_input(
+            frame_rgba, frame_width, frame_height,
+            frame_stride_bytes, &input, err);
+        if (pp != ME_OK) return pp;
+    } else {
+        input.shape = { 1, 3, kBlazefaceInputDim, kBlazefaceInputDim };
+        input.dtype = me::inference::Dtype::Float32;
+        input.bytes.assign(
+            static_cast<std::size_t>(1) * 3 *
+            kBlazefaceInputDim * kBlazefaceInputDim * 4, 0);
+    }
 
     std::map<std::string, me::inference::Tensor> inputs;
     inputs["input"] = std::move(input);

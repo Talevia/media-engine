@@ -145,6 +145,7 @@ set(_test_suites
   test_warp_kernel_pixel
   test_displacement_kernel_pixel
   test_effect_chain_merge
+  test_blazeface_preprocess
 )
 
 foreach(_suite ${_test_suites})
@@ -909,6 +910,11 @@ target_include_directories(test_displacement_kernel_pixel PRIVATE
 # test_effect_chain_merge — M12 §159 ≥3-effect kernel-chain
 # coverage (posterize + hue_saturation + vignette).
 target_include_directories(test_effect_chain_merge PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_blazeface_preprocess — M11 BlazeFace input preprocessor
+# (libswscale resize + RGBA → CHW float32 [-1, 1] normalize).
+target_include_directories(test_blazeface_preprocess PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

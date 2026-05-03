@@ -88,6 +88,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: NULL engine → ME_E_INVALID_ARG") {
     CHECK(me::compose::resolve_landmark_bboxes_runtime(
               nullptr, "model:blazeface/v1/fp32",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &bboxes, &err) == ME_E_INVALID_ARG);
 }
 
@@ -97,6 +98,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: NULL out → ME_E_INVALID_ARG") {
     CHECK(me::compose::resolve_landmark_bboxes_runtime(
               g.eng, "model:blazeface/v1/fp32",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               nullptr, &err) == ME_E_INVALID_ARG);
 }
 
@@ -109,6 +111,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: malformed URI rejected") {
     CHECK(me::compose::resolve_landmark_bboxes_runtime(
               g.eng, "blazeface/v1/fp32",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &bboxes, &err) == ME_E_INVALID_ARG);
     CHECK(err.find("model:") != std::string::npos);
 
@@ -117,6 +120,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: malformed URI rejected") {
     CHECK(me::compose::resolve_landmark_bboxes_runtime(
               g.eng, "file:///tmp/landmarks.json",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &bboxes, &err) == ME_E_INVALID_ARG);
 
     err.clear();
@@ -124,6 +128,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: malformed URI rejected") {
     CHECK(me::compose::resolve_landmark_bboxes_runtime(
               g.eng, "model:blazeface/v1",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &bboxes, &err) == ME_E_INVALID_ARG);
 
     err.clear();
@@ -131,6 +136,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: malformed URI rejected") {
     CHECK(me::compose::resolve_landmark_bboxes_runtime(
               g.eng, "model:blazeface/v1/",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &bboxes, &err) == ME_E_INVALID_ARG);
 }
 
@@ -147,6 +153,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: license whitelist rejection propagat
     CHECK(me::compose::resolve_landmark_bboxes_runtime(
               g.eng, "model:blazeface/v1/fp32",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &bboxes, &err) == ME_E_UNSUPPORTED);
     CHECK(bboxes.empty());
     /* Diagnostic surfaces the license name through the factory's
@@ -168,6 +175,7 @@ TEST_CASE("resolve_landmark_bboxes_runtime: production wire reaches decode stub"
     me_status_t s = me::compose::resolve_landmark_bboxes_runtime(
         g.eng, "model:blazeface/v1/fp32",
         me_rational_t{0, 30}, 640, 480,
+        nullptr, 0,
         &bboxes, &err);
 
     /* On builds without a concrete Runtime backend (no CoreML,

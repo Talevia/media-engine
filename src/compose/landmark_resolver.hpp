@@ -41,6 +41,8 @@
 #include "compose/bbox.hpp"
 #include "media_engine/types.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -95,11 +97,11 @@ me_status_t resolve_landmark_bboxes_from_file(
  *   2. Calls `make_runtime_for_model` to get a Runtime* (this
  *      exercises load_model_blob + license whitelist +
  *      content_hash + the engine's loaded_runtimes cache).
- *   3. Builds a synthetic 128×128×3 NCHW float32 input tensor
- *      (BlazeFace's documented shape) — actual frame
- *      preprocessing (resize + planar conversion + normalize)
- *      is the `landmark-resolver-input-preprocess-impl`
- *      follow-up.
+ *   3. Frame preprocessing via `prepare_blazeface_input`
+ *      (resize + planar conversion + [-1, 1] normalize). When
+ *      `frame_rgba` is NULL, falls back to a synthetic zero-
+ *      filled tensor of the documented shape so the test
+ *      callers that don't have real pixels still drive the wire.
  *   4. Calls `run_cached` (this exercises the AssetCache + cache
  *      key + Runtime::run path).
  *   5. Returns ME_E_UNSUPPORTED on the decode step with a diag
@@ -114,18 +116,22 @@ me_status_t resolve_landmark_bboxes_from_file(
  *   - ME_E_UNSUPPORTED  — decode step (the documented stub
  *                         until follow-up).
  *   - ME_E_INVALID_ARG  — engine NULL, URI doesn't match the
- *                         `model:<id>/<ver>/<quant>` shape.
+ *                         `model:<id>/<ver>/<quant>` shape, or
+ *                         non-NULL frame_rgba paired with
+ *                         invalid frame_width/frame_height/stride.
  *   - ME_E_NOT_FOUND    — fetcher non-OK (propagated from
  *                         make_runtime_for_model).
  *   - propagated factory errors (license / hash / no backend). */
 me_status_t resolve_landmark_bboxes_runtime(
-    me_engine*         engine,
-    std::string_view   model_uri,
-    me_rational_t      frame_t,
-    int                frame_width,
-    int                frame_height,
-    std::vector<Bbox>* out,
-    std::string*       err);
+    me_engine*           engine,
+    std::string_view     model_uri,
+    me_rational_t        frame_t,
+    int                  frame_width,
+    int                  frame_height,
+    const std::uint8_t*  frame_rgba,
+    std::size_t          frame_stride_bytes,
+    std::vector<Bbox>*   out,
+    std::string*         err);
 
 #endif /* ME_HAS_INFERENCE */
 
