@@ -81,6 +81,7 @@ TEST_CASE("resolve_mask_alpha_runtime: NULL engine → ME_E_INVALID_ARG") {
     CHECK(me::compose::resolve_mask_alpha_runtime(
               nullptr, "model:selfie_seg/v3/int8",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &mw, &mh, &alpha, &err) == ME_E_INVALID_ARG);
 }
 
@@ -93,14 +94,17 @@ TEST_CASE("resolve_mask_alpha_runtime: NULL out args → ME_E_INVALID_ARG") {
     CHECK(me::compose::resolve_mask_alpha_runtime(
               g.eng, "model:selfie_seg/v3/int8",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               nullptr, &mh, &alpha, &err) == ME_E_INVALID_ARG);
     CHECK(me::compose::resolve_mask_alpha_runtime(
               g.eng, "model:selfie_seg/v3/int8",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &mw, nullptr, &alpha, &err) == ME_E_INVALID_ARG);
     CHECK(me::compose::resolve_mask_alpha_runtime(
               g.eng, "model:selfie_seg/v3/int8",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &mw, &mh, nullptr, &err) == ME_E_INVALID_ARG);
 }
 
@@ -114,6 +118,7 @@ TEST_CASE("resolve_mask_alpha_runtime: malformed URI rejected") {
     CHECK(me::compose::resolve_mask_alpha_runtime(
               g.eng, "file:///tmp/mask.json",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &mw, &mh, &alpha, &err) == ME_E_INVALID_ARG);
 
     err.clear();
@@ -121,6 +126,7 @@ TEST_CASE("resolve_mask_alpha_runtime: malformed URI rejected") {
     CHECK(me::compose::resolve_mask_alpha_runtime(
               g.eng, "model:selfie_seg/v3",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &mw, &mh, &alpha, &err) == ME_E_INVALID_ARG);
 
     err.clear();
@@ -128,6 +134,7 @@ TEST_CASE("resolve_mask_alpha_runtime: malformed URI rejected") {
     CHECK(me::compose::resolve_mask_alpha_runtime(
               g.eng, "model:selfie_seg/v3/",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &mw, &mh, &alpha, &err) == ME_E_INVALID_ARG);
 }
 
@@ -145,6 +152,7 @@ TEST_CASE("resolve_mask_alpha_runtime: license whitelist rejection propagates") 
     CHECK(me::compose::resolve_mask_alpha_runtime(
               g.eng, "model:selfie_seg/v3/int8",
               me_rational_t{0, 30}, 640, 480,
+              nullptr, 0,
               &mw, &mh, &alpha, &err) == ME_E_UNSUPPORTED);
     /* Out args zeroed on failure (clean failure). */
     CHECK(mw == 0);
@@ -167,6 +175,7 @@ TEST_CASE("resolve_mask_alpha_runtime: production wire reaches runtime") {
     me_status_t s = me::compose::resolve_mask_alpha_runtime(
         g.eng, "model:selfie_seg/v3/int8",
         me_rational_t{0, 30}, 640, 480,
+        nullptr, 0,
         &mw, &mh, &alpha, &err);
 
     /* Either no backend compiled (factory ME_E_INTERNAL) OR

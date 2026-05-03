@@ -146,6 +146,7 @@ set(_test_suites
   test_displacement_kernel_pixel
   test_effect_chain_merge
   test_blazeface_preprocess
+  test_selfie_segmentation_preprocess
 )
 
 foreach(_suite ${_test_suites})
@@ -915,6 +916,13 @@ target_include_directories(test_effect_chain_merge PRIVATE
 # test_blazeface_preprocess — M11 BlazeFace input preprocessor
 # (libswscale resize + RGBA → CHW float32 [-1, 1] normalize).
 target_include_directories(test_blazeface_preprocess PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_selfie_segmentation_preprocess — M11 SelfieSegmentation
+# input preprocessor (libswscale resize + RGBA → CHW float32
+# [0, 1] normalize). Also covers the generic
+# `prepare_inference_input` helper.
+target_include_directories(test_selfie_segmentation_preprocess PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

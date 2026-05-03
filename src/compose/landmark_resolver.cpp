@@ -10,7 +10,7 @@
  */
 #include "compose/landmark_resolver.hpp"
 
-#include "compose/blazeface_preprocess.hpp"
+#include "compose/inference_input.hpp"
 
 #ifdef ME_HAS_INFERENCE
 #include "inference/asset_cache.hpp"

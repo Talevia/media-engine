@@ -11,6 +11,8 @@
  */
 #include "compose/mask_resolver.hpp"
 
+#include "compose/inference_input.hpp"
+
 #ifdef ME_HAS_INFERENCE
 #include "inference/asset_cache.hpp"
 #include "inference/runtime.hpp"
@@ -241,8 +243,10 @@ me_status_t resolve_mask_alpha_runtime(
     me_engine*                 engine,
     std::string_view           model_uri,
     me_rational_t              /*frame_t*/,
-    int                        /*frame_width*/,
-    int                        /*frame_height*/,
+    int                        frame_width,
+    int                        frame_height,
+    const std::uint8_t*        frame_rgba,
+    std::size_t                frame_stride_bytes,
     int*                       out_mask_width,
     int*                       out_mask_height,
     std::vector<std::uint8_t>* out_alpha,
@@ -253,6 +257,15 @@ me_status_t resolve_mask_alpha_runtime(
     *out_mask_width  = 0;
     *out_mask_height = 0;
     out_alpha->clear();
+
+    /* Reject obviously malformed (rgba, dims, stride) tuples
+     * upfront. NULL rgba allowed (synthetic-tensor fallback). */
+    if (frame_rgba) {
+        if (frame_width <= 0 || frame_height <= 0) return ME_E_INVALID_ARG;
+        if (frame_stride_bytes < static_cast<std::size_t>(frame_width) * 4) {
+            return ME_E_INVALID_ARG;
+        }
+    }
 
     std::string model_id, model_version, quantization;
     if (!parse_model_uri(model_uri, &model_id, &model_version, &quantization)) {
@@ -272,16 +285,27 @@ me_status_t resolve_mask_alpha_runtime(
         &runtime, err);
     if (s != ME_OK) return s;
 
-    /* Step 2: build a synthetic input tensor matching
-     * SelfieSegmentation's documented 256×256×3 NCHW float32
-     * shape. Real frame preprocessing (resize + planar +
-     * normalize) is the
-     * `mask-resolver-runtime-input-preprocess-impl` follow-up. */
+    /* Step 2: frame preprocessing. When `frame_rgba` is non-NULL,
+     * resize + planar-convert + [0, 1] normalize via
+     * `prepare_selfie_segmentation_input`. NULL frame_rgba falls
+     * back to a synthetic zero-filled tensor of the documented
+     * shape so test callers without real pixels still drive the
+     * wire. */
     me::inference::Tensor input;
-    input.shape = { 1, 3, 256, 256 };
-    input.dtype = me::inference::Dtype::Float32;
-    input.bytes.assign(
-        static_cast<std::size_t>(1) * 3 * 256 * 256 * 4, 0);
+    if (frame_rgba) {
+        const me_status_t pp = prepare_selfie_segmentation_input(
+            frame_rgba, frame_width, frame_height,
+            frame_stride_bytes, &input, err);
+        if (pp != ME_OK) return pp;
+    } else {
+        input.shape = { 1, 3, kSelfieSegmentationInputDim,
+                                kSelfieSegmentationInputDim };
+        input.dtype = me::inference::Dtype::Float32;
+        input.bytes.assign(
+            static_cast<std::size_t>(1) * 3 *
+            kSelfieSegmentationInputDim *
+            kSelfieSegmentationInputDim * 4, 0);
+    }
 
     std::map<std::string, me::inference::Tensor> inputs;
     inputs["input"] = std::move(input);

@@ -4,7 +4,7 @@
  */
 #include <doctest/doctest.h>
 
-#include "compose/blazeface_preprocess.hpp"
+#include "compose/inference_input.hpp"
 #include "inference/runtime.hpp"
 
 #include <cmath>

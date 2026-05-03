@@ -359,7 +359,7 @@ add_library(media_engine STATIC
   compose/displacement_kernel.cpp
   compose/displacement_stage.cpp
   compose/sticker_decoder.cpp
-  compose/blazeface_preprocess.cpp
+  compose/inference_input.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>

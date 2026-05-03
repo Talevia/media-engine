@@ -47,6 +47,7 @@
 
 #include "media_engine/types.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -108,9 +109,12 @@ me_status_t resolve_mask_alpha_from_file(
  *   1. Parses the URI into the model identity tuple.
  *   2. Calls `make_runtime_for_model` (license whitelist +
  *      content_hash gates).
- *   3. Builds a synthetic 256×256×3 NCHW float32 input tensor
- *      (SelfieSegmentation's typical shape) — real frame
- *      preprocessing is a follow-up.
+ *   3. Frame preprocessing via `prepare_selfie_segmentation_input`
+ *      (resize + planar conversion + [0, 1] normalize). When
+ *      `frame_rgba` is NULL, falls back to a synthetic zero-
+ *      filled tensor of the documented shape so the test
+ *      callers that don't have real pixels still drive the wire
+ *      to Step 4.
  *   4. Calls `run_cached` (engine AssetCache cache key
  *      includes the input bytes).
  *   5. Returns ME_E_UNSUPPORTED on the decode step with diag
@@ -118,7 +122,9 @@ me_status_t resolve_mask_alpha_from_file(
  *
  * The first 4 steps ARE the production wire. Returns:
  *   - ME_E_UNSUPPORTED  — decode step (documented stub).
- *   - ME_E_INVALID_ARG  — engine NULL, URI malformed.
+ *   - ME_E_INVALID_ARG  — engine NULL, URI malformed, or
+ *                          non-NULL frame_rgba paired with
+ *                          invalid frame_width/frame_height/stride.
  *   - propagated factory / run_cached errors. */
 me_status_t resolve_mask_alpha_runtime(
     me_engine*                 engine,
@@ -126,6 +132,8 @@ me_status_t resolve_mask_alpha_runtime(
     me_rational_t              frame_t,
     int                        frame_width,
     int                        frame_height,
+    const std::uint8_t*        frame_rgba,
+    std::size_t                frame_stride_bytes,
     int*                       out_mask_width,
     int*                       out_mask_height,
     std::vector<std::uint8_t>* out_alpha,
