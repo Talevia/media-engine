@@ -122,6 +122,7 @@ set(_test_suites
   test_mask_resolver
   test_face_sticker_kernel_pixel
   test_inference_blazeface
+  test_blazeface_e2e
   test_compose_face_sticker_stage
   test_compose_face_mosaic_stage
   test_compose_body_alpha_key_stage
@@ -955,6 +956,15 @@ if(PkgConfig_FOUND)
       ME_HAS_ONNX_RUNTIME=1)
   endif()
 endif()
+
+# test_blazeface_e2e — full chain (preprocess + run_cached +
+# decode) end-to-end test gated on
+# ME_TEST_BLAZEFACE_ONNX_PATH + ME_TEST_BLAZEFACE_FACE_PNG_PATH.
+# Both env vars must be set for the suite to run; otherwise it
+# fast-skips. Reaches into src/ for compose/landmark_resolver +
+# compose/sticker_decoder.
+target_include_directories(test_blazeface_e2e PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_selfie_segmentation — env-var-gated sibling of
 # test_inference_blazeface, covering M11 §139's second
