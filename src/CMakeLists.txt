@@ -359,6 +359,7 @@ add_library(media_engine STATIC
   compose/displacement_kernel.cpp
   compose/displacement_stage.cpp
   compose/sticker_decoder.cpp
+  compose/blazeface_decode.cpp
   compose/inference_input.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp

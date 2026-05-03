@@ -10,6 +10,7 @@
  */
 #include "compose/landmark_resolver.hpp"
 
+#include "compose/blazeface_decode.hpp"
 #include "compose/inference_input.hpp"
 
 #ifdef ME_HAS_INFERENCE
@@ -305,20 +306,43 @@ me_status_t resolve_landmark_bboxes_runtime(
         inputs, &outputs, err);
     if (s != ME_OK) return s;
 
-    /* Step 4: decode outputs → bboxes. Model-specific (BlazeFace
-     * anchors, sigmoid + regression decode, NMS). Stub returns
-     * ME_E_UNSUPPORTED with the named follow-up bullet. The
-     * preceding 3 steps ARE the production wire that closes
-     * §137/§138; this branch is the model-decode follow-up.
-     *
-     * LEGIT: skeleton decode pending — see
-     * `blazeface-anchor-decode-impl` BACKLOG bullet for the
-     * model-specific decode logic (anchor regression + NMS). */
-    if (err) *err = "resolve_landmark_bboxes_runtime: BlazeFace anchor decode "
-                    "pending (see BACKLOG: blazeface-anchor-decode-impl); "
-                    "the run_cached + license-whitelist + content_hash gates "
-                    "ran successfully (model_id='" + model_id + "')";
-    return ME_E_UNSUPPORTED;
+    /* Step 4: decode outputs → bboxes. BlazeFace emits two
+     * tensors (regressors + classificators); pick by shape so
+     * the dispatch tolerates either explicit naming or the
+     * MediaPipe / runtime-default ordering. The decoder runs
+     * sigmoid + bbox regression decode + NMS and scales to
+     * frame coords. */
+    if (outputs.empty()) {
+        if (err) *err = "resolve_landmark_bboxes_runtime: model returned no "
+                        "output tensors (model_id='" + model_id + "')";
+        return ME_E_INTERNAL;
+    }
+
+    const me::inference::Tensor* regressors    = nullptr;
+    const me::inference::Tensor* classificators = nullptr;
+    for (const auto& [name, t] : outputs) {
+        const std::size_t reg_count =
+            static_cast<std::size_t>(kBlazefaceAnchorCount) *
+            kBlazefaceRegressorsPerAnchor;
+        const std::size_t cls_count =
+            static_cast<std::size_t>(kBlazefaceAnchorCount);
+        const std::size_t f32_count = t.bytes.size() / 4;
+        if (f32_count == reg_count) regressors    = &t;
+        else if (f32_count == cls_count) classificators = &t;
+    }
+    if (!regressors || !classificators) {
+        if (err) *err = "resolve_landmark_bboxes_runtime: model outputs don't "
+                        "match BlazeFace expected shapes "
+                        "(regressors {1,896,16} + classificators {1,896,1})";
+        return ME_E_INVALID_ARG;
+    }
+
+    const int decode_w = (frame_width  > 0) ? frame_width  : 1;
+    const int decode_h = (frame_height > 0) ? frame_height : 1;
+    BlazefaceDecodeParams dp;  /* defaults: 128 input, 0.5 conf, 0.3 IoU */
+    return decode_blazeface_bboxes(
+        *regressors, *classificators,
+        decode_w, decode_h, dp, out, err);
 }
 
 #endif /* ME_HAS_INFERENCE */

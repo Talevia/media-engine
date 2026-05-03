@@ -148,6 +148,7 @@ set(_test_suites
   test_blazeface_preprocess
   test_selfie_segmentation_preprocess
   test_selfie_segmentation_decode
+  test_blazeface_decode
 )
 
 foreach(_suite ${_test_suites})
@@ -930,6 +931,11 @@ target_include_directories(test_selfie_segmentation_preprocess PRIVATE
 # logit → uint8 alpha decoder (sigmoid + quantize + bilinear
 # upscale).
 target_include_directories(test_selfie_segmentation_decode PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_blazeface_decode — M11 BlazeFace anchor + bbox
+# regression decode + NMS.
+target_include_directories(test_blazeface_decode PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob
