@@ -143,6 +143,7 @@ set(_test_suites
   test_radial_blur_kernel_pixel
   test_tilt_shift_kernel_pixel
   test_warp_kernel_pixel
+  test_displacement_kernel_pixel
 )
 
 foreach(_suite ${_test_suites})
@@ -894,6 +895,14 @@ target_include_directories(test_tilt_shift_kernel_pixel PRIVATE
 # test_warp_kernel_pixel — M12 §158 (1/2) control-point IDW
 # warp pixel regression.
 target_include_directories(test_warp_kernel_pixel PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_displacement_kernel_pixel — M12 §158 (2/2) texture-driven
+# displacement pixel regression. Tests the kernel directly with
+# in-memory texture bytes; the stage-layer URI decode path is
+# exercised by integration tests when an actual displacement-map
+# asset is committed.
+target_include_directories(test_displacement_kernel_pixel PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

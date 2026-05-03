@@ -58,6 +58,7 @@ enum class TaskKindId : uint32_t {
     RenderRadialBlur   = 0x3014,
     RenderTiltShift    = 0x3015,
     RenderWarp         = 0x3016,
+    RenderDisplacement = 0x3017,
 
     AudioMix           = 0x4001,
     AudioResample      = 0x4002,

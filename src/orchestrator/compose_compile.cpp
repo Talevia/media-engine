@@ -199,6 +199,18 @@ graph::PortRef append_clip_effects(graph::Graph::Builder& b,
                             std::move(fp),
                             { prev });
             prev = graph::PortRef{n, 0};
+        } else if (fx.kind == me::EffectKind::Displacement) {
+            const auto* params = std::get_if<me::DisplacementEffectParams>(&fx.params);
+            if (!params) continue;
+
+            graph::Properties fp;
+            fp["texture_uri"].v = params->texture_uri;
+            fp["strength_x"].v  = static_cast<double>(params->strength_x);
+            fp["strength_y"].v  = static_cast<double>(params->strength_y);
+            auto n = b.add(task::TaskKindId::RenderDisplacement,
+                            std::move(fp),
+                            { prev });
+            prev = graph::PortRef{n, 0};
         } else if (fx.kind == me::EffectKind::Warp) {
             const auto* params = std::get_if<me::WarpEffectParams>(&fx.params);
             if (!params) continue;

@@ -269,6 +269,7 @@ add_library(media_engine STATIC
   timeline/effect_loaders/body_alpha_key.cpp
   timeline/effect_loaders/chromatic_aberration.cpp
   timeline/effect_loaders/color.cpp
+  timeline/effect_loaders/displacement.cpp
   timeline/effect_loaders/face_mosaic.cpp
   timeline/effect_loaders/face_sticker.cpp
   timeline/effect_loaders/film_grain.cpp
@@ -355,6 +356,8 @@ add_library(media_engine STATIC
   compose/tilt_shift_stage.cpp
   compose/warp_kernel.cpp
   compose/warp_stage.cpp
+  compose/displacement_kernel.cpp
+  compose/displacement_stage.cpp
   compose/sticker_decoder.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp
