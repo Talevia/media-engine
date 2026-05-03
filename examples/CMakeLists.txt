@@ -93,6 +93,7 @@ set(_me_expected_examples
   13_face_sticker
   15_body_alpha_key
   16_face_mosaic
+  17_m12_color_quartet
 )
 # 14_ml_face_landmark gates on ME_WITH_INFERENCE — appended here
 # only when the option is ON so the lock-step canary at the bottom
@@ -116,6 +117,7 @@ add_subdirectory(12_cache_invalidate)
 add_subdirectory(13_face_sticker)
 add_subdirectory(15_body_alpha_key)
 add_subdirectory(16_face_mosaic)
+add_subdirectory(17_m12_color_quartet)
 if(ME_WITH_INFERENCE)
   add_subdirectory(14_ml_face_landmark)
 endif()
