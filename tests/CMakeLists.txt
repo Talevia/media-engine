@@ -147,6 +147,7 @@ set(_test_suites
   test_effect_chain_merge
   test_blazeface_preprocess
   test_selfie_segmentation_preprocess
+  test_selfie_segmentation_decode
 )
 
 foreach(_suite ${_test_suites})
@@ -923,6 +924,12 @@ target_include_directories(test_blazeface_preprocess PRIVATE
 # [0, 1] normalize). Also covers the generic
 # `prepare_inference_input` helper.
 target_include_directories(test_selfie_segmentation_preprocess PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+
+# test_selfie_segmentation_decode — M11 SelfieSegmentation
+# logit → uint8 alpha decoder (sigmoid + quantize + bilinear
+# upscale).
+target_include_directories(test_selfie_segmentation_decode PRIVATE
                            ${CMAKE_SOURCE_DIR}/src)
 
 # test_inference_blazeface — env-var-gated host-supplied-blob

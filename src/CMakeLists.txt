@@ -362,6 +362,7 @@ add_library(media_engine STATIC
   compose/inference_input.cpp
   compose/landmark_resolver.cpp
   compose/mask_resolver.cpp
+  compose/selfie_segmentation_decode.cpp
   $<$<BOOL:${ME_WITH_OCIO}>:${CMAKE_CURRENT_SOURCE_DIR}/color/ocio_pipeline.cpp>
   io/demux_context.cpp
   io/demux_kernel.cpp

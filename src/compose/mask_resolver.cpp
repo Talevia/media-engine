@@ -12,6 +12,7 @@
 #include "compose/mask_resolver.hpp"
 
 #include "compose/inference_input.hpp"
+#include "compose/selfie_segmentation_decode.hpp"
 
 #ifdef ME_HAS_INFERENCE
 #include "inference/asset_cache.hpp"
@@ -319,19 +320,32 @@ me_status_t resolve_mask_alpha_runtime(
         inputs, &outputs, err);
     if (s != ME_OK) return s;
 
-    /* Step 4: decode outputs → alpha plane. Model-specific
-     * (SelfieSegmentation: sigmoid the logit channel,
-     * quantize to uint8, upscale to frame dims). Stub returns
-     * ME_E_UNSUPPORTED with the named follow-up bullet.
-     *
-     * LEGIT: skeleton decode pending — see
-     * `selfie-segmentation-mask-decode-impl` BACKLOG bullet. */
-    if (err) *err = "resolve_mask_alpha_runtime: SelfieSegmentation mask "
-                    "decode pending (see BACKLOG: selfie-segmentation-"
-                    "mask-decode-impl); the run_cached + license-whitelist + "
-                    "content_hash gates ran successfully (model_id='" +
-                    model_id + "')";
-    return ME_E_UNSUPPORTED;
+    /* Step 4: decode the model's logit output → alpha plane.
+     * SelfieSegmentation outputs a per-pixel logit; the decoder
+     * applies sigmoid + uint8 quantize + bilinear upscale to
+     * (target_w, target_h). Target dims come from frame_width /
+     * frame_height when supplied; otherwise the decoder produces
+     * the model's native output dimensions (no upscale). */
+    if (outputs.empty()) {
+        if (err) *err = "resolve_mask_alpha_runtime: model returned no "
+                        "output tensors (model_id='" + model_id + "')";
+        return ME_E_INTERNAL;
+    }
+
+    /* Pick the first (and typically only) output tensor — the
+     * standard SelfieSegmentation graph emits a single logit
+     * tensor; if the model variant has named outputs the caller
+     * picks based on declared semantics in a future cycle. */
+    const me::inference::Tensor& logits = outputs.begin()->second;
+
+    const int tgt_w = (frame_rgba && frame_width  > 0)
+        ? frame_width  : kSelfieSegmentationInputDim;
+    const int tgt_h = (frame_rgba && frame_height > 0)
+        ? frame_height : kSelfieSegmentationInputDim;
+
+    return decode_selfie_segmentation_mask(
+        logits, tgt_w, tgt_h,
+        out_mask_width, out_mask_height, out_alpha, err);
 }
 
 #endif /* ME_HAS_INFERENCE */
