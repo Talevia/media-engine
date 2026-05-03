@@ -106,6 +106,7 @@ set(_test_suites
   test_audio_timestretch_kernel
   test_audio_chunk_graph
   test_scheduler_cache
+  test_task_context_engine_threading
   test_player
   test_api_surface_budget
   test_cache_hit_rate_lower_bound
@@ -1108,6 +1109,14 @@ target_compile_definitions(test_audio_chunk_graph PRIVATE
 # src/ + Taskflow link as test_decode_kernels.
 target_include_directories(test_scheduler_cache PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_scheduler_cache PRIVATE Taskflow)
+
+# test_task_context_engine_threading verifies the
+# `EvalContext.engine → TaskContext.engine` plumbing landed in
+# cycle 4f79c1c (runtime-resolver stage wiring). Same shape as
+# test_scheduler_cache: file-scope mock kernel + scheduler.
+target_include_directories(test_task_context_engine_threading PRIVATE
+                           ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_task_context_engine_threading PRIVATE Taskflow)
 add_dependencies(test_audio_mixer determinism_fixture_with_audio)
 target_compile_definitions(test_audio_mixer PRIVATE
   ME_TEST_FIXTURE_MP4_WITH_AUDIO="${_fixture_mp4_with_audio}")
